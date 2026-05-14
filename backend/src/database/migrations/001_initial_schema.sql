@@ -90,9 +90,9 @@ CREATE TABLE IF NOT EXISTS stage_prepayment_cl (
   account_manager TEXT,
   payment_term TEXT,
   current_balance NUMERIC(15,2),
-  avg_daily_usage TEXT,
+  avg_daily_usage_last_7_days TEXT,
   yesterday_usage TEXT,
-  days_to_consume_balance NUMERIC(10,0),
+  days_to_consume_all_balance NUMERIC(10,0),
   balance_in_next_7_days NUMERIC(15,2),
   currency TEXT
 );
