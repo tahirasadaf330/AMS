@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ams-postgres
+    environment:
+      POSTGRES_DB: AMS
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: your_strong_db_password_here
+    ports:
+      - '5432:5432'
+    volumes:
+      - ams_pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d AMS']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ams-backend
+    environment:
+      - PORT=3001
+      - AMS_PG_HOST=postgres
+      - AMS_PG_PORT=5432
+      - AMS_PG_DB=AMS
+      - AMS_PG_USER=postgres
+      - AMS_PG_PASS=your_strong_db_password_here
+      - JERASOFT_HOST=10.10.8.70
+      - JERASOFT_PORT=5432
+      - JERASOFT_DB=vcs
+      - JERASOFT_USER=tahira
+      - JERASOFT_PASS=your_jerasoft_password_here
+      - JERASOFT_SSL=prefer
+      - JWT_SECRET=change_me_min_32_chars_here_please_use_env
+      - JWT_EXPIRES_IN=8h
+      - REFRESH_TOKEN_SECRET=another_strong_refresh_secret_here_use_env
+      - REFRESH_TOKEN_EXPIRES_IN=7d
+      - GRAPH_TENANT_ID=1df4ce7a-fa8a-42ff-9802-1f1be9c52d8d
+      - GRAPH_CLIENT_ID=04800ef8-2520-428b-973d-0bf41e010551
+      - GRAPH_CLIENT_SECRET=your_azure_ad_client_secret_here
+      - GRAPH_SENDER_EMAIL=powerbi@hayo.net
+      - TEAMS_DEFAULT_WEBHOOK_URL=
+      - ADMIN_EMAIL=admin@hayo.com
+      - ADMIN_PASSWORD=Admin@ChangeMe123
+      - ADMIN_NAME=System Administrator
+      - CREDENTIAL_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+      - DEFAULT_REFRESH_CRON=0 */6 * * *
+      - METRIC_RETENTION_DAYS=90
+    ports:
+      - '3001:3001'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ams-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+      - NEXT_PUBLIC_WS_URL=http://localhost:3001
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  ams_pgdata:

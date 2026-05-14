@@ -1,0 +1,32 @@
+node_modules/
+dist/
+.next/
+.env
+.env.local
+*.env
+!*.env.example
+!*.env.local.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# TypeScript
+*.tsbuildinfo
+
+# Coverage
+coverage/
+
+# Docker
+docker-compose.override.yml

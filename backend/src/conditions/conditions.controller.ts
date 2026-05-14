@@ -1,0 +1,158 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+  Req,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
+import { Request } from 'express';
+import {
+  ConditionsService,
+  CreateConditionDto,
+  UpdateConditionDto,
+} from './conditions.service';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser, JwtUser } from '../common/decorators/current-user.decorator';
+import { AuditService } from '../audit/audit.service';
+import { UserRole } from '../common/entities/user.entity';
+
+@Controller('conditions')
+@UseGuards(JwtAuthGuard, RolesGuard)
+export class ConditionsController {
+  constructor(
+    private conditionsService: ConditionsService,
+    private auditService: AuditService,
+  ) {}
+
+  @Get()
+  @Roles('editor')
+  async findAll(@CurrentUser() user: JwtUser) {
+    return this.conditionsService.findAll(user.sub, user.role as UserRole);
+  }
+
+  @Post()
+  @Roles('editor')
+  async create(
+    @Body() dto: CreateConditionDto,
+    @CurrentUser() user: JwtUser,
+    @Req() req: Request,
+  ) {
+    const result = await this.conditionsService.create(dto, user.sub, user.role as UserRole);
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.socket.remoteAddress || '';
+    this.auditService.log({
+      userId: user.sub,
+      action: 'condition:create',
+      resource: result.id,
+      detail: { name: result.name, datasetId: result.datasetId },
+      ipAddress,
+    });
+    return result;
+  }
+
+  @Put(':id')
+  @Roles('editor')
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateConditionDto,
+    @CurrentUser() user: JwtUser,
+    @Req() req: Request,
+  ) {
+    const result = await this.conditionsService.update(id, dto, user.sub, user.role as UserRole);
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.socket.remoteAddress || '';
+    this.auditService.log({
+      userId: user.sub,
+      action: 'condition:update',
+      resource: id,
+      detail: { name: result.name },
+      ipAddress,
+    });
+    return result;
+  }
+
+  @Delete(':id')
+  @Roles('full_rights')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Req() req: Request,
+  ) {
+    await this.conditionsService.remove(id, user.sub, user.role as UserRole);
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.socket.remoteAddress || '';
+    this.auditService.log({
+      userId: user.sub,
+      action: 'condition:delete',
+      resource: id,
+      detail: {},
+      ipAddress,
+    });
+  }
+
+  @Post('test-notify-preview')
+  @Roles('editor')
+  @HttpCode(HttpStatus.OK)
+  async testNotifyPreview(
+    @Body() dto: CreateConditionDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    await this.conditionsService.testNotifyPreview(dto, user.sub);
+    return { message: 'Test notification dispatched' };
+  }
+
+  @Post(':id/preview')
+  @Roles('editor')
+  async preview(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.conditionsService.preview(id, user.sub);
+  }
+
+  @Post(':id/trigger-now')
+  @Roles('editor')
+  @HttpCode(HttpStatus.OK)
+  async triggerNow(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Req() req: Request,
+  ) {
+    await this.conditionsService.triggerNow(id);
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.socket.remoteAddress || '';
+    this.auditService.log({
+      userId: user.sub,
+      action: 'condition:trigger_now',
+      resource: id,
+      detail: {},
+      ipAddress,
+    });
+    return { message: 'Condition triggered' };
+  }
+
+  @Post(':id/test-notify')
+  @Roles('full_rights')
+  @HttpCode(HttpStatus.OK)
+  async testNotify(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Req() req: Request,
+  ) {
+    await this.conditionsService.testNotify(id, user.sub);
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.socket.remoteAddress || '';
+    this.auditService.log({
+      userId: user.sub,
+      action: 'condition:test_notify',
+      resource: id,
+      detail: {},
+      ipAddress,
+    });
+    return { message: 'Test notification dispatched' };
+  }
+}
