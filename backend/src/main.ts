@@ -32,8 +32,11 @@ async function bootstrap(): Promise<void> {
   const port = configService.get<number>('PORT', 3001);
 
   // CORS
+  const allowedOrigins = (
+    configService.get<string>('CORS_ORIGINS', 'http://localhost:3000')
+  ).split(',').map(o => o.trim());
   app.enableCors({
-    origin: ['http://localhost:3000'],
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
