@@ -202,9 +202,6 @@ export function formatNumber(value: number | null | undefined): string {
   return value.toLocaleString('en-US');
 }
 
-export function getDaysColor(days: number | null | undefined): string {
-  if (days === null || days === undefined) return '';
-  if (days < 5) return 'bg-red-950 text-red-200';
-  if (days <= 10) return 'bg-amber-950 text-amber-200';
+export function getDaysColor(_days: number | null | undefined): string {
   return '';
 }

@@ -500,6 +500,7 @@ export function TableView({
                     {visibleColumns.map(col => {
                       const raw = row[col.key] ?? null;
                       const str = raw !== null ? String(raw) : '';
+                      const isNegative = col.type === 'numeric' && raw !== null && Number(raw) < 0;
                       return (
                         <td
                           key={col.key}
@@ -507,7 +508,7 @@ export function TableView({
                           className={cn(
                             'px-3 py-2.5 text-sm',
                             col.type === 'numeric'
-                              ? 'text-right font-mono tabular-nums text-gray-200'
+                              ? cn('text-right font-mono tabular-nums', isNegative ? 'text-red-400' : 'text-gray-200')
                               : 'text-gray-300',
                           )}
                           style={{

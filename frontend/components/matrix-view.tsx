@@ -119,30 +119,27 @@ export function MatrixView({ rows, columns, isLoading }: MatrixViewProps) {
           </thead>
           <tbody>
             {rows.map((row, idx) => {
-              const daysVal = daysCol ? Number(row[daysCol.key]) : null;
-              const colorClass =
-                daysVal !== null && !isNaN(daysVal) ? getDaysColor(daysVal) : '';
-
               return (
                 <tr
                   key={idx}
-                  className={cn(
-                    'border-b border-gray-700/50',
-                    colorClass || 'hover:bg-gray-700/30'
-                  )}
+                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
                 >
                   {companyCol && (
-                    <td className={cn('px-4 py-2 font-medium sticky left-0', colorClass || 'bg-gray-800/50')}>
+                    <td className="px-4 py-2 font-medium sticky left-0 bg-gray-800/50">
                       {String(row[companyCol.key] ?? '—')}
                     </td>
                   )}
-                  {numericCols.map((col) => (
-                    <td key={col.key} className="px-4 py-2 text-right tabular-nums">
-                      {row[col.key] !== null && row[col.key] !== undefined
-                        ? formatCurrency(Number(row[col.key]))
+                  {numericCols.map((col) => {
+                    const val = row[col.key];
+                    const isNegative = val !== null && val !== undefined && Number(val) < 0;
+                    return (
+                    <td key={col.key} className={cn('px-4 py-2 text-right tabular-nums', isNegative ? 'text-red-400' : '')}>
+                      {val !== null && val !== undefined
+                        ? formatCurrency(Number(val))
                         : '—'}
                     </td>
-                  ))}
+                  );
+                  })}
                 </tr>
               );
             })}
