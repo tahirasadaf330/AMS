@@ -128,7 +128,7 @@ export interface ConditionChannels {
     text?: string;
     columns?: string[];
   };
-  teams?: { enabled: boolean; webhook_url: string };
+  teams?: { enabled: boolean; webhook_url: string; severity?: 'critical' | 'warning' | 'info' };
 }
 
 export interface Condition {

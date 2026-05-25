@@ -24,6 +24,7 @@ export function ChannelConfigurator({ value, onChange, availableColumns = [] }: 
   const selectedColumns = value.email?.columns ?? [];
   const teamsEnabled = value.teams?.enabled ?? false;
   const webhookUrl = value.teams?.webhook_url ?? '';
+  const severity = value.teams?.severity ?? 'info';
 
   const visibleColumns = availableColumns.filter((c) => c.visible !== false);
 
@@ -35,7 +36,7 @@ export function ChannelConfigurator({ value, onChange, availableColumns = [] }: 
   };
 
   const setTeamsEnabled = (enabled: boolean) => {
-    onChange({ ...value, teams: { enabled, webhook_url: webhookUrl } });
+    onChange({ ...value, teams: { enabled, webhook_url: webhookUrl, severity } });
   };
 
   const addRecipient = () => {
@@ -72,7 +73,11 @@ export function ChannelConfigurator({ value, onChange, availableColumns = [] }: 
   };
 
   const setWebhookUrl = (url: string) => {
-    onChange({ ...value, teams: { enabled: teamsEnabled, webhook_url: url } });
+    onChange({ ...value, teams: { enabled: teamsEnabled, webhook_url: url, severity } });
+  };
+
+  const setSeverity = (s: 'critical' | 'warning' | 'info') => {
+    onChange({ ...value, teams: { enabled: teamsEnabled, webhook_url: webhookUrl, severity: s } });
   };
 
   const allSelected = visibleColumns.length > 0 && visibleColumns.every((c) => selectedColumns.includes(c.key));
@@ -213,14 +218,39 @@ export function ChannelConfigurator({ value, onChange, availableColumns = [] }: 
         </div>
 
         {teamsEnabled && (
-          <div className="space-y-2">
-            <Label className="text-xs text-gray-400">Webhook URL</Label>
-            <Input
-              type="url"
-              placeholder="https://outlook.office.com/webhook/..."
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-            />
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-400">Webhook URL</Label>
+              <Input
+                type="url"
+                placeholder="https://outlook.office.com/webhook/..."
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-400">Severity</Label>
+              <div className="flex gap-2">
+                {(['info', 'warning', 'critical'] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setSeverity(s)}
+                    className={`px-3 py-1 rounded text-xs font-medium border transition-colors ${
+                      severity === s
+                        ? s === 'critical'
+                          ? 'bg-red-900/60 border-red-500 text-red-300'
+                          : s === 'warning'
+                          ? 'bg-yellow-900/60 border-yellow-500 text-yellow-300'
+                          : 'bg-blue-900/60 border-blue-500 text-blue-300'
+                        : 'bg-gray-800 border-gray-600 text-gray-400 hover:border-gray-500'
+                    }`}
+                  >
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>
