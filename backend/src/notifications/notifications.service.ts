@@ -350,7 +350,7 @@ export class NotificationsService {
       const teamsChannels = condition.channels?.teams;
       try {
         await this.teamsWebhookService.sendAlert({
-          webhookUrl: teamsChannels?.webhookUrl,
+          webhookUrl: teamsChannels?.webhook_url,
           conditionName: condition.name,
           datasetName,
           matchedRows,
@@ -418,7 +418,7 @@ export class NotificationsService {
           await this.graphEmailService.sendAlert({ recipients, subject, conditionName: condition.name, datasetName, matchedRows });
         } else if (log.channel === 'teams') {
           await this.teamsWebhookService.sendAlert({
-            webhookUrl: condition.channels?.teams?.webhookUrl,
+            webhookUrl: condition.channels?.teams?.webhook_url,
             conditionName: condition.name,
             datasetName,
             matchedRows,
