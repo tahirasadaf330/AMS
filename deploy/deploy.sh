@@ -33,9 +33,13 @@ npm run build
 echo "==> Pruning frontend dev dependencies..."
 npm prune --omit=dev
 
-echo "==> Restarting services..."
-pm2 restart ams-backend
-pm2 restart ams-frontend
+echo "==> Stopping services..."
+pm2 stop ams-backend
+pm2 stop ams-frontend
+
+echo "==> Starting services..."
+pm2 start ams-backend
+pm2 start ams-frontend
 pm2 save
 
 echo "==> Done! Services restarted."
