@@ -214,19 +214,11 @@ export class AdminUsersService {
 
   private async sendWelcomeEmail(user: User, temporaryPassword: string): Promise<void> {
     try {
-      await this.graphEmailService.sendAlert({
-        recipients: [user.email],
-        subject: 'Welcome to AMS — Alert Management System',
-        conditionName: 'Welcome',
-        datasetName: 'Account Created',
-        matchedRows: [
-          {
-            'Welcome Message': `Your AMS account has been created. Please log in and change your password.`,
-            'Email': user.email,
-            'Temporary Password': temporaryPassword,
-            'Role': user.role,
-          },
-        ],
+      await this.graphEmailService.sendWelcome({
+        recipientEmail: user.email,
+        recipientName: user.name,
+        temporaryPassword,
+        role: user.role,
       });
     } catch (err) {
       this.logger.error('Failed to send welcome email', err);

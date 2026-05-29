@@ -113,6 +113,136 @@ export class GraphEmailService {
     await this.getAccessToken();
   }
 
+  async sendWelcome(params: {
+    recipientEmail: string;
+    recipientName: string;
+    temporaryPassword: string;
+    role: string;
+    appUrl?: string;
+  }): Promise<void> {
+    const { token, senderEmail } = await this.getAccessToken();
+    const appUrl = (params.appUrl || this.configService.get<string>('APP_URL', 'http://216.73.188.105:3000')).replace(/\/$/, '');
+    const html = this.buildWelcomeHtml({ ...params, appUrl });
+
+    const payload = {
+      message: {
+        subject: 'Welcome to AMS — Your Account is Ready',
+        body: { contentType: 'HTML', content: html },
+        toRecipients: [{ emailAddress: { address: params.recipientEmail, name: params.recipientName } }],
+      },
+      saveToSentItems: true,
+    };
+
+    const response = await axios.post(
+      `https://graph.microsoft.com/v1.0/users/${senderEmail}/sendMail`,
+      payload,
+      {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        timeout: 30000,
+        validateStatus: (status) => status === 202,
+      },
+    );
+
+    if (response.status !== 202) {
+      throw new Error(`Graph API returned status ${response.status}`);
+    }
+  }
+
+  private buildWelcomeHtml(params: {
+    recipientName: string;
+    recipientEmail: string;
+    temporaryPassword: string;
+    role: string;
+    appUrl: string;
+  }): string {
+    const roleLabel = params.role.charAt(0).toUpperCase() + params.role.slice(1).replace(/_/g, ' ');
+    const name = this.escapeHtml(params.recipientName);
+    const email = this.escapeHtml(params.recipientEmail);
+    const password = this.escapeHtml(params.temporaryPassword);
+
+    return `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;font-family:Calibri,'Segoe UI',Arial,sans-serif;background:#f0f2f5;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:580px;margin:32px auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+
+    <!-- Header -->
+    <tr>
+      <td style="background:#1f3864;padding:28px 32px 24px;">
+        <div style="color:#ffffff;font-size:22px;font-weight:bold;letter-spacing:0.3px;">AMS</div>
+        <div style="color:#a8b8d8;font-size:12px;margin-top:2px;">Alert Management System</div>
+      </td>
+    </tr>
+
+    <!-- Greeting -->
+    <tr>
+      <td style="padding:32px 32px 8px;">
+        <div style="font-size:20px;font-weight:600;color:#1a2e4a;">Welcome, ${name}!</div>
+        <p style="font-size:14px;color:#555;line-height:1.7;margin:12px 0 0;">
+          Your AMS account has been created. You can now log in using the credentials below.<br>
+          You will be prompted to set a new password on your first login.
+        </p>
+      </td>
+    </tr>
+
+    <!-- Credentials box -->
+    <tr>
+      <td style="padding:20px 32px;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f8fc;border:1px solid #d0daea;border-radius:6px;overflow:hidden;">
+          <tr>
+            <td style="padding:14px 20px;border-bottom:1px solid #e0e8f0;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Login Email</div>
+              <div style="font-size:14px;color:#1a2e4a;font-weight:600;">${email}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 20px;border-bottom:1px solid #e0e8f0;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Temporary Password</div>
+              <div style="font-size:14px;color:#1a2e4a;font-weight:600;font-family:monospace,monospace;">${password}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 20px;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Role</div>
+              <div style="font-size:14px;color:#1a2e4a;font-weight:600;">${roleLabel}</div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+    <!-- CTA Button -->
+    <tr>
+      <td style="padding:4px 32px 28px;text-align:center;">
+        <a href="${params.appUrl}" target="_blank"
+          style="display:inline-block;background:#1f3864;color:#ffffff;font-size:14px;font-weight:600;padding:12px 36px;border-radius:5px;text-decoration:none;letter-spacing:0.3px;">
+          Login to AMS &rarr;
+        </a>
+        <div style="margin-top:10px;font-size:11px;color:#999;">${params.appUrl}</div>
+      </td>
+    </tr>
+
+    <!-- Notice -->
+    <tr>
+      <td style="padding:0 32px 24px;">
+        <div style="background:#fffbea;border:1px solid #f0d070;border-radius:5px;padding:12px 16px;font-size:12px;color:#7a6000;line-height:1.6;">
+          <strong>Security notice:</strong> This is a temporary password. You will be required to change it immediately after your first login. Do not share your credentials.
+        </div>
+      </td>
+    </tr>
+
+    <!-- Footer -->
+    <tr>
+      <td style="background:#f8f9fb;border-top:1px solid #e8edf5;padding:14px 32px;text-align:center;">
+        <span style="font-size:11px;color:#aaa;">© Hayo &nbsp;&bull;&nbsp; AMS Alert Management System &nbsp;&bull;&nbsp; Do not reply to this email</span>
+      </td>
+    </tr>
+
+  </table>
+</body>
+</html>`;
+  }
+
   async sendAlert(params: {
     recipients: string[];
     subject: string;
