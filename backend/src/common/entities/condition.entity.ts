@@ -25,7 +25,7 @@ export interface ConditionChannels {
   };
   teams?: {
     enabled: boolean;
-    webhookUrl?: string;
+    webhook_url?: string;
     severity?: 'critical' | 'warning' | 'info';
   };
 }

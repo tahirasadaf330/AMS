@@ -76,7 +76,7 @@ export class NotificationsService {
         datasetName,
         matchedRows,
         webhookUrl: channels.teams.webhook_url,
-        severity: (channels.teams as any).severity || 'info',
+        severity: channels.teams.severity || 'info',
       }).catch((err) => this.logger.error('Teams dispatch unhandled error', err));
     }
 
