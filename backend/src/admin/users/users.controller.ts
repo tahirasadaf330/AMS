@@ -61,7 +61,7 @@ export class AdminUsersController {
     if (id === user.sub && dto.role !== undefined) {
       return { statusCode: 403, message: 'Admins cannot change their own role' };
     }
-    const result = await this.usersService.update(id, dto);
+    const result = await this.usersService.update(id, dto, user.sub);
     const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.socket.remoteAddress || '';
     this.auditService.log({
       userId: user.sub,

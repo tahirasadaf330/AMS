@@ -31,6 +31,7 @@ export interface UpdateUserDto {
   role?: UserRole;
   isActive?: boolean;
   mustChangePassword?: boolean;
+  dataset_access?: string[];
 }
 
 @Injectable()
@@ -49,21 +50,35 @@ export class AdminUsersService {
     private graphEmailService: GraphEmailService,
   ) {}
 
-  async findAll(): Promise<Omit<User, 'passwordHash'>[]> {
+  async findAll(): Promise<(Omit<User, 'passwordHash'> & { dataset_access: string[] })[]> {
     try {
       const users = await this.userRepo.find({ order: { createdAt: 'DESC' } });
-      return users.map(({ passwordHash, ...u }) => u as Omit<User, 'passwordHash'>);
+      const accesses = await this.accessRepo.find();
+      const accessMap = new Map<string, string[]>();
+      for (const a of accesses) {
+        const list = accessMap.get(a.userId) ?? [];
+        list.push(a.datasetId);
+        accessMap.set(a.userId, list);
+      }
+      return users.map(({ passwordHash, ...u }) => ({
+        ...(u as Omit<User, 'passwordHash'>),
+        dataset_access: accessMap.get(u.id) ?? [],
+      }));
     } catch (err) {
       this.logger.error('Error finding users', err);
       throw err;
     }
   }
 
-  async findOne(id: string): Promise<Omit<User, 'passwordHash'>> {
+  async findOne(id: string): Promise<Omit<User, 'passwordHash'> & { dataset_access: string[] }> {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`User ${id} not found`);
+    const accesses = await this.accessRepo.find({ where: { userId: id } });
     const { passwordHash, ...u } = user;
-    return u as Omit<User, 'passwordHash'>;
+    return {
+      ...(u as Omit<User, 'passwordHash'>),
+      dataset_access: accesses.map((a) => a.datasetId),
+    };
   }
 
   async create(dto: CreateUserDto, createdBy: string): Promise<Omit<User, 'passwordHash'>> {
@@ -122,7 +137,7 @@ export class AdminUsersService {
     }
   }
 
-  async update(id: string, dto: UpdateUserDto): Promise<Omit<User, 'passwordHash'>> {
+  async update(id: string, dto: UpdateUserDto, updatedBy: string): Promise<Omit<User, 'passwordHash'>> {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`User ${id} not found`);
 
@@ -139,6 +154,16 @@ export class AdminUsersService {
         isActive: dto.isActive ?? user.isActive,
         mustChangePassword: dto.mustChangePassword ?? user.mustChangePassword,
       });
+
+      // Sync dataset access only when the field is explicitly provided
+      if (dto.dataset_access !== undefined) {
+        await this.accessRepo.delete({ userId: id });
+        for (const datasetId of dto.dataset_access) {
+          await this.accessRepo.save(
+            this.accessRepo.create({ userId: id, datasetId, grantedBy: updatedBy }),
+          );
+        }
+      }
 
       return this.findOne(id);
     } catch (err) {
