@@ -15,17 +15,23 @@ git pull origin main
 
 echo "==> Installing backend dependencies..."
 cd "$APP_DIR/backend"
-npm install --omit=dev
+npm install
 
 echo "==> Building backend..."
 npm run build
 
+echo "==> Pruning backend dev dependencies..."
+npm prune --omit=dev
+
 echo "==> Installing frontend dependencies..."
 cd "$APP_DIR/frontend"
-npm install --omit=dev
+npm install
 
 echo "==> Building frontend..."
 npm run build
+
+echo "==> Pruning frontend dev dependencies..."
+npm prune --omit=dev
 
 echo "==> Restarting services..."
 pm2 restart ams-backend
