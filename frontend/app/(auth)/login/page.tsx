@@ -61,26 +61,26 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="flex items-center gap-2 mb-2">
             <Activity className="h-8 w-8 text-blue-500" />
-            <span className="text-2xl font-bold text-gray-100">AMS</span>
+            <span className="text-2xl font-bold text-gray-800 dark:text-gray-100">AMS</span>
           </div>
-          <p className="text-sm text-gray-400">Alert Management System</p>
-          <p className="text-xs text-gray-600 mt-1">Hayo BI Platform</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Alert Management System</p>
+          <p className="text-xs text-gray-400 dark:text-gray-600 mt-1">Hayo BI Platform</p>
         </div>
 
         {/* Card */}
-        <div className="rounded-xl border border-gray-700 bg-gray-800 p-8 shadow-2xl">
-          <h1 className="text-lg font-semibold text-gray-100 mb-6 text-center">Sign in to your account</h1>
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-8 shadow-2xl">
+          <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-6 text-center">Sign in to your account</h1>
 
           <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
             {/* Error */}
             {error && (
-              <div className="flex items-start gap-2 rounded-lg border border-red-800 bg-red-900/20 p-3 text-sm text-red-300">
+              <div className="flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-600 dark:text-red-300">
                 <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
@@ -118,7 +118,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -137,7 +137,7 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-4 text-center text-xs text-gray-600">
+        <p className="mt-4 text-center text-xs text-gray-400 dark:text-gray-600">
           © {new Date().getFullYear()} Hayo · Internal use only
         </p>
       </div>

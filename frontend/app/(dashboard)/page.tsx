@@ -94,16 +94,16 @@ export default function OverviewPage() {
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Recent activity feed */}
         <div className="lg:col-span-2">
-          <div className="rounded-lg border border-gray-700 bg-gray-800">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
-              <h2 className="text-sm font-semibold text-gray-200">Recent Notifications</h2>
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Recent Notifications</h2>
               <Badge variant="default">{recentNotifs.length}</Badge>
             </div>
-            <div className="divide-y divide-gray-700/50">
+            <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
               {notifLoading && (
                 <div className="p-4 space-y-3">
                   {Array.from({ length: 5 }).map((_, i) => (
-                    <SkeletonCard key={i} className="h-12 bg-gray-700/30" />
+                    <SkeletonCard key={i} className="h-12 bg-gray-200 dark:bg-gray-700/30" />
                   ))}
                 </div>
               )}
@@ -113,10 +113,10 @@ export default function OverviewPage() {
                 </div>
               )}
               {recentNotifs.map((log) => (
-                <div key={log.id} className="flex items-start justify-between px-5 py-3 hover:bg-gray-700/20">
+                <div key={log.id} className="flex items-start justify-between px-5 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/20">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <p className="text-sm font-medium text-gray-200 truncate">
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
                         {log.condition_name}
                       </p>
                       <Badge variant={log.channel === 'email' ? 'blue' : 'purple'} className="text-xs">
@@ -140,9 +140,9 @@ export default function OverviewPage() {
 
         {/* Dataset health strip */}
         <div>
-          <div className="rounded-lg border border-gray-700 bg-gray-800">
-            <div className="px-5 py-4 border-b border-gray-700">
-              <h2 className="text-sm font-semibold text-gray-200">Dataset Health</h2>
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Dataset Health</h2>
             </div>
             <div className="p-3 space-y-2">
               {datasetsLoading &&

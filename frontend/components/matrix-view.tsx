@@ -39,12 +39,12 @@ const CustomTooltip = ({
 }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-gray-600 bg-gray-800 p-3 shadow-xl text-sm">
-      <p className="font-medium text-gray-200 mb-1">{label}</p>
+    <div className="rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 p-3 shadow-xl text-sm">
+      <p className="font-medium text-gray-800 dark:text-gray-200 mb-1">{label}</p>
       {payload.map((entry, i) => (
-        <p key={i} className="text-gray-400">
+        <p key={i} className="text-gray-500 dark:text-gray-400">
           Balance:{' '}
-          <span className="text-gray-200 font-medium">{formatCurrency(entry.value)}</span>
+          <span className="text-gray-700 dark:text-gray-200 font-medium">{formatCurrency(entry.value)}</span>
         </p>
       ))}
     </div>
@@ -98,19 +98,19 @@ export function MatrixView({ rows, columns, isLoading }: MatrixViewProps) {
   return (
     <div className="space-y-6">
       {/* Pivot table */}
-      <div className="overflow-auto rounded-lg border border-gray-700">
+      <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-800 border-b border-gray-700">
+            <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
               {companyCol && (
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky left-0 bg-gray-800">
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky left-0 bg-gray-100 dark:bg-gray-800">
                   {companyCol.label}
                 </th>
               )}
               {numericCols.map((col) => (
                 <th
                   key={col.key}
-                  className="px-4 py-2 text-right text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap"
+                  className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap"
                 >
                   {col.label}
                 </th>
@@ -122,10 +122,10 @@ export function MatrixView({ rows, columns, isLoading }: MatrixViewProps) {
               return (
                 <tr
                   key={idx}
-                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                  className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30"
                 >
                   {companyCol && (
-                    <td className="px-4 py-2 font-medium sticky left-0 bg-gray-800/50">
+                    <td className="px-4 py-2 font-medium sticky left-0 bg-white/80 dark:bg-gray-800/50">
                       {String(row[companyCol.key] ?? '—')}
                     </td>
                   )}
@@ -133,7 +133,7 @@ export function MatrixView({ rows, columns, isLoading }: MatrixViewProps) {
                     const val = row[col.key];
                     const isNegative = val !== null && val !== undefined && Number(val) < 0;
                     return (
-                    <td key={col.key} className={cn('px-4 py-2 text-right tabular-nums', isNegative ? 'text-red-400' : '')}>
+                    <td key={col.key} className={cn('px-4 py-2 text-right tabular-nums', isNegative ? 'text-red-500 dark:text-red-400' : '')}>
                       {val !== null && val !== undefined
                         ? formatCurrency(Number(val))
                         : '—'}
@@ -150,7 +150,7 @@ export function MatrixView({ rows, columns, isLoading }: MatrixViewProps) {
       {/* Bar chart */}
       {balanceCol && chartData.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wider">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3 uppercase tracking-wider">
             {balanceCol.label} by Company
           </h3>
           <ResponsiveContainer width="100%" height={300}>

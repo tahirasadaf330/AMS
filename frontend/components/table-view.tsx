@@ -49,7 +49,7 @@ function getRangeMax(filters: Record<string, string>, key: string) {
 
 function CellValue({ value }: { value: string | number | null }) {
   if (value === null || value === undefined || value === '')
-    return <span className="text-gray-600">—</span>;
+    return <span className="text-gray-400 dark:text-gray-600">—</span>;
   return <>{String(value)}</>;
 }
 
@@ -101,8 +101,8 @@ function TextFilter({
         className={cn(
           'w-full h-7 px-2 text-left text-xs flex items-center justify-between gap-1 rounded border transition-colors',
           hasFilter
-            ? 'border-blue-500 bg-blue-500/10 text-blue-300'
-            : 'border-gray-600 bg-gray-800/80 text-gray-500 hover:border-gray-500 hover:text-gray-300',
+            ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300'
+            : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800/80 text-gray-400 dark:text-gray-500 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-600 dark:hover:text-gray-300',
         )}
       >
         <span className="truncate min-w-0">
@@ -125,26 +125,26 @@ function TextFilter({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-56 rounded-lg border border-gray-600 bg-gray-900 shadow-2xl">
-          <div className="p-2 border-b border-gray-700/60">
+        <div className="absolute left-0 top-full mt-1 z-50 w-56 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 shadow-2xl">
+          <div className="p-2 border-b border-gray-100 dark:border-gray-700/60">
             <input
               autoFocus
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search values…"
-              className="w-full px-2 py-1 text-xs rounded border border-gray-600 bg-gray-800 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+              className="w-full px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-blue-500"
             />
           </div>
           <div className="max-h-52 overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-gray-500">No values</p>
+              <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">No values</p>
             ) : (
               filtered.map(val => (
                 <button
                   key={val}
                   type="button"
                   onClick={() => toggle(val)}
-                  className="flex items-center gap-2.5 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-700/60 text-gray-300 transition-colors"
+                  className="flex items-center gap-2.5 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-50 dark:hover:bg-gray-700/60 text-gray-700 dark:text-gray-300 transition-colors"
                 >
                   <span
                     className={cn(
@@ -162,11 +162,11 @@ function TextFilter({
             )}
           </div>
           {selected.length > 0 && (
-            <div className="p-2 border-t border-gray-700/60">
+            <div className="p-2 border-t border-gray-100 dark:border-gray-700/60">
               <button
                 type="button"
                 onClick={clear}
-                className="text-xs text-gray-500 hover:text-gray-200 transition-colors"
+                className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
               >
                 Clear selection
               </button>
@@ -220,8 +220,8 @@ function NumericFilter({
         className={cn(
           'w-full h-7 px-2 text-left text-xs flex items-center justify-between gap-1 rounded border transition-colors',
           hasFilter
-            ? 'border-blue-500 bg-blue-500/10 text-blue-300'
-            : 'border-gray-600 bg-gray-800/80 text-gray-500 hover:border-gray-500 hover:text-gray-300',
+            ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300'
+            : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800/80 text-gray-400 dark:text-gray-500 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-600 dark:hover:text-gray-300',
         )}
       >
         <span className="truncate min-w-0">{label}</span>
@@ -242,34 +242,34 @@ function NumericFilter({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-48 rounded-lg border border-gray-600 bg-gray-900 shadow-2xl p-3 space-y-2.5">
+        <div className="absolute left-0 top-full mt-1 z-50 w-48 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 shadow-2xl p-3 space-y-2.5">
           <div className="space-y-1">
-            <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Min</label>
+            <label className="text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Min</label>
             <input
               autoFocus
               type="number"
               placeholder="No minimum"
               value={min}
               onChange={e => onChange({ [`${col.key}__min`]: e.target.value })}
-              className="w-full h-7 px-2 text-xs rounded border border-gray-600 bg-gray-800 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 [appearance:textfield]"
+              className="w-full h-7 px-2 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-blue-500 [appearance:textfield]"
             />
           </div>
           <div className="space-y-1">
-            <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Max</label>
+            <label className="text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Max</label>
             <input
               type="number"
               placeholder="No maximum"
               value={max}
               onChange={e => onChange({ [`${col.key}__max`]: e.target.value })}
-              className="w-full h-7 px-2 text-xs rounded border border-gray-600 bg-gray-800 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 [appearance:textfield]"
+              className="w-full h-7 px-2 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-blue-500 [appearance:textfield]"
             />
           </div>
           {hasFilter && (
-            <div className="pt-1 border-t border-gray-700/60">
+            <div className="pt-1 border-t border-gray-100 dark:border-gray-700/60">
               <button
                 type="button"
                 onClick={clear}
-                className="text-xs text-gray-500 hover:text-gray-200 transition-colors"
+                className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
               >
                 Clear
               </button>
@@ -300,20 +300,20 @@ function DateFilter({
         type="date"
         value={from}
         onChange={e => onChange({ [`${col.key}__min`]: e.target.value })}
-        className="w-full h-7 px-1 text-xs rounded border border-gray-600 bg-gray-800/80 text-gray-300 focus:outline-none focus:border-blue-500"
+        className="w-full h-7 px-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800/80 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500"
       />
-      <span className="text-gray-600 text-xs flex-shrink-0">–</span>
+      <span className="text-gray-400 dark:text-gray-600 text-xs flex-shrink-0">–</span>
       <input
         type="date"
         value={to}
         onChange={e => onChange({ [`${col.key}__max`]: e.target.value })}
-        className="w-full h-7 px-1 text-xs rounded border border-gray-600 bg-gray-800/80 text-gray-300 focus:outline-none focus:border-blue-500"
+        className="w-full h-7 px-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800/80 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500"
       />
       {hasFilter && (
         <button
           type="button"
           onClick={() => onChange({ [`${col.key}__min`]: '', [`${col.key}__max`]: '' })}
-          className="flex-shrink-0 text-gray-500 hover:text-gray-200 p-0.5 transition-colors"
+          className="flex-shrink-0 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 p-0.5 transition-colors"
         >
           <X className="h-3 w-3" />
         </button>
@@ -400,7 +400,7 @@ export function TableView({
         <div className="flex items-center gap-3 text-xs">
           {activeFilterCount > 0 && (
             <>
-              <span className="flex items-center gap-1.5 text-gray-400">
+              <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
                 <Filter className="h-3 w-3 text-blue-400" />
                 <span className="text-blue-400 font-medium">{activeFilterCount}</span>
                 {activeFilterCount === 1 ? 'filter' : 'filters'} active
@@ -417,7 +417,7 @@ export function TableView({
             onClick={() => setColPickerOpen(v => !v)}
             className={cn(
               'flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-colors',
-              colPickerOpen ? 'border-blue-500 bg-blue-500/10 text-blue-300' : 'border-gray-600 bg-gray-800 text-gray-400 hover:border-gray-500 hover:text-gray-200',
+              colPickerOpen ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-200',
             )}
           >
             <Columns3 className="h-3.5 w-3.5" />
@@ -429,10 +429,10 @@ export function TableView({
             )}
           </button>
           {colPickerOpen && (
-            <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-lg border border-gray-600 bg-gray-900 shadow-2xl">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-700">
-                <span className="text-xs font-semibold text-gray-300">Columns</span>
-                <button type="button" onClick={() => onVisibleColumnsChange(columns.map(c => c.key))} className="text-xs text-gray-500 hover:text-gray-200 transition-colors">
+            <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 shadow-2xl">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Columns</span>
+                <button type="button" onClick={() => onVisibleColumnsChange(columns.map(c => c.key))} className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
                   Show all
                 </button>
               </div>
@@ -441,7 +441,7 @@ export function TableView({
                   const isVis = visibleColumnKeys.includes(col.key);
                   return (
                     <button key={col.key} type="button" onClick={() => toggleColumn(col.key)}
-                      className="flex items-center gap-2.5 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-700/60 text-gray-300 transition-colors">
+                      className="flex items-center gap-2.5 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-50 dark:hover:bg-gray-700/60 text-gray-700 dark:text-gray-300 transition-colors">
                       <span className={cn('w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center transition-colors', isVis ? 'border-blue-500 bg-blue-500' : 'border-gray-500')}>
                         {isVis && <Check className="h-2.5 w-2.5 text-white" />}
                       </span>
@@ -457,7 +457,7 @@ export function TableView({
 
       {/* Table card */}
       <div
-        className="rounded-lg border border-gray-700"
+        className="rounded-lg border border-gray-200 dark:border-gray-700"
         style={{ maxHeight: 'calc(100vh - 26rem)', overflow: 'auto' }}
       >
         <table
@@ -476,15 +476,15 @@ export function TableView({
 
           <thead className="sticky top-0 z-10">
             {/* Column header row */}
-            <tr className="bg-gray-800 border-b border-gray-700">
+            <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
               {visibleColumns.map(col => (
                 <th
                   key={col.key}
                   onClick={() => onSort(col.key)}
                   className={cn(
                     'px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide cursor-pointer select-none transition-colors',
-                    'hover:bg-gray-700/60',
-                    sort === col.key ? 'text-blue-400 bg-gray-700/30' : 'text-gray-400',
+                    'hover:bg-gray-200/60 dark:hover:bg-gray-700/60',
+                    sort === col.key ? 'text-blue-600 dark:text-blue-400 bg-gray-200/60 dark:bg-gray-700/30' : 'text-gray-500 dark:text-gray-400',
                   )}
                   style={{ overflow: 'hidden' }}
                 >
@@ -503,7 +503,7 @@ export function TableView({
             </tr>
 
             {/* Filter row */}
-            <tr className="border-b border-gray-700/50 bg-gray-900/60">
+            <tr className="border-b border-gray-200 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-900/60">
               {visibleColumns.map(col => (
                 <th
                   key={col.key}
@@ -552,8 +552,8 @@ export function TableView({
                   <tr
                     key={rowIdx}
                     className={cn(
-                      'border-b border-gray-700/30 transition-colors',
-                      rowColor || 'hover:bg-gray-700/20',
+                      'border-b border-gray-100 dark:border-gray-700/30 transition-colors',
+                      rowColor || 'hover:bg-gray-50 dark:hover:bg-gray-700/20',
                       rowColor && 'hover:opacity-90',
                     )}
                   >
@@ -568,8 +568,8 @@ export function TableView({
                           className={cn(
                             'px-3 py-2.5 text-sm',
                             col.type === 'numeric'
-                              ? cn('text-right font-mono tabular-nums', isNegative ? 'text-red-400' : 'text-gray-200')
-                              : 'text-gray-300',
+                              ? cn('text-right font-mono tabular-nums', isNegative ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-200')
+                              : 'text-gray-600 dark:text-gray-300',
                           )}
                           style={{
                             overflow: 'hidden',
@@ -591,15 +591,15 @@ export function TableView({
       </div>
 
       {/* Pagination + row count */}
-      <div className="flex items-center justify-between text-sm text-gray-400 min-h-[28px] px-1">
+      <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400 min-h-[28px] px-1">
         {total > 0 ? (
           <p className="text-xs">
             Showing{' '}
-            <span className="text-gray-200 font-medium">
+            <span className="text-gray-800 dark:text-gray-200 font-medium">
               {((page - 1) * limit + 1).toLocaleString()}–{Math.min(page * limit, total).toLocaleString()}
             </span>{' '}
             of{' '}
-            <span className="text-gray-200 font-medium">{total.toLocaleString()}</span> rows
+            <span className="text-gray-800 dark:text-gray-200 font-medium">{total.toLocaleString()}</span> rows
           </p>
         ) : (
           <span />
@@ -610,31 +610,31 @@ export function TableView({
             <button
               onClick={() => onPageChange(1)}
               disabled={page === 1}
-              className="px-2 py-1 rounded text-xs hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="px-2 py-1 rounded text-xs hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               «
             </button>
             <button
               onClick={() => onPageChange(page - 1)}
               disabled={page === 1}
-              className="px-2 py-1 rounded text-xs hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="px-2 py-1 rounded text-xs hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               ‹
             </button>
-            <span className="px-3 py-1 rounded bg-gray-700 text-gray-200 text-xs font-medium">
+            <span className="px-3 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs font-medium">
               {page} / {totalPages}
             </span>
             <button
               onClick={() => onPageChange(page + 1)}
               disabled={page >= totalPages}
-              className="px-2 py-1 rounded text-xs hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="px-2 py-1 rounded text-xs hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               ›
             </button>
             <button
               onClick={() => onPageChange(totalPages)}
               disabled={page >= totalPages}
-              className="px-2 py-1 rounded text-xs hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="px-2 py-1 rounded text-xs hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               »
             </button>

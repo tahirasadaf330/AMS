@@ -13,8 +13,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.variable} font-sans bg-gray-900 text-gray-100 antialiased`}>
+    <html lang="en">
+      <head>
+        {/* Apply saved theme before first paint to avoid flash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){var t=localStorage.getItem('ams-theme');if(t!=='light')document.documentElement.classList.add('dark');})()`,
+          }}
+        />
+      </head>
+      <body className={`${inter.variable} font-sans bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 antialiased`}>
         <Providers>
           {children}
           <Toaster />

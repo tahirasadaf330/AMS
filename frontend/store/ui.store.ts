@@ -8,6 +8,8 @@ interface UIStore {
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  theme: 'dark' | 'light';
+  toggleTheme: () => void;
 }
 
 let toastCounter = 0;
@@ -15,6 +17,7 @@ let toastCounter = 0;
 export const useUIStore = create<UIStore>((set) => ({
   toasts: [],
   sidebarCollapsed: false,
+  theme: 'dark',
 
   addToast: (toast: Omit<Toast, 'id'>) => {
     const id = `toast-${++toastCounter}-${Date.now()}`;
@@ -41,5 +44,16 @@ export const useUIStore = create<UIStore>((set) => ({
 
   setSidebarCollapsed: (collapsed: boolean) => {
     set({ sidebarCollapsed: collapsed });
+  },
+
+  toggleTheme: () => {
+    set((state) => {
+      const next = state.theme === 'dark' ? 'light' : 'dark';
+      if (typeof document !== 'undefined') {
+        document.documentElement.classList.toggle('dark', next === 'dark');
+        localStorage.setItem('ams-theme', next);
+      }
+      return { theme: next };
+    });
   },
 }));
