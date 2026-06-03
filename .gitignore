@@ -30,3 +30,6 @@ coverage/
 
 # Docker
 docker-compose.override.yml
+
+# Sensitive deployment docs
+deploy/SERVER_SETUP.md
