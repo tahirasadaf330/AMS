@@ -22,7 +22,7 @@ export interface CreateUserDto {
   name: string;
   password: string;
   role: UserRole;
-  dataset_access?: string[];
+  datasetAccess?: string[];
 }
 
 export interface UpdateUserDto {
@@ -31,7 +31,7 @@ export interface UpdateUserDto {
   role?: UserRole;
   isActive?: boolean;
   mustChangePassword?: boolean;
-  dataset_access?: string[];
+  datasetAccess?: string[];
 }
 
 @Injectable()
@@ -114,8 +114,8 @@ export class AdminUsersService {
       );
 
       // Grant dataset access
-      if (dto.dataset_access?.length) {
-        for (const datasetId of dto.dataset_access) {
+      if (dto.datasetAccess?.length) {
+        for (const datasetId of dto.datasetAccess) {
           await this.accessRepo.save(
             this.accessRepo.create({ userId: saved.id, datasetId, grantedBy: createdBy }),
           );
@@ -156,9 +156,9 @@ export class AdminUsersService {
       });
 
       // Sync dataset access only when the field is explicitly provided
-      if (dto.dataset_access !== undefined) {
+      if (dto.datasetAccess !== undefined) {
         await this.accessRepo.delete({ userId: id });
-        for (const datasetId of dto.dataset_access) {
+        for (const datasetId of dto.datasetAccess) {
           await this.accessRepo.save(
             this.accessRepo.create({ userId: id, datasetId, grantedBy: updatedBy }),
           );
