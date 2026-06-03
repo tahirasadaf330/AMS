@@ -86,19 +86,19 @@ export default function ConditionsPage() {
       {isLoading ? (
         <SkeletonTable rows={5} cols={6} />
       ) : (
-        <div className="overflow-auto rounded-lg border border-gray-700">
+        <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-800 border-b border-gray-700">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Dataset</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Logic</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Rules</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Channels</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Trigger</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Last Triggered</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Active</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+              <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Dataset</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Logic</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Rules</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Channels</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Trigger</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Triggered</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Active</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -116,15 +116,15 @@ export default function ConditionsPage() {
                 if (condition.channels.teams?.enabled) channels.push('teams');
 
                 return (
-                  <tr key={condition.id} className="border-b border-gray-700/50 hover:bg-gray-700/20">
-                    <td className="px-4 py-3 text-gray-200 font-medium">{condition.name}</td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">{dataset?.name ?? condition.dataset_id}</td>
+                  <tr key={condition.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20">
+                    <td className="px-4 py-3 text-gray-800 dark:text-gray-200 font-medium">{condition.name}</td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{dataset?.name ?? condition.dataset_id}</td>
                     <td className="px-4 py-3">
                       <Badge variant={condition.logic === 'AND' ? 'blue' : 'purple'}>
                         {condition.logic}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-300">
+                    <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">
                       {condition.condition_rows.length}
                     </td>
                     <td className="px-4 py-3">
@@ -134,17 +134,17 @@ export default function ConditionsPage() {
                             {ch}
                           </Badge>
                         ))}
-                        {channels.length === 0 && <span className="text-gray-600 text-xs">none</span>}
+                        {channels.length === 0 && <span className="text-gray-400 dark:text-gray-600 text-xs">none</span>}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
                       {condition.trigger_cron ? (
-                        <span className="text-blue-300 font-mono text-xs">{getCronHumanReadable(condition.trigger_cron)}</span>
+                        <span className="text-blue-600 dark:text-blue-300 font-mono text-xs">{getCronHumanReadable(condition.trigger_cron)}</span>
                       ) : (
-                        <span className="text-gray-600">Manual</span>
+                        <span className="text-gray-400 dark:text-gray-600">Manual</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
                       {condition.last_triggered_at ? formatDatetime(condition.last_triggered_at) : '—'}
                     </td>
                     <td className="px-4 py-3">
@@ -291,9 +291,9 @@ export default function ConditionsPage() {
           onClose={() => setDeleteTarget(null)}
         />
         <DialogBody>
-          <p className="text-sm text-gray-300">
+          <p className="text-sm text-gray-600 dark:text-gray-300">
             Are you sure you want to delete{' '}
-            <span className="font-medium text-gray-100">"{deleteTarget?.name}"</span>?
+            <span className="font-medium text-gray-800 dark:text-gray-100">"{deleteTarget?.name}"</span>?
             This action cannot be undone.
           </p>
           <div className="flex justify-end gap-3 mt-4">

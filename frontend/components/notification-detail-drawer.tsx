@@ -45,7 +45,7 @@ export function NotificationDetailDrawer({
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <p className="text-xs text-gray-500 mb-0.5">Triggered At</p>
-            <p className="text-gray-200">{formatDatetimeFull(log.triggered_at)}</p>
+            <p className="text-gray-800 dark:text-gray-200">{formatDatetimeFull(log.triggered_at)}</p>
           </div>
           <div>
             <p className="text-xs text-gray-500 mb-0.5">Status</p>
@@ -57,15 +57,15 @@ export function NotificationDetailDrawer({
           </div>
           <div>
             <p className="text-xs text-gray-500 mb-0.5">Matched Rows</p>
-            <p className="text-gray-200 font-medium">{log.matched_rows.toLocaleString()}</p>
+            <p className="text-gray-800 dark:text-gray-200 font-medium">{log.matched_rows.toLocaleString()}</p>
           </div>
           <div>
             <p className="text-xs text-gray-500 mb-0.5">Dataset</p>
-            <p className="text-gray-200">{log.dataset_name}</p>
+            <p className="text-gray-800 dark:text-gray-200">{log.dataset_name}</p>
           </div>
           <div>
             <p className="text-xs text-gray-500 mb-0.5">Retries</p>
-            <p className="text-gray-200">{log.retry_count}</p>
+            <p className="text-gray-800 dark:text-gray-200">{log.retry_count}</p>
           </div>
         </div>
 
@@ -77,7 +77,7 @@ export function NotificationDetailDrawer({
               {log.recipients.map((r) => (
                 <span
                   key={r}
-                  className="rounded-full bg-blue-900/40 border border-blue-700 px-2.5 py-0.5 text-xs text-blue-300"
+                  className="rounded-full bg-blue-50 dark:bg-blue-900/40 border border-blue-300 dark:border-blue-700 px-2.5 py-0.5 text-xs text-blue-600 dark:text-blue-300"
                 >
                   {r}
                 </span>
@@ -90,15 +90,15 @@ export function NotificationDetailDrawer({
         {log.webhook_url && (
           <div>
             <p className="text-xs text-gray-500 mb-1">Webhook URL</p>
-            <code className="text-xs text-gray-400 break-all">{log.webhook_url}</code>
+            <code className="text-xs text-gray-500 dark:text-gray-400 break-all">{log.webhook_url}</code>
           </div>
         )}
 
         {/* Error */}
         {log.error && (
-          <div className="rounded-lg bg-red-900/20 border border-red-800 p-3">
-            <p className="text-xs text-red-400 font-medium mb-1">Error</p>
-            <p className="text-sm text-red-300">{log.error}</p>
+          <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800 p-3">
+            <p className="text-xs text-red-600 dark:text-red-400 font-medium mb-1">Error</p>
+            <p className="text-sm text-red-600 dark:text-red-300">{log.error}</p>
           </div>
         )}
 
@@ -106,7 +106,7 @@ export function NotificationDetailDrawer({
         {log.message_preview && (
           <div>
             <p className="text-xs text-gray-500 mb-1">Message Preview</p>
-            <pre className="text-xs text-gray-400 bg-gray-800 rounded p-3 overflow-auto max-h-40 whitespace-pre-wrap">
+            <pre className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded p-3 overflow-auto max-h-40 whitespace-pre-wrap">
               {log.message_preview}
             </pre>
           </div>
@@ -118,14 +118,14 @@ export function NotificationDetailDrawer({
             <p className="text-xs text-gray-500 mb-2">
               Matched Rows Snapshot ({log.matched_rows_snapshot.length} rows)
             </p>
-            <div className="overflow-auto max-h-64 rounded border border-gray-700">
+            <div className="overflow-auto max-h-64 rounded border border-gray-200 dark:border-gray-700">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="bg-gray-800 border-b border-gray-700">
+                  <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
                     {snapshotColumns.slice(0, 5).map((col) => (
                       <th
                         key={col}
-                        className="px-3 py-2 text-left text-gray-400 font-medium whitespace-nowrap"
+                        className="px-3 py-2 text-left text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap"
                       >
                         {col}
                       </th>
@@ -134,9 +134,9 @@ export function NotificationDetailDrawer({
                 </thead>
                 <tbody>
                   {log.matched_rows_snapshot.map((row, idx) => (
-                    <tr key={idx} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                    <tr key={idx} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20">
                       {snapshotColumns.slice(0, 5).map((col) => (
-                        <td key={col} className="px-3 py-2 text-gray-300 whitespace-nowrap">
+                        <td key={col} className="px-3 py-2 text-gray-600 dark:text-gray-300 whitespace-nowrap">
                           {String(row[col] ?? '—')}
                         </td>
                       ))}

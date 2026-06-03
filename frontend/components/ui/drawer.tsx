@@ -59,7 +59,7 @@ function Drawer({
       {/* Drawer panel */}
       <div
         className={cn(
-          'absolute top-0 bottom-0 flex flex-col border-gray-700 bg-gray-900 shadow-2xl',
+          'absolute top-0 bottom-0 flex flex-col border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-2xl',
           side === 'right' ? 'right-0 border-l' : 'left-0 border-r',
           width,
           className
@@ -69,14 +69,14 @@ function Drawer({
       >
         {/* Header */}
         {(title || description) && (
-          <div className="flex items-start justify-between border-b border-gray-700 p-6 flex-shrink-0">
+          <div className="flex items-start justify-between border-b border-gray-200 dark:border-gray-700 p-6 flex-shrink-0">
             <div>
-              {title && <h2 className="text-lg font-semibold text-gray-100">{title}</h2>}
-              {description && <p className="mt-1 text-sm text-gray-400">{description}</p>}
+              {title && <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{title}</h2>}
+              {description && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{description}</p>}
             </div>
             <button
               onClick={onClose}
-              className="ml-4 rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-gray-100 transition-colors"
+              className="ml-4 rounded p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-100 transition-colors"
               aria-label="Close drawer"
             >
               <X className="h-5 w-5" />

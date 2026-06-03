@@ -37,7 +37,7 @@ function Toggle({ checked, onChange, label, disabled, className, size = 'default
           className={cn(
             'rounded-full transition-colors duration-200',
             size === 'sm' ? 'h-4 w-7' : 'h-6 w-11',
-            checked ? 'bg-blue-600' : 'bg-gray-600'
+            checked ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
           )}
         />
         <div
@@ -52,7 +52,7 @@ function Toggle({ checked, onChange, label, disabled, className, size = 'default
           )}
         />
       </div>
-      {label && <span className="text-sm text-gray-300">{label}</span>}
+      {label && <span className="text-sm text-gray-600 dark:text-gray-300">{label}</span>}
     </label>
   );
 }

@@ -71,10 +71,10 @@ export default function NotificationsPage() {
       />
 
       {/* Filters */}
-      <div className="rounded-lg border border-gray-700 bg-gray-800 p-4">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           <div>
-            <label className="block text-xs text-gray-400 mb-1">From Date</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">From Date</label>
             <Input
               type="date"
               value={fromDate}
@@ -83,7 +83,7 @@ export default function NotificationsPage() {
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">To Date</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">To Date</label>
             <Input
               type="date"
               value={toDate}
@@ -92,7 +92,7 @@ export default function NotificationsPage() {
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Channel</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Channel</label>
             <Select
               value={channel}
               onChange={(e) => setChannel(e.target.value)}
@@ -104,7 +104,7 @@ export default function NotificationsPage() {
             </Select>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Dataset</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Dataset</label>
             <Select
               value={datasetId}
               onChange={(e) => setDatasetId(e.target.value)}
@@ -119,7 +119,7 @@ export default function NotificationsPage() {
             </Select>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Status</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Status</label>
             <Select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
@@ -143,25 +143,25 @@ export default function NotificationsPage() {
       {/* Summary bar */}
       {summary && (
         <div className="flex flex-wrap gap-3">
-          <div className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm">
-            <span className="text-gray-400">Total:</span>
-            <span className="text-gray-100 font-medium">{summary.total.toLocaleString()}</span>
+          <div className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+            <span className="text-gray-500 dark:text-gray-400">Total:</span>
+            <span className="text-gray-800 dark:text-gray-100 font-medium">{summary.total.toLocaleString()}</span>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-blue-800 bg-blue-900/20 px-3 py-2 text-sm">
-            <span className="text-blue-400">Email:</span>
-            <span className="text-blue-100 font-medium">{summary.email_count.toLocaleString()}</span>
+          <div className="flex items-center gap-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-3 py-2 text-sm">
+            <span className="text-blue-600 dark:text-blue-400">Email:</span>
+            <span className="text-blue-700 dark:text-blue-100 font-medium">{summary.email_count.toLocaleString()}</span>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-purple-800 bg-purple-900/20 px-3 py-2 text-sm">
-            <span className="text-purple-400">Teams:</span>
-            <span className="text-purple-100 font-medium">{summary.teams_count.toLocaleString()}</span>
+          <div className="flex items-center gap-2 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20 px-3 py-2 text-sm">
+            <span className="text-purple-600 dark:text-purple-400">Teams:</span>
+            <span className="text-purple-700 dark:text-purple-100 font-medium">{summary.teams_count.toLocaleString()}</span>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-red-800 bg-red-900/20 px-3 py-2 text-sm">
-            <span className="text-red-400">Failed:</span>
-            <span className="text-red-100 font-medium">{summary.failed_count.toLocaleString()}</span>
+          <div className="flex items-center gap-2 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm">
+            <span className="text-red-500 dark:text-red-400">Failed:</span>
+            <span className="text-red-700 dark:text-red-100 font-medium">{summary.failed_count.toLocaleString()}</span>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm">
-            <span className="text-gray-400">Skipped:</span>
-            <span className="text-gray-300 font-medium">{summary.skipped_count.toLocaleString()}</span>
+          <div className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+            <span className="text-gray-500 dark:text-gray-400">Skipped:</span>
+            <span className="text-gray-600 dark:text-gray-300 font-medium">{summary.skipped_count.toLocaleString()}</span>
           </div>
         </div>
       )}
@@ -177,7 +177,7 @@ export default function NotificationsPage() {
 
       {/* Pagination */}
       {total > limit && (
-        <div className="flex items-center justify-between text-sm text-gray-400">
+        <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
           <p>
             Showing {Math.min((page - 1) * limit + 1, total)}–{Math.min(page * limit, total)} of{' '}
             {total.toLocaleString()} notifications
@@ -191,7 +191,7 @@ export default function NotificationsPage() {
             >
               Previous
             </Button>
-            <span className="px-3 py-1 text-gray-400">
+            <span className="px-3 py-1 text-gray-500 dark:text-gray-400">
               {page} / {totalPages}
             </span>
             <Button

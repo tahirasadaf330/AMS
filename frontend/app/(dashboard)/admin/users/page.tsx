@@ -200,36 +200,36 @@ export default function AdminUsersPage() {
       {isLoading ? (
         <SkeletonTable rows={5} cols={6} />
       ) : (
-        <div className="overflow-auto rounded-lg border border-gray-700">
+        <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-800 border-b border-gray-700">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Email</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Role</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Datasets</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Last Login</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+              <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Email</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Datasets</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Login</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody>
               {(users ?? []).map((user) => (
                 <tr
                   key={user.id}
-                  className="border-b border-gray-700/50 hover:bg-gray-700/20 cursor-pointer"
+                  className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20 cursor-pointer"
                   onClick={() => openDrawer(user)}
                 >
-                  <td className="px-4 py-3 text-gray-200 font-medium">{user.name}</td>
-                  <td className="px-4 py-3 text-gray-400 text-xs">{user.email}</td>
+                  <td className="px-4 py-3 text-gray-800 dark:text-gray-200 font-medium">{user.name}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{user.email}</td>
                   <td className="px-4 py-3">
                     <Badge variant={ROLE_BADGE[user.role] ?? 'default'}>
                       {user.role === 'full_rights' ? 'Full Rights' : user.role}
                     </Badge>
                   </td>
-                  <td className="px-4 py-3 text-gray-400 text-xs">
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
                     {user.role === 'admin' ? (
-                      <span className="text-purple-400">All</span>
+                      <span className="text-purple-600 dark:text-purple-400">All</span>
                     ) : (
                       (user.dataset_access ?? []).length
                     )}
@@ -237,7 +237,7 @@ export default function AdminUsersPage() {
                   <td className="px-4 py-3">
                     <StatusBadge status={user.is_active ? 'active' : 'inactive'} />
                   </td>
-                  <td className="px-4 py-3 text-gray-400 text-xs">
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
                     {user.last_login ? formatDatetime(user.last_login) : '—'}
                   </td>
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -294,14 +294,14 @@ export default function AdminUsersPage() {
             {formData.role !== 'admin' && (
               <div className="space-y-1.5">
                 <Label>Dataset Access</Label>
-                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 rounded border border-gray-700">
+                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 rounded border border-gray-200 dark:border-gray-700">
                   {(datasets ?? []).map((d) => (
-                    <label key={d.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-300">
+                    <label key={d.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
                       <input
                         type="checkbox"
                         checked={formData.dataset_access.includes(d.id)}
                         onChange={() => toggleDatasetAccess(d.id)}
-                        className="rounded border-gray-600 bg-gray-800 text-blue-600"
+                        className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-blue-600"
                       />
                       {d.name}
                     </label>
@@ -330,8 +330,8 @@ export default function AdminUsersPage() {
       <Dialog open={!!deactivateTarget} onClose={() => setDeactivateTarget(null)} className="max-w-sm">
         <DialogHeader title="Deactivate User" onClose={() => setDeactivateTarget(null)} />
         <DialogBody>
-          <p className="text-sm text-gray-300">
-            Deactivate <span className="font-medium text-gray-100">{deactivateTarget?.name}</span>?
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            Deactivate <span className="font-medium text-gray-800 dark:text-gray-100">{deactivateTarget?.name}</span>?
             They will no longer be able to log in.
           </p>
           <div className="flex justify-end gap-3 mt-4">
@@ -354,40 +354,40 @@ export default function AdminUsersPage() {
             <>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Role</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Role</p>
                   <Badge variant={ROLE_BADGE[drawerUser.role] ?? 'default'}>
                     {drawerUser.role === 'full_rights' ? 'Full Rights' : drawerUser.role}
                   </Badge>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Status</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Status</p>
                   <StatusBadge status={drawerUser.is_active ? 'active' : 'inactive'} />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Created</p>
-                  <p className="text-gray-300">{formatDatetime(drawerUser.created_at)}</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Created</p>
+                  <p className="text-gray-700 dark:text-gray-300">{formatDatetime(drawerUser.created_at)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Last Login</p>
-                  <p className="text-gray-300">{drawerUser.last_login ? formatDatetime(drawerUser.last_login) : '—'}</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Last Login</p>
+                  <p className="text-gray-700 dark:text-gray-300">{drawerUser.last_login ? formatDatetime(drawerUser.last_login) : '—'}</p>
                 </div>
               </div>
 
               {/* Active sessions */}
               <div>
-                <h3 className="text-sm font-medium text-gray-300 mb-2">Active Sessions</h3>
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Active Sessions</h3>
                 {sessionsLoading ? (
-                  <p className="text-xs text-gray-500">Loading...</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">Loading...</p>
                 ) : sessions.length === 0 ? (
-                  <p className="text-xs text-gray-500">No active sessions</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">No active sessions</p>
                 ) : (
                   <div className="space-y-2">
                     {sessions.map((session) => (
-                      <div key={session.id} className="flex items-start justify-between rounded border border-gray-700 p-3 text-xs">
+                      <div key={session.id} className="flex items-start justify-between rounded border border-gray-200 dark:border-gray-700 p-3 text-xs">
                         <div>
-                          <p className="text-gray-300 font-medium">{session.device}</p>
-                          <p className="text-gray-500">{session.ip}</p>
-                          <p className="text-gray-500">{formatDatetime(session.login_time)}</p>
+                          <p className="text-gray-700 dark:text-gray-300 font-medium">{session.device}</p>
+                          <p className="text-gray-400 dark:text-gray-500">{session.ip}</p>
+                          <p className="text-gray-400 dark:text-gray-500">{formatDatetime(session.login_time)}</p>
                         </div>
                         <Button
                           variant="destructive"

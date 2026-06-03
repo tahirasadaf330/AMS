@@ -86,17 +86,17 @@ export default function SchedulesPage() {
       {isLoading ? (
         <SkeletonTable rows={4} cols={7} />
       ) : (
-        <div className="overflow-auto rounded-lg border border-gray-700">
+        <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-800 border-b border-gray-700">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Dataset</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Schedule</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Last Run</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Next Run</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Rows</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+              <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Dataset</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Schedule</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Run</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Next Run</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Rows</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -109,26 +109,26 @@ export default function SchedulesPage() {
               )}
               {(schedules ?? []).map((schedule) => (
                 <React.Fragment key={schedule.dataset_id}>
-                  <tr className="border-b border-gray-700/50 hover:bg-gray-700/20">
-                    <td className="px-4 py-3 text-gray-200 font-medium">{schedule.dataset_name}</td>
+                  <tr className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20">
+                    <td className="px-4 py-3 text-gray-800 dark:text-gray-200 font-medium">{schedule.dataset_name}</td>
                     <td className="px-4 py-3">
                       <div>
-                        <p className="text-gray-200">{getCronHumanReadable(schedule.cron)}</p>
+                        <p className="text-gray-800 dark:text-gray-200">{getCronHumanReadable(schedule.cron)}</p>
                         <code className="text-xs text-gray-500 font-mono">{schedule.cron}</code>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
                       {schedule.last_run ? formatDatetime(schedule.last_run) : '—'}
                     </td>
                     <td className="px-4 py-3">
                       {schedule.last_status ? <StatusBadge status={schedule.last_status} /> : '—'}
                     </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
                       {schedule.next_run
                         ? formatDatetime(schedule.next_run)
                         : getNextCronRun(schedule.cron)}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-300">
+                    <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">
                       {schedule.row_count?.toLocaleString() ?? '—'}
                     </td>
                     <td className="px-4 py-3">
@@ -149,7 +149,7 @@ export default function SchedulesPage() {
                               prev === schedule.dataset_id ? null : schedule.dataset_id
                             )
                           }
-                          className="text-xs text-gray-400"
+                          className="text-xs text-gray-500 dark:text-gray-400"
                         >
                           History
                           {historyDatasetId === schedule.dataset_id ? (
@@ -165,8 +165,8 @@ export default function SchedulesPage() {
                   {/* Inline history */}
                   {historyDatasetId === schedule.dataset_id && (
                     <tr>
-                      <td colSpan={7} className="bg-gray-900/50 p-4">
-                        <p className="text-xs text-gray-400 mb-2 font-medium">
+                      <td colSpan={7} className="bg-gray-50 dark:bg-gray-900/50 p-4">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 font-medium">
                           Recent Refresh History — {schedule.dataset_name}
                         </p>
                         <RefreshHistoryTable

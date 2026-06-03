@@ -23,7 +23,7 @@ import type { Dataset, DataSource, ColumnMeta } from '@/types';
 const MonacoEditor = dynamic(() => import('@monaco-editor/react').then((m) => m.default), {
   ssr: false,
   loading: () => (
-    <div className="h-48 rounded border border-gray-700 bg-gray-900 flex items-center justify-center text-gray-500 text-sm">
+    <div className="h-48 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex items-center justify-center text-gray-500 text-sm">
       Loading editor...
     </div>
   ),
@@ -232,31 +232,31 @@ export default function AdminDatasetsPage() {
       {isLoading ? (
         <SkeletonTable rows={4} cols={7} />
       ) : (
-        <div className="overflow-auto rounded-lg border border-gray-700">
+        <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-800 border-b border-gray-700">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Stage Table</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Last Refresh</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Rows</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Schedule</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+              <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Stage Table</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Refresh</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Rows</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Schedule</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody>
               {(datasets ?? []).map((ds) => (
-                <tr key={ds.id} className="border-b border-gray-700/50 hover:bg-gray-700/20">
-                  <td className="px-4 py-3 text-gray-200 font-medium">{ds.name}</td>
-                  <td className="px-4 py-3 text-gray-400 font-mono text-xs">{ds.stage_table_name}</td>
-                  <td className="px-4 py-3 text-gray-400 text-xs">
+                <tr key={ds.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20">
+                  <td className="px-4 py-3 text-gray-800 dark:text-gray-200 font-medium">{ds.name}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 font-mono text-xs">{ds.stage_table_name}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
                     {ds.last_refresh ? formatDatetime(ds.last_refresh.refreshed_at) : '—'}
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-300 text-xs">
+                  <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300 text-xs">
                     {ds.last_refresh?.row_count?.toLocaleString() ?? '—'}
                   </td>
-                  <td className="px-4 py-3 text-gray-400 text-xs">{getCronHumanReadable(ds.schedule_cron)}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{getCronHumanReadable(ds.schedule_cron)}</td>
                   <td className="px-4 py-3">
                     <StatusBadge status={ds.is_active ? 'active' : 'inactive'} />
                   </td>
@@ -334,7 +334,7 @@ export default function AdminDatasetsPage() {
                 />
               </div>
               {validateResult && (
-                <div className={`flex items-center gap-2 text-sm p-2 rounded ${validateResult.success ? 'text-green-400 bg-green-900/20' : 'text-red-400 bg-red-900/20'}`}>
+                <div className={`flex items-center gap-2 text-sm p-2 rounded ${validateResult.success ? 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20' : 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'}`}>
                   {validateResult.success ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
                   {validateResult.message}
                 </div>
@@ -345,7 +345,7 @@ export default function AdminDatasetsPage() {
             {(formData.column_metadata ?? []).length > 0 && (
               <div className="space-y-1.5">
                 <Label>Column Configuration</Label>
-                <div className="space-y-1 max-h-48 overflow-y-auto rounded border border-gray-700 p-2">
+                <div className="space-y-1 max-h-48 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 p-2">
                   {formData.column_metadata.map((col, i) => (
                     <div key={col.key} className="flex items-center gap-2 text-sm">
                       <code className="text-blue-400 text-xs w-32 truncate font-mono">{col.key}</code>
@@ -418,14 +418,14 @@ export default function AdminDatasetsPage() {
             </div>
 
             {!editingDataset && (
-              <div className="rounded-lg border border-gray-700 p-3 space-y-1.5 bg-gray-800/40">
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-1.5 bg-gray-50 dark:bg-gray-800/40">
                 <div className="flex items-center gap-3">
                   <Toggle
                     checked={formData.create_stage_table}
                     onChange={(v) => setFormData((p) => ({ ...p, create_stage_table: v }))}
                     size="sm"
                   />
-                  <span className="text-sm text-gray-300">Create stage table automatically</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-300">Create stage table automatically</span>
                 </div>
                 {formData.create_stage_table ? (
                   <p className="text-xs text-gray-500 ml-10">
@@ -475,8 +475,8 @@ export default function AdminDatasetsPage() {
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} className="max-w-sm">
         <DialogHeader title="Delete Dataset" onClose={() => setDeleteTarget(null)} />
         <DialogBody>
-          <p className="text-sm text-gray-300">
-            Delete <span className="font-medium text-gray-100">"{deleteTarget?.name}"</span>? This will remove all associated data and cannot be undone.
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            Delete <span className="font-medium text-gray-800 dark:text-gray-100">"{deleteTarget?.name}"</span>? This will remove all associated data and cannot be undone.
           </p>
           <div className="flex justify-end gap-3 mt-4">
             <Button variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Button>

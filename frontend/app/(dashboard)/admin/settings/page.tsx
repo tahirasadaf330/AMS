@@ -45,7 +45,7 @@ function MaskedInput({ value, onChange, placeholder, id }: {
       <button
         type="button"
         onClick={() => setShow((v) => !v)}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200"
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
       >
         {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
       </button>
@@ -296,9 +296,9 @@ function SecurityTab({ settings, onSave, isSaving }: {
         </Button>
       </div>
 
-      <div className="rounded-lg border border-red-800 bg-red-900/10 p-4 mt-6">
-        <h3 className="text-sm font-medium text-red-300 mb-2">Danger Zone</h3>
-        <p className="text-xs text-gray-400 mb-3">
+      <div className="rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/10 p-4 mt-6">
+        <h3 className="text-sm font-medium text-red-700 dark:text-red-300 mb-2">Danger Zone</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
           Rotating the encryption key will invalidate all existing encrypted data. This action cannot be undone.
         </p>
         <Button variant="destructive" size="sm" onClick={() => setShowRotateConfirm(true)}>
@@ -310,7 +310,7 @@ function SecurityTab({ settings, onSave, isSaving }: {
       <Dialog open={showRotateConfirm} onClose={() => setShowRotateConfirm(false)} className="max-w-sm">
         <DialogHeader title="Confirm Key Rotation" onClose={() => setShowRotateConfirm(false)} />
         <DialogBody>
-          <p className="text-sm text-gray-300 mb-4">
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
             This will rotate the encryption key and may require re-entering credentials. Are you absolutely sure?
           </p>
           <div className="flex justify-end gap-3">
@@ -372,19 +372,19 @@ function AuditLogTab() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-end">
         <div>
-          <Label className="text-xs text-gray-400 mb-1 block">User</Label>
+          <Label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">User</Label>
           <Input value={filterUser} onChange={(e) => setFilterUser(e.target.value)} placeholder="Search user..." className="h-8 text-xs w-40" />
         </div>
         <div>
-          <Label className="text-xs text-gray-400 mb-1 block">Action</Label>
+          <Label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Action</Label>
           <Input value={filterAction} onChange={(e) => setFilterAction(e.target.value)} placeholder="e.g. login" className="h-8 text-xs w-32" />
         </div>
         <div>
-          <Label className="text-xs text-gray-400 mb-1 block">From</Label>
+          <Label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">From</Label>
           <Input type="date" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} className="h-8 text-xs" />
         </div>
         <div>
-          <Label className="text-xs text-gray-400 mb-1 block">To</Label>
+          <Label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">To</Label>
           <Input type="date" value={filterTo} onChange={(e) => setFilterTo(e.target.value)} className="h-8 text-xs" />
         </div>
         <Button size="sm" variant="secondary" onClick={() => void handleExport()} isLoading={isExporting}>
@@ -397,16 +397,16 @@ function AuditLogTab() {
       {isLoading ? (
         <div className="flex items-center justify-center h-40"><Spinner /></div>
       ) : (
-        <div className="overflow-auto rounded-lg border border-gray-700">
+        <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
           <table className="w-full text-xs">
             <thead>
-              <tr className="bg-gray-800 border-b border-gray-700">
-                <th className="px-3 py-2 text-left font-medium text-gray-400 uppercase tracking-wider">Timestamp</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-400 uppercase tracking-wider">User</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-400 uppercase tracking-wider">Action</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-400 uppercase tracking-wider">Resource</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-400 uppercase tracking-wider">Detail</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-400 uppercase tracking-wider">IP</th>
+              <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Timestamp</th>
+                <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">User</th>
+                <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Action</th>
+                <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Resource</th>
+                <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Detail</th>
+                <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">IP</th>
               </tr>
             </thead>
             <tbody>
@@ -414,23 +414,23 @@ function AuditLogTab() {
                 <tr><td colSpan={6} className="px-3 py-8 text-center text-gray-500">No audit log entries found</td></tr>
               )}
               {logs.map((entry) => (
-                <tr key={entry.id} className="border-b border-gray-700/50 hover:bg-gray-700/20">
-                  <td className="px-3 py-2 text-gray-400 font-mono whitespace-nowrap">{formatDatetimeFull(entry.created_at)}</td>
+                <tr key={entry.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20">
+                  <td className="px-3 py-2 text-gray-500 dark:text-gray-400 font-mono whitespace-nowrap">{formatDatetimeFull(entry.created_at)}</td>
                   <td className="px-3 py-2">
-                    <p className="text-gray-200">{entry.user_name}</p>
+                    <p className="text-gray-800 dark:text-gray-200">{entry.user_name}</p>
                     <p className="text-gray-500">{entry.user_email}</p>
                   </td>
                   <td className="px-3 py-2">
-                    <span className="bg-blue-900/30 text-blue-300 px-1.5 py-0.5 rounded font-mono">{entry.action}</span>
+                    <span className="bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded font-mono">{entry.action}</span>
                   </td>
-                  <td className="px-3 py-2 text-gray-300">
+                  <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
                     {entry.resource}
                     {entry.resource_id && <span className="text-gray-500 ml-1">#{entry.resource_id.slice(0, 8)}</span>}
                   </td>
                   <td className="px-3 py-2 text-gray-500 font-mono max-w-[200px] truncate" title={entry.detail ? JSON.stringify(entry.detail) : ''}>
                     {entry.detail ? truncate(JSON.stringify(entry.detail), 60) : '—'}
                   </td>
-                  <td className="px-3 py-2 text-gray-400 font-mono">{entry.ip}</td>
+                  <td className="px-3 py-2 text-gray-500 dark:text-gray-400 font-mono">{entry.ip}</td>
                 </tr>
               ))}
             </tbody>
@@ -440,7 +440,7 @@ function AuditLogTab() {
 
       {/* Pagination */}
       {total > 50 && (
-        <div className="flex items-center justify-between text-sm text-gray-400">
+        <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
           <p>{total.toLocaleString()} entries</p>
           <div className="flex gap-1">
             <Button variant="ghost" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page === 1}>Previous</Button>

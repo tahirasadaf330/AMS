@@ -188,17 +188,17 @@ export default function AdminDatasourcesPage() {
       {isLoading ? (
         <SkeletonTable rows={4} cols={6} />
       ) : (
-        <div className="overflow-auto rounded-lg border border-gray-700">
+        <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-800 border-b border-gray-700">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Host</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Database</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">SSL</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Active</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+              <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Host</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Database</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">SSL</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Active</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -210,10 +210,10 @@ export default function AdminDatasourcesPage() {
                 </tr>
               )}
               {(datasources ?? []).map((ds) => (
-                <tr key={ds.id} className="border-b border-gray-700/50 hover:bg-gray-700/20">
+                <tr key={ds.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20">
                   <td className="px-4 py-3 font-medium">
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-200">{ds.name}</span>
+                      <span className="text-gray-800 dark:text-gray-200">{ds.name}</span>
                       {ds.is_builtin && (
                         <Badge variant="default">Built-in</Badge>
                       )}
@@ -224,9 +224,9 @@ export default function AdminDatasourcesPage() {
                       {ds.type === 'mssql' ? 'SQL Server' : 'PostgreSQL'}
                     </Badge>
                   </td>
-                  <td className="px-4 py-3 text-gray-400 font-mono text-xs">{ds.host}:{ds.port}</td>
-                  <td className="px-4 py-3 text-gray-400 text-xs">{ds.db}</td>
-                  <td className="px-4 py-3 text-gray-400 text-xs">{ds.ssl_mode}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 font-mono text-xs">{ds.host}:{ds.port}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{ds.db}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{ds.ssl_mode}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-block w-2 h-2 rounded-full ${ds.is_active ? 'bg-green-400' : 'bg-gray-500'}`} />
                   </td>
@@ -235,14 +235,14 @@ export default function AdminDatasourcesPage() {
                       <div className="flex items-center justify-center gap-2">
                         <button
                           onClick={() => openEdit(ds)}
-                          className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-200"
+                          className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                           title="Edit"
                         >
                           <Edit2 className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => setDeleteTarget(ds)}
-                          className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-red-400"
+                          className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-red-400"
                           title="Delete"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -347,12 +347,12 @@ export default function AdminDatasourcesPage() {
                 onChange={(v) => setField('is_active', v)}
                 size="sm"
               />
-              <span className="text-sm text-gray-400">Active</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">Active</span>
             </div>
           </div>
 
           {/* Test connection */}
-          <div className="flex items-center gap-3 pt-1 border-t border-gray-700">
+          <div className="flex items-center gap-3 pt-1 border-t border-gray-200 dark:border-gray-700">
             <Button variant="secondary" size="sm" onClick={() => void handleTest()} disabled={testing || !formData.host || !formData.db || !formData.username}>
               {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
               Test Connection
@@ -379,8 +379,8 @@ export default function AdminDatasourcesPage() {
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} className="max-w-sm">
         <DialogHeader title="Delete Data Source" onClose={() => setDeleteTarget(null)} />
         <DialogBody>
-          <p className="text-sm text-gray-300">
-            Delete <span className="font-medium text-gray-100">"{deleteTarget?.name}"</span>?
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            Delete <span className="font-medium text-gray-800 dark:text-gray-100">"{deleteTarget?.name}"</span>?
             Any datasets using this data source will lose their connection.
           </p>
           <div className="flex justify-end gap-3 mt-4">

@@ -44,7 +44,7 @@ function TabsList({ children, className }: { children: React.ReactNode; classNam
   return (
     <div
       className={cn(
-        'flex gap-1 border-b border-gray-700 bg-transparent',
+        'flex gap-1 border-b border-gray-200 dark:border-gray-700 bg-transparent',
         className
       )}
       role="tablist"
@@ -75,8 +75,8 @@ function TabsTrigger({ value, children, className, disabled }: TabsTriggerProps)
         'px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap',
         'border-b-2 -mb-px',
         isActive
-          ? 'border-blue-500 text-blue-400'
-          : 'border-transparent text-gray-400 hover:text-gray-200',
+          ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200',
         disabled && 'pointer-events-none opacity-50',
         className
       )}
