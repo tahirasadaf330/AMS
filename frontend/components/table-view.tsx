@@ -187,35 +187,95 @@ function NumericFilter({
   filters: Record<string, string>;
   onChange: (changes: Record<string, string>) => void;
 }) {
+  const [open, setOpen] = React.useState(false);
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+
   const min = getRangeMin(filters, col.key);
   const max = getRangeMax(filters, col.key);
   const hasFilter = min !== '' || max !== '';
 
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const clear = () => {
+    onChange({ [`${col.key}__min`]: '', [`${col.key}__max`]: '' });
+    setOpen(false);
+  };
+
+  const label = hasFilter
+    ? [min && `≥ ${min}`, max && `≤ ${max}`].filter(Boolean).join('  ')
+    : 'Filter…';
+
   return (
-    <div className={cn('flex items-center gap-1', hasFilter && 'ring-1 ring-blue-500/40 rounded')}>
-      <input
-        type="number"
-        placeholder="Min"
-        value={min}
-        onChange={e => onChange({ [`${col.key}__min`]: e.target.value })}
-        className="w-full h-7 px-2 text-xs rounded border border-gray-600 bg-gray-800/80 text-gray-300 placeholder-gray-600 focus:outline-none focus:border-blue-500 [appearance:textfield]"
-      />
-      <span className="text-gray-600 text-xs flex-shrink-0">–</span>
-      <input
-        type="number"
-        placeholder="Max"
-        value={max}
-        onChange={e => onChange({ [`${col.key}__max`]: e.target.value })}
-        className="w-full h-7 px-2 text-xs rounded border border-gray-600 bg-gray-800/80 text-gray-300 placeholder-gray-600 focus:outline-none focus:border-blue-500 [appearance:textfield]"
-      />
-      {hasFilter && (
-        <button
-          type="button"
-          onClick={() => onChange({ [`${col.key}__min`]: '', [`${col.key}__max`]: '' })}
-          className="flex-shrink-0 text-gray-500 hover:text-gray-200 p-0.5 transition-colors"
-        >
-          <X className="h-3 w-3" />
-        </button>
+    <div ref={wrapRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className={cn(
+          'w-full h-7 px-2 text-left text-xs flex items-center justify-between gap-1 rounded border transition-colors',
+          hasFilter
+            ? 'border-blue-500 bg-blue-500/10 text-blue-300'
+            : 'border-gray-600 bg-gray-800/80 text-gray-500 hover:border-gray-500 hover:text-gray-300',
+        )}
+      >
+        <span className="truncate min-w-0">{label}</span>
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          {hasFilter && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={e => { e.stopPropagation(); clear(); }}
+              onKeyDown={e => e.key === 'Enter' && (e.stopPropagation(), clear())}
+              className="p-0.5 rounded hover:bg-blue-500/20 text-blue-400"
+            >
+              <X className="h-3 w-3" />
+            </span>
+          )}
+          <ChevronDown className="h-3 w-3 opacity-40" />
+        </div>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-50 w-48 rounded-lg border border-gray-600 bg-gray-900 shadow-2xl p-3 space-y-2.5">
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Min</label>
+            <input
+              autoFocus
+              type="number"
+              placeholder="No minimum"
+              value={min}
+              onChange={e => onChange({ [`${col.key}__min`]: e.target.value })}
+              className="w-full h-7 px-2 text-xs rounded border border-gray-600 bg-gray-800 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 [appearance:textfield]"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Max</label>
+            <input
+              type="number"
+              placeholder="No maximum"
+              value={max}
+              onChange={e => onChange({ [`${col.key}__max`]: e.target.value })}
+              className="w-full h-7 px-2 text-xs rounded border border-gray-600 bg-gray-800 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 [appearance:textfield]"
+            />
+          </div>
+          {hasFilter && (
+            <div className="pt-1 border-t border-gray-700/60">
+              <button
+                type="button"
+                onClick={clear}
+                className="text-xs text-gray-500 hover:text-gray-200 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
