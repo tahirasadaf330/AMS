@@ -27,7 +27,7 @@ WITH AllSourceEdr AS (
     LEFT JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
         ON mt.EdrSourceId = e.EdrSmppServerId AND mt.MessageSourceId = 1
     WHERE e.ReceivedDateTime >= '2026-01-01 00:00:00'
-    UNION ALL
+    UNION
     -- ── SMPP archive ────────────────────────────────────────────────────────
     SELECT ae.ReceivedDateTime,
            ae.PartsDetected,
@@ -42,7 +42,7 @@ WITH AllSourceEdr AS (
     LEFT JOIN SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK)
         ON amt.EdrSourceId = ae.ArchiveEdrSmppServerId AND amt.MessageSourceId = 1
     WHERE ae.ReceivedDateTime >= '2026-01-01 00:00:00'
-    UNION ALL
+    UNION
     -- ── API live ────────────────────────────────────────────────────────────
     SELECT e.ReceivedDateTime,
            1                                    AS PartsDetected,
@@ -57,7 +57,7 @@ WITH AllSourceEdr AS (
     LEFT JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
         ON mt.EdrSourceId = e.EdrApiId AND mt.MessageSourceId = 2
     WHERE e.ReceivedDateTime >= '2026-01-01 00:00:00'
-    UNION ALL
+    UNION
     -- ── API archive ─────────────────────────────────────────────────────────
     SELECT ae.ReceivedDateTime,
            1,
@@ -72,7 +72,7 @@ WITH AllSourceEdr AS (
     LEFT JOIN SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK)
         ON amt.EdrSourceId = ae.ArchiveEdrApiId AND amt.MessageSourceId = 2
     WHERE ae.ReceivedDateTime >= '2026-01-01 00:00:00'
-    UNION ALL
+    UNION
     -- ── Campaign live ────────────────────────────────────────────────────────
     SELECT emd.ReceivedDateTime,
            1,
@@ -87,7 +87,7 @@ WITH AllSourceEdr AS (
     LEFT JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
         ON mt.EdrSourceId = emd.EdrSmsCampaignMessageDataId AND mt.MessageSourceId = 3
     WHERE emd.ReceivedDateTime >= '2026-01-01 00:00:00'
-    UNION ALL
+    UNION
     -- ── Campaign archive ─────────────────────────────────────────────────────
     SELECT aemd.ReceivedDateTime,
            1,
@@ -252,7 +252,13 @@ export class ZamaniReportService implements OnModuleInit {
 
   private async ensureDatasetRecord(datasourceId: string): Promise<void> {
     const existing = await this.datasetRepo.findOne({ where: { stageTableName: STAGE } });
-    if (existing) return;
+    if (existing) {
+      if (existing.sqlQuery !== SEED_SQL) {
+        await this.datasetRepo.update(existing.id, { sqlQuery: SEED_SQL });
+        this.logger.log('Updated Zamani Traffic dataset SQL (UNION ALL → UNION)');
+      }
+      return;
+    }
 
     this.logger.log('Seeding Zamani Traffic dataset…');
     await this.datasetRepo.save(
