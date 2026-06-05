@@ -881,6 +881,7 @@ const TABS: { id: Tab; l: string }[] = [
                       {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                   </div>
+
                   {pData?.days_info && (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', marginTop: 8 }}>
                       {[

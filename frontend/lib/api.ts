@@ -309,6 +309,8 @@ export const zamaniApi = {
   getComparison: (params: Record<string, string>) => api.get('/reports/zamani/comparison', { params }),
   getMtd: (params: Record<string, string>) => api.get('/reports/zamani/mtd', { params }),
   getProjections: (params: Record<string, string>) => api.get('/reports/zamani/projections', { params }),
+  upsertTarget: (data: { year: number; month: number; messages_target: number; revenue_target: number }) =>
+    api.post('/reports/zamani/targets', data),
 };
 
 // ── SYSTEM ────────────────────────────────────────────────────

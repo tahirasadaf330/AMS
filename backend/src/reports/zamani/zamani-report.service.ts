@@ -627,8 +627,8 @@ export class ZamaniReportService implements OnModuleInit {
 
     const projectedRevenue  = Number((actualRevenue  + avgDayRev  * remainingDays).toFixed(4));
     const projectedMessages = Math.round(actualMessages + avgDayMsgs * remainingDays);
-    const targetRevenue     = targetRow ? Number(targetRow.revenue_target) : 0;
-    const gap               = targetRevenue > 0 ? projectedRevenue - targetRevenue : null;
+    const targetRevenue     = 137000;
+    const gap               = actualRevenue >= targetRevenue ? 0 : projectedRevenue - targetRevenue;
 
     // Build per-customer projections
     const last7Map = new Map<string, any>(last7PerCustomer.map((r: any) => [r.customer_name, r]));
@@ -648,7 +648,7 @@ export class ZamaniReportService implements OnModuleInit {
     return {
       actual:    { messages: actualMessages, revenue: actualRevenue, margin: Number(actual?.margin ?? 0) },
       projected: { messages: projectedMessages, revenue: projectedRevenue },
-      target:    targetRow ? { messages: Number(targetRow.messages_target), revenue: targetRevenue } : null,
+      target:    { messages: 0, revenue: targetRevenue },
       last7Days,
       daysInfo: { daysInMonth, currentDay, remainingDays, daysUsed: n, avgDayMessages: Math.round(avgDayMsgs), avgDayRevenue: Number(avgDayRev.toFixed(2)) },
       gap,
