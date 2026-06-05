@@ -163,7 +163,7 @@ export function NavSidebar() {
             onClick={() => setDatasetsOpen((v) => !v)}
             className="flex items-center justify-between w-full px-3 py-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-300"
           >
-            <span>Dashboards</span>
+            <span>Datasets</span>
             {datasetsOpen ? (
               <ChevronUp className="h-3 w-3" />
             ) : (

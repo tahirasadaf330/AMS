@@ -54,10 +54,7 @@ export interface NotificationFailedEvent {
 }
 
 @WebSocketGateway({
-  cors: {
-    origin: ['http://localhost:3000'],
-    credentials: true,
-  },
+  cors: { origin: '*' },
   namespace: '/',
 })
 @Injectable()

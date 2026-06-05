@@ -386,9 +386,9 @@ export default function ZamaniTrafficPage() {
 
   /* pie data: add percentage */
   const pieData = React.useMemo(() => {
-    if (!cData?.pieData?.length) return [];
-    const tot = cData.pieData.reduce((s: number, r: any) => s + Number(r.value), 0);
-    return cData.pieData.map((r: any, i: number) => ({
+    if (!cData?.pie_data?.length) return [];
+    const tot = cData.pie_data.reduce((s: number, r: any) => s + Number(r.value), 0);
+    return cData.pie_data.map((r: any, i: number) => ({
       ...r,
       pct: tot ? (Number(r.value) / tot * 100) : 0,
       fill: PAL[i % PAL.length],
@@ -857,26 +857,18 @@ const TABS: { id: Tab; l: string }[] = [
                 <Kpi color="kb" label="Monthly Projection" icon={IC.trend}
                   value={fM(pData.projected?.revenue ?? 0)} sub="forecast at run-rate" />
                 <Kpi color="kt" label="MTD Revenue" icon={IC.rev}
-                  value={fM(pData.actual?.revenue ?? 0)} sub="achieved so far" />
+                  value={fM(pData.actual?.revenue ?? 0)}
+                  sub={pData.days_info ? `${MNF[pMonth-1].slice(0,3)} 1 – ${MNF[pMonth-1].slice(0,3)} ${pData.days_info.current_day}` : 'achieved so far'} />
                 <Kpi color="kr" label="Monthly Gap" icon={IC.down}
                   value={pData.gap != null ? fM(pData.gap) : '—'}
                   sub={pData.gap != null ? (pData.gap >= 0 ? 'on track' : 'behind target') : 'no target set'} />
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 16, marginBottom: 16 }}>
-              <div className="zpnl">
-                <PH title="Achieved vs Target" right="Revenue" />
-                <div className="zpb">
-                  {pData
-                    ? <GaugeChart actual={pData.actual?.revenue ?? 0} projected={pData.projected?.revenue ?? 0} target={pData.target?.revenue ?? 0} label="of monthly target" formatValue={fM} />
-                    : <div style={{ height: 180, display: 'grid', placeItems: 'center', color: 'var(--mu)', fontSize: 13 }}>No data</div>
-                  }
-                </div>
-              </div>
-              <div className="zpnl">
+            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 16, marginBottom: 16, alignItems: 'start' }}>
+              <div className="zpnl" style={{ alignSelf: 'start' }}>
                 <PH title="Filters" />
-                <div className="zpb" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div className="zpb" style={{ display: 'flex', flexDirection: 'column', gap: 8, justifyContent: 'flex-start', height: 340, overflow: 'hidden' }}>
                   <div className="zff" style={{ maxWidth: '100%' }}>
                     <label>Month</label>
                     <select className="zsl" value={pMonth} onChange={e => setPMonth(Number(e.target.value))}>
@@ -889,13 +881,13 @@ const TABS: { id: Tab; l: string }[] = [
                       {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                   </div>
-                  {pData?.daysInfo && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', marginTop: 4 }}>
+                  {pData?.days_info && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', marginTop: 8 }}>
                       {[
-                        ['Days in Month', pData.daysInfo.daysInMonth],
-                        ['Days Recorded', pData.daysInfo.currentDay],
-                        ['Days Remaining', pData.daysInfo.remainingDays],
-                        ['Avg / Day', `$${Number(pData.daysInfo.avgDayRevenue ?? 0).toFixed(0)}`],
+                        ['Days in Month', pData.days_info.days_in_month],
+                        ['Days Recorded', pData.days_info.current_day],
+                        ['Days Remaining', pData.days_info.remaining_days],
+                        ['Avg / Day', `$${Number(pData.days_info.avg_day_revenue ?? 0).toFixed(0)}`],
                       ].map(([l, v]) => (
                         <div key={l as string}>
                           <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--mu)', marginBottom: 3 }}>{l}</div>
@@ -906,23 +898,33 @@ const TABS: { id: Tab; l: string }[] = [
                   )}
                 </div>
               </div>
+              <div className="zpnl">
+                <PH title="Achieved vs Target" right="Revenue" />
+                <div className="zpb" style={{ height: 340 }}>
+                  {pData
+                    ? <GaugeChart actual={pData.actual?.revenue ?? 0} projected={pData.projected?.revenue ?? 0} target={pData.target?.revenue ?? 0} formatValue={fM} />
+                    : <div style={{ height: '100%', display: 'grid', placeItems: 'center', color: 'var(--mu)', fontSize: 13 }}>No data</div>
+                  }
+                </div>
+              </div>
             </div>
 
             {pLoad ? <Skel /> : (
               <div className="zpnl">
-                <PH title="Current Month Projection" right="Last 7 days → month-end" />
-                {!pData?.perCustomer?.length ? (
+                <PH title="Current Month Projection"
+                  right={pData?.days_info ? `${MNF[pMonth-1].slice(0,3)} 1 – ${MNF[pMonth-1].slice(0,3)} ${pData.days_info.current_day} → month-end` : 'last days → month-end'} />
+                {!pData?.per_customer?.length ? (
                   <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No projection data available.</div>
                 ) : (
                   <div style={{ overflowX: 'auto' }}>
                     <table className="zt">
                       <thead><tr>
                         <th style={{ textAlign: 'left' }}>Customer</th>
-                        <th>Msg (7d)</th><th>Proj. Messages</th>
-                        <th>Rev (7d)</th><th>Proj. Revenue</th>
+                        <th>Message (Last {pData.days_info?.days_used ?? 7} Days)</th><th>Projected Messages (Month End Total)</th>
+                        <th>Revenue (Last {pData.days_info?.days_used ?? 7} Days)</th><th>Projected Revenue (Month End Total)</th>
                       </tr></thead>
                       <tbody>
-                        {pData.perCustomer.map((r: any, i: number) => (
+                        {pData.per_customer.map((r: any, i: number) => (
                           <tr key={i}>
                             <td><div className="zconn"><span className="zdot" style={{ background: PAL[i % PAL.length] }} />{r.customer_name}</div></td>
                             <td>{fN(r.messages_last7)}</td>
@@ -934,10 +936,10 @@ const TABS: { id: Tab; l: string }[] = [
                       </tbody>
                       <tfoot><tr>
                         <td>Total</td>
-                        <td>{fN(pData.perCustomer.reduce((s: number, r: any) => s + Number(r.messages_last7 ?? 0), 0))}</td>
-                        <td>{fN(pData.perCustomer.reduce((s: number, r: any) => s + Number(r.projected_messages ?? 0), 0))}</td>
-                        <td>{fR(pData.perCustomer.reduce((s: number, r: any) => s + Number(r.revenue_last7 ?? 0), 0))}</td>
-                        <td className="zpos">{fR(pData.perCustomer.reduce((s: number, r: any) => s + Number(r.projected_revenue ?? 0), 0))}</td>
+                        <td>{fN(pData.per_customer.reduce((s: number, r: any) => s + Number(r.messages_last7 ?? 0), 0))}</td>
+                        <td>{fN(pData.per_customer.reduce((s: number, r: any) => s + Number(r.projected_messages ?? 0), 0))}</td>
+                        <td>{fR(pData.per_customer.reduce((s: number, r: any) => s + Number(r.revenue_last7 ?? 0), 0))}</td>
+                        <td className="zpos">{fR(pData.per_customer.reduce((s: number, r: any) => s + Number(r.projected_revenue ?? 0), 0))}</td>
                       </tr></tfoot>
                     </table>
                   </div>

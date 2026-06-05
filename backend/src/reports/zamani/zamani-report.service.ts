@@ -283,7 +283,13 @@ export class ZamaniReportService implements OnModuleInit {
       `SELECT to_regclass($1)::text AS tbl`,
       [STAGE],
     );
-    if (row?.tbl) return;
+    if (row?.tbl) {
+      // Table exists — ensure id column present (may be missing on older deployments)
+      await this.dataSource.query(
+        `ALTER TABLE ${STAGE} ADD COLUMN IF NOT EXISTS id BIGSERIAL`,
+      );
+      return;
+    }
 
     this.logger.log(`Creating stage table: ${STAGE}`);
     const typeMap: Record<string, string> = { numeric: 'NUMERIC', date: 'DATE', text: 'TEXT' };
@@ -548,7 +554,8 @@ export class ZamaniReportService implements OnModuleInit {
          MAX(EXTRACT(DAY FROM receiveddate))::int         AS current_day
        FROM ${STAGE}
        WHERE EXTRACT(YEAR  FROM receiveddate) = $1
-         AND EXTRACT(MONTH FROM receiveddate) = $2`,
+         AND EXTRACT(MONTH FROM receiveddate) = $2
+         AND receiveddate < CURRENT_DATE`,
       [params.year, params.month],
     );
 
@@ -560,16 +567,21 @@ export class ZamaniReportService implements OnModuleInit {
            ROUND(SUM(revenue)::numeric, 4)          AS revenue
          FROM ${STAGE}
          WHERE receiveddate IN (
-           SELECT DISTINCT receiveddate FROM ${STAGE} ORDER BY receiveddate DESC LIMIT 7
+           SELECT DISTINCT receiveddate FROM ${STAGE}
+           WHERE receiveddate < CURRENT_DATE
+             AND EXTRACT(YEAR  FROM receiveddate) = $1
+             AND EXTRACT(MONTH FROM receiveddate) = $2
+           ORDER BY receiveddate DESC LIMIT 7
          )
          GROUP BY receiveddate
          ORDER BY receiveddate`,
+        [params.year, params.month],
       ),
       this.dataSource.query(
         `SELECT messages_target, revenue_target FROM ${TARGETS} WHERE year = $1 AND month = $2`,
         [params.year, params.month],
       ),
-      // Per-customer MTD totals
+      // Per-customer MTD totals (up to yesterday)
       this.dataSource.query(
         `SELECT
            customerconnection                           AS customer_name,
@@ -578,11 +590,12 @@ export class ZamaniReportService implements OnModuleInit {
          FROM ${STAGE}
          WHERE EXTRACT(YEAR  FROM receiveddate) = $1
            AND EXTRACT(MONTH FROM receiveddate) = $2
+           AND receiveddate < CURRENT_DATE
          GROUP BY customerconnection
          ORDER BY mtd_revenue DESC`,
         [params.year, params.month],
       ),
-      // Per-customer last 7 days
+      // Per-customer last N days within current month (up to yesterday, max 7)
       this.dataSource.query(
         `SELECT
            customerconnection                           AS customer_name,
@@ -590,9 +603,14 @@ export class ZamaniReportService implements OnModuleInit {
            ROUND(SUM(revenue)::numeric, 4)             AS revenue_last7
          FROM ${STAGE}
          WHERE receiveddate IN (
-           SELECT DISTINCT receiveddate FROM ${STAGE} ORDER BY receiveddate DESC LIMIT 7
+           SELECT DISTINCT receiveddate FROM ${STAGE}
+           WHERE receiveddate < CURRENT_DATE
+             AND EXTRACT(YEAR  FROM receiveddate) = $1
+             AND EXTRACT(MONTH FROM receiveddate) = $2
+           ORDER BY receiveddate DESC LIMIT 7
          )
          GROUP BY customerconnection`,
+        [params.year, params.month],
       ),
     ]);
 
@@ -632,7 +650,7 @@ export class ZamaniReportService implements OnModuleInit {
       projected: { messages: projectedMessages, revenue: projectedRevenue },
       target:    targetRow ? { messages: Number(targetRow.messages_target), revenue: targetRevenue } : null,
       last7Days,
-      daysInfo: { daysInMonth, currentDay, remainingDays, avgDayMessages: Math.round(avgDayMsgs), avgDayRevenue: Number(avgDayRev.toFixed(2)) },
+      daysInfo: { daysInMonth, currentDay, remainingDays, daysUsed: n, avgDayMessages: Math.round(avgDayMsgs), avgDayRevenue: Number(avgDayRev.toFixed(2)) },
       gap,
       perCustomer,
     };

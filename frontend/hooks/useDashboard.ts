@@ -88,6 +88,8 @@ export function useTriggerRefresh() {
       setTimeout(() => {
         void queryClient.invalidateQueries({ queryKey: dashboardKeys.datasets() });
         void queryClient.invalidateQueries({ queryKey: dashboardKeys.history(datasetId) });
+        void queryClient.invalidateQueries({ queryKey: [...dashboardKeys.all, 'data', datasetId] });
+        void queryClient.invalidateQueries({ queryKey: dashboardKeys.matrix(datasetId) });
       }, 2000);
     },
     onError: () => {

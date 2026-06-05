@@ -29,7 +29,7 @@ export function getSocket(token: string): Socket {
     reconnectionDelay: 1000,
     reconnectionDelayMax: 30_000,
     randomizationFactor: 0.5,
-    transports: ['websocket', 'polling'],
+    transports: ['polling', 'websocket'],
     timeout: 20_000,
   });
 
