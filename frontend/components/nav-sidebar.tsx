@@ -17,6 +17,8 @@ import {
   Activity,
   ChevronDown,
   ChevronUp,
+  BarChart2,
+  FileBarChart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
@@ -41,6 +43,7 @@ export function NavSidebar() {
 
   const [datasetsOpen, setDatasetsOpen] = React.useState(true);
   const [adminOpen, setAdminOpen] = React.useState(false);
+  const [reportsOpen, setReportsOpen] = React.useState(true);
 
   const navItems: NavItem[] = [
     { label: 'Overview', href: '/', icon: LayoutDashboard },
@@ -99,6 +102,9 @@ export function NavSidebar() {
               <Clock className="h-5 w-5" />
             </Link>
           )}
+          <Link href="/reports/zamani-traffic" className={cn('p-2 rounded-lg hover:bg-gray-700', isActive('/reports') ? 'text-blue-400' : 'text-gray-400')} title="Reports">
+            <BarChart2 className="h-5 w-5" />
+          </Link>
           {canAccess('admin') && (
             <Link href="/admin/settings" className={cn('p-2 rounded-lg hover:bg-gray-700', isActive('/admin') ? 'text-blue-400' : 'text-gray-400')} title="Admin">
               <Settings className="h-5 w-5" />
@@ -186,6 +192,39 @@ export function NavSidebar() {
               {datasets.length === 0 && (
                 <p className="px-5 py-2 text-xs text-gray-400 dark:text-gray-600">No dashboards</p>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* Reports section */}
+        <div>
+          <button
+            onClick={() => setReportsOpen((v) => !v)}
+            className="flex items-center justify-between w-full px-3 py-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-300"
+          >
+            <span>Reports</span>
+            {reportsOpen ? (
+              <ChevronUp className="h-3 w-3" />
+            ) : (
+              <ChevronDown className="h-3 w-3" />
+            )}
+          </button>
+
+          {reportsOpen && (
+            <div className="space-y-0.5 mt-1">
+              <Link
+                href="/reports/zamani-traffic"
+                className={cn(
+                  'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
+                  'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
+                  isActive('/reports/zamani-traffic')
+                    ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
+                    : 'text-gray-500 dark:text-gray-400'
+                )}
+              >
+                <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>Zamani Traffic</span>
+              </Link>
             </div>
           )}
         </div>

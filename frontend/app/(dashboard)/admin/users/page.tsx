@@ -311,7 +311,7 @@ export default function AdminUsersPage() {
             )}
             {!editingUser && (
               <Toggle
-                checked={formData.send_welcome_email}
+                checked={!!formData.send_welcome_email}
                 onChange={(v) => setFormData((p) => ({ ...p, send_welcome_email: v }))}
                 label="Send welcome email"
               />

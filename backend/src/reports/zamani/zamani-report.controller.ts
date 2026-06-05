@@ -1,0 +1,65 @@
+import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { ZamaniReportService } from './zamani-report.service';
+
+@Controller('reports/zamani')
+@UseGuards(JwtAuthGuard)
+export class ZamaniReportController {
+  constructor(private readonly zamaniService: ZamaniReportService) {}
+
+  @Get('filters')
+  getFilters() {
+    return this.zamaniService.getFilters();
+  }
+
+  @Get('yesterday')
+  getYesterday(
+    @Query('date') date: string,
+    @Query('customer') customer?: string,
+    @Query('senderId') senderId?: string,
+    @Query('operator') operator?: string,
+    @Query('accountManager') accountManager?: string,
+    @Query('vendorConnection') vendorConnection?: string,
+  ) {
+    return this.zamaniService.getYesterday({ date, customer, senderId, operator, accountManager, vendorConnection });
+  }
+
+  @Get('comparison')
+  getComparison(
+    @Query('old_date') old_date: string,
+    @Query('new_date') new_date: string,
+    @Query('customer') customer?: string,
+  ) {
+    return this.zamaniService.getComparison({ old_date, new_date, customer });
+  }
+
+  @Get('mtd')
+  getMtd(
+    @Query('year') year: string,
+    @Query('month') month: string,
+    @Query('customer') customer?: string,
+    @Query('senderId') senderId?: string,
+    @Query('accountManager') accountManager?: string,
+    @Query('vendorConnection') vendorConnection?: string,
+  ) {
+    return this.zamaniService.getMtd({ year: Number(year), month: Number(month), customer, senderId, accountManager, vendorConnection });
+  }
+
+  @Get('projections')
+  getProjections(
+    @Query('year') year: string,
+    @Query('month') month: string,
+  ) {
+    return this.zamaniService.getProjections({ year: Number(year), month: Number(month) });
+  }
+
+  @Get('targets')
+  getTargets() {
+    return this.zamaniService.getTargets();
+  }
+
+  @Post('targets')
+  upsertTarget(@Body() dto: { year: number; month: number; messages_target: number; revenue_target: number }) {
+    return this.zamaniService.upsertTarget(dto);
+  }
+}

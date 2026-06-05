@@ -374,7 +374,7 @@ export default function AdminDatasetsPage() {
                         <option value="date">Date</option>
                       </Select>
                       <Toggle
-                        checked={col.visible}
+                        checked={!!col.visible}
                         onChange={(v) => setFormData((p) => ({
                           ...p,
                           column_metadata: p.column_metadata.map((c, ci) =>
@@ -421,7 +421,7 @@ export default function AdminDatasetsPage() {
               <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-1.5 bg-gray-50 dark:bg-gray-800/40">
                 <div className="flex items-center gap-3">
                   <Toggle
-                    checked={formData.create_stage_table}
+                    checked={!!formData.create_stage_table}
                     onChange={(v) => setFormData((p) => ({ ...p, create_stage_table: v }))}
                     size="sm"
                   />
@@ -443,7 +443,7 @@ export default function AdminDatasetsPage() {
             )}
 
             <Toggle
-              checked={formData.is_active}
+              checked={!!formData.is_active}
               onChange={(v) => setFormData((p) => ({ ...p, is_active: v }))}
               label="Active"
             />

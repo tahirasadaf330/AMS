@@ -96,6 +96,8 @@ export class DatasetsService {
 
   async update(id: string, dto: UpdateDatasetDto): Promise<Dataset> {
     const dataset = await this.findOne(id);
+    const sqlChanged = dto.sql_query !== undefined && dto.sql_query !== dataset.sqlQuery;
+
     try {
       await this.datasetRepo.update(id, {
         name: dto.name ?? dataset.name,
@@ -114,6 +116,13 @@ export class DatasetsService {
           ? (dto.schedule_end_date ? new Date(dto.schedule_end_date) : null)
           : dataset.scheduleEndDate,
       });
+
+      // SQL changed → drop old stage table so next refresh rebuilds it with correct schema
+      if (sqlChanged && dataset.stageTableName && /^[a-z_][a-z0-9_]*$/i.test(dataset.stageTableName)) {
+        await this.dataSource.query(`DROP TABLE IF EXISTS "${dataset.stageTableName}"`);
+        this.logger.log(`Dropped stage table "${dataset.stageTableName}" — will be recreated on next refresh`);
+      }
+
       return this.findOne(id);
     } catch (err) {
       this.logger.error('Error updating dataset', err);

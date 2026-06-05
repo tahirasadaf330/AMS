@@ -149,7 +149,7 @@ export default function ConditionsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <Toggle
-                        checked={condition.is_active}
+                        checked={!!condition.is_active}
                         onChange={() => void handleToggleActive(condition)}
                         size="sm"
                         disabled={!canCreate}

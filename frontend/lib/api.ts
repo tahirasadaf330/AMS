@@ -302,6 +302,15 @@ export const auditLogApi = {
   },
 };
 
+// ── ZAMANI REPORT ─────────────────────────────────────────────
+export const zamaniApi = {
+  getFilters: () => api.get('/reports/zamani/filters'),
+  getYesterday: (params: Record<string, string>) => api.get('/reports/zamani/yesterday', { params }),
+  getComparison: (params: Record<string, string>) => api.get('/reports/zamani/comparison', { params }),
+  getMtd: (params: Record<string, string>) => api.get('/reports/zamani/mtd', { params }),
+  getProjections: (params: Record<string, string>) => api.get('/reports/zamani/projections', { params }),
+};
+
 // ── SYSTEM ────────────────────────────────────────────────────
 export const systemApi = {
   health: () =>

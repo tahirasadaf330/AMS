@@ -343,7 +343,7 @@ export default function AdminDatasourcesPage() {
 
             <div className="col-span-2 flex items-center gap-3">
               <Toggle
-                checked={formData.is_active}
+                checked={!!formData.is_active}
                 onChange={(v) => setField('is_active', v)}
                 size="sm"
               />

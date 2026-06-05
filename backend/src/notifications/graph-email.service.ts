@@ -304,14 +304,15 @@ export class GraphEmailService {
       ? new Set(params.selectedColumns)
       : null;
     let colDefs: Array<{ key: string; label: string }> = [];
+    const fmtLabel = (l: string) => l.replace(/_/g, ' ').toUpperCase();
     if (params.columnMeta && params.columnMeta.length > 0) {
       colDefs = params.columnMeta
         .filter((c) => c.visible !== false && !EXCLUDED_KEYS.has(c.key.toLowerCase()) && (!selectedSet || selectedSet.has(c.key)))
-        .map((c) => ({ key: c.key, label: c.label }));
+        .map((c) => ({ key: c.key, label: fmtLabel(c.label) }));
     } else if (params.matchedRows.length > 0) {
       colDefs = Object.keys(params.matchedRows[0])
         .filter((k) => !EXCLUDED_KEYS.has(k.toLowerCase()) && (!selectedSet || selectedSet.has(k)))
-        .map((k) => ({ key: k, label: k.replace(/_/g, ' ') }));
+        .map((k) => ({ key: k, label: fmtLabel(k) }));
     }
 
     const VISIBLE_ROWS = 5;
@@ -400,6 +401,10 @@ export class GraphEmailService {
       return formatted;
     }
     const strVal = String(val);
+    // Detect ISO date / timestamp before numeric check — parseFloat('2026-06-04T…') = 2026
+    if (/^\d{4}-\d{2}-\d{2}(T|\s|Z|$)/.test(strVal)) {
+      return this.escapeHtml(strVal.slice(0, 10));
+    }
     const numVal = parseFloat(strVal);
     if (!isNaN(numVal) && strVal.trim() !== '' && /^-?\d/.test(strVal.trim())) {
       if (numVal === 0) return '<span style="color:#bbb;">0.00</span>';

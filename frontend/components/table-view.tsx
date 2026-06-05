@@ -47,10 +47,13 @@ function getRangeMax(filters: Record<string, string>, key: string) {
 
 // ── Cell renderer ────────────────────────────────────────────────────────────
 
-function CellValue({ value }: { value: string | number | null }) {
+function CellValue({ value, type }: { value: string | number | null; type?: string }) {
   if (value === null || value === undefined || value === '')
     return <span className="text-gray-400 dark:text-gray-600">—</span>;
-  return <>{String(value)}</>;
+  const str = String(value);
+  if (type === 'date' || /^\d{4}-\d{2}-\d{2}(T|\s|$)/.test(str))
+    return <>{str.slice(0, 10)}</>;
+  return <>{str}</>;
 }
 
 // ── Text multi-select filter ─────────────────────────────────────────────────
@@ -578,7 +581,7 @@ export function TableView({
                             maxWidth: 0,
                           }}
                         >
-                          <CellValue value={raw} />
+                          <CellValue value={raw} type={col.type} />
                         </td>
                       );
                     })}

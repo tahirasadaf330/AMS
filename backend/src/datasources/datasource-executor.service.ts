@@ -140,8 +140,60 @@ export class DatasourceExecutorService implements OnModuleDestroy {
     if (pool.type === 'postgresql') {
       return this.query(dataSourceId, `SELECT * FROM (${sql}) AS _q LIMIT 0`);
     } else {
-      return this.query(dataSourceId, `SELECT TOP 0 * FROM (${sql}) AS _q`);
+      return this.query(dataSourceId, this.buildMssqlValidationSql(sql));
     }
+  }
+
+  private buildMssqlValidationSql(sql: string): string {
+    const trimmed = sql.trim();
+
+    // Non-CTE: simple subquery wrap
+    if (!/^WITH\s+/i.test(trimmed)) {
+      return `SELECT TOP 0 * FROM (${trimmed}) AS _q`;
+    }
+
+    // CTE query: MSSQL forbids WITH inside a derived table.
+    // Fix: (1) strip outermost ORDER BY, (2) inject TOP 0 into the final SELECT.
+
+    // Step 1 — find and remove the last ORDER BY at paren depth 0.
+    // We scan char-by-char tracking depth; string literals are already inside
+    // CTE bodies (depth > 0) so unbalanced-quote edge cases don't affect us here.
+    let depth = 0;
+    let lastOrderByIdx = -1;
+    const upper = trimmed.toUpperCase();
+
+    for (let i = 0; i < trimmed.length; i++) {
+      if (trimmed[i] === '(') { depth++; continue; }
+      if (trimmed[i] === ')') { depth--; continue; }
+      if (depth !== 0) continue;
+
+      // Match ORDER<space>BY at a word boundary
+      if (
+        upper[i] === 'O' &&
+        upper.slice(i, i + 5) === 'ORDER' &&
+        /\s/.test(upper[i + 5] ?? '\n') &&
+        (i === 0 || /[\s\n\r,]/.test(trimmed[i - 1]))
+      ) {
+        // Confirm it's ORDER BY (not just ORDER)
+        const chunk = upper.slice(i, i + 12).replace(/\s+/, ' ');
+        if (/^ORDER BY\b/i.test(chunk)) {
+          lastOrderByIdx = i;
+        }
+      }
+    }
+
+    const noOrderBy = lastOrderByIdx >= 0
+      ? trimmed.slice(0, lastOrderByIdx).trimEnd()
+      : trimmed;
+
+    // Step 2 — inject TOP 0 after the last CTE closing paren, before the outer SELECT.
+    // Pattern: ")\n...SELECT " → ")\n...SELECT TOP 0 "
+    const withTop0 = noOrderBy.replace(
+      /(\)\s*[\r\n]+\s*)(SELECT\s)/i,
+      '$1SELECT TOP 0 ',
+    );
+
+    return withTop0;
   }
 
   invalidatePool(dataSourceId: string): void {
