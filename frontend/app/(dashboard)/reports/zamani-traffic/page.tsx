@@ -308,7 +308,7 @@ export default function ZamaniTrafficPage() {
   const [mCust,  setMCust]  = React.useState('');
   const [mData,  setMData]  = React.useState<any>(null);
   const [mLoad,  setMLoad]  = React.useState(false);
-  const [mMetrics, setMMetrics] = React.useState<Set<Metric>>(new Set(['messages']));
+  const [mMetrics, setMMetrics] = React.useState<Set<Metric>>(new Set<Metric>(['messages']));
   const toggleMetric = (m: Metric) => setMMetrics(prev => {
     const next = new Set(prev);
     if (next.has(m) && next.size > 1) next.delete(m); else next.add(m);
@@ -549,8 +549,8 @@ const TABS: { id: Tab; l: string }[] = [
             {/* Summary cards */}
             {cTotals && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                {/* Gray card — Date 1 (cOld) */}
-                <div style={{ background: 'var(--asphalt)', borderRadius: 10, padding: '20px 22px', color: '#fff', boxShadow: '0 4px 0 rgba(0,0,0,.18)' }}>
+                {/* Slate-blue card — Date 1 (cOld) */}
+                <div style={{ background: '#6b8fa8', borderRadius: 10, padding: '20px 22px', color: '#fff', boxShadow: '0 4px 0 rgba(0,0,0,.18)' }}>
                   <div style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 13, marginBottom: 16, opacity: .75, letterSpacing: '.04em' }}>{cOld || '—'}</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' }}>
                     {([['Messages', fN(cTotals.msg_old)], ['Delivered', fN(cTotals.dlr_old)], ['Revenue', fM(cTotals.rev_old)], ['Margin', fM(cTotals.mar_old)]] as [string, string][]).map(([lbl, val]) => (
