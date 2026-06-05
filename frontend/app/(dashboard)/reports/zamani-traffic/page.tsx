@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import { zamaniApi } from '@/lib/api';
@@ -308,6 +308,12 @@ export default function ZamaniTrafficPage() {
   const [mCust,  setMCust]  = React.useState('');
   const [mData,  setMData]  = React.useState<any>(null);
   const [mLoad,  setMLoad]  = React.useState(false);
+  const [mMetrics, setMMetrics] = React.useState<Set<Metric>>(new Set(['messages']));
+  const toggleMetric = (m: Metric) => setMMetrics(prev => {
+    const next = new Set(prev);
+    if (next.has(m) && next.size > 1) next.delete(m); else next.add(m);
+    return next;
+  });
   const mSort = useSortState('revenue');
 
   /* projections */
@@ -389,7 +395,14 @@ export default function ZamaniTrafficPage() {
     }));
   }, [cData]);
 
-  const TABS: { id: Tab; l: string }[] = [
+  type Metric = 'messages' | 'revenue' | 'margin';
+const MCFG: Record<Metric, { label: string; color: string; yAxis: 'left' | 'right'; fmt: (v: any) => string }> = {
+  messages: { label: 'Messages', color: PAL[0], yAxis: 'left',  fmt: fN },
+  revenue:  { label: 'Revenue',  color: PAL[1], yAxis: 'right', fmt: fR },
+  margin:   { label: 'Margin',   color: PAL[2], yAxis: 'right', fmt: fR },
+};
+
+const TABS: { id: Tab; l: string }[] = [
     { id: 'yesterday',   l: 'Yesterday Data' },
     { id: 'comparison',  l: 'Comparison' },
     { id: 'mtd',         l: 'Month to Date' },
@@ -438,11 +451,11 @@ export default function ZamaniTrafficPage() {
           <>
             {yData?.totals && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 18 }}>
-                <Kpi color="kt" label="Total Messages" icon={IC.msg}
+                <Kpi color="kb" label="Total Messages" icon={IC.msg}
                   value={fN(yData.totals.messages)} sub={`for ${yDate}`} />
-                <Kpi color="kb" label="Total Revenue" icon={IC.rev}
+                <Kpi color="kt" label="Total Revenue" icon={IC.rev}
                   value={fM(yData.totals.revenue)} sub="yesterday total" />
-                <Kpi color="kg" label="Total Margin" icon={IC.trend}
+                <Kpi color="kp" label="Total Margin" icon={IC.trend}
                   value={fM(yData.totals.margin)} sub="net contribution" />
                 <Kpi color="kc" label="Avg Margin %" icon={IC.pct}
                   value={fP(yData.totals.revenue ? yData.totals.margin / yData.totals.revenue * 100 : 0)}
@@ -548,8 +561,8 @@ export default function ZamaniTrafficPage() {
                     ))}
                   </div>
                 </div>
-                {/* Green card — Date 2 (cNew) */}
-                <div style={{ background: 'var(--nephritis)', borderRadius: 10, padding: '20px 22px', color: '#fff', boxShadow: '0 4px 0 rgba(0,0,0,.18)' }}>
+                {/* Blue card — Date 2 (cNew) */}
+                <div style={{ background: 'var(--belize)', borderRadius: 10, padding: '20px 22px', color: '#fff', boxShadow: '0 4px 0 rgba(0,0,0,.18)' }}>
                   <div style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 13, marginBottom: 16, opacity: .75, letterSpacing: '.04em' }}>{cNew || '—'}</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' }}>
                     {([['Messages', fN(cTotals.msg_new)], ['Delivered', fN(cTotals.dlr_new)], ['Revenue', fM(cTotals.rev_new)], ['Margin', fM(cTotals.mar_new)]] as [string, string][]).map(([lbl, val]) => (
@@ -596,12 +609,16 @@ export default function ZamaniTrafficPage() {
                             }))}
                           margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
                           <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
-                          <XAxis dataKey="name" {...AX} tick={{ fontSize: 11, fill: 'var(--inks)' }} />
-                          <YAxis {...AX} width={54} tickFormatter={v => `$${(v / 1000).toFixed(0)}K`} />
-                          <Tooltip {...TIP} formatter={(v: any, name: string) => [fR(v), name]} labelStyle={{ color: 'var(--ink)', fontWeight: 600 }} />
-                          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: 'var(--ink)' }} />
-                          <Bar dataKey="d1" name={cOld || 'Date 1'} fill="#7f8c8d" fillOpacity={0.9} radius={[3, 3, 0, 0]} />
-                          <Bar dataKey="d2" name={cNew || 'Date 2'} fill="var(--nephritis)" fillOpacity={0.9} radius={[3, 3, 0, 0]} />
+                          <XAxis dataKey="name" {...AX} tick={{ fontSize: 11, fill: '#ecf0f1' }} />
+                          <YAxis {...AX} width={54} tick={{ fontSize: 10, fill: '#bdc3c7' }} tickFormatter={v => `$${(v / 1000).toFixed(0)}K`} />
+                          <Tooltip
+                            contentStyle={{ background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 8, fontSize: 12 }}
+                            labelStyle={{ color: '#ecf0f1', fontWeight: 700, marginBottom: 4 }}
+                            itemStyle={{ color: '#ecf0f1' }}
+                            formatter={(v: any, name: string) => [fR(v), name]} />
+                          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: '#ecf0f1' }} />
+                          <Bar dataKey="d1" name={cOld || 'Date 1'} fill="#6b8fa8" fillOpacity={1} radius={[3, 3, 0, 0]} />
+                          <Bar dataKey="d2" name={cNew || 'Date 2'} fill="var(--belize)" fillOpacity={1} radius={[3, 3, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -665,11 +682,11 @@ export default function ZamaniTrafficPage() {
           <>
             {mData?.totals && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 18 }}>
-                <Kpi color="kt" label="MTD Messages" icon={IC.msg}
+                <Kpi color="kb" label="MTD Messages" icon={IC.msg}
                   value={fN(mData.totals.messages)} sub={`${mRows.length} connections`} />
-                <Kpi color="kb" label="MTD Revenue" icon={IC.rev}
+                <Kpi color="kt" label="MTD Revenue" icon={IC.rev}
                   value={fM(mData.totals.revenue)} sub="month to date" />
-                <Kpi color="kg" label="MTD Margin" icon={IC.trend}
+                <Kpi color="kp" label="MTD Margin" icon={IC.trend}
                   value={fM(mData.totals.margin)} sub="net contribution" />
                 <Kpi color="kc" label="Avg Margin %" icon={IC.pct}
                   value={fP(mData.totals.revenue ? mData.totals.margin / mData.totals.revenue * 100 : 0)}
@@ -698,12 +715,94 @@ export default function ZamaniTrafficPage() {
                 </select>
               </div>
               <div style={{ alignSelf: 'flex-end' }}>
-                <button className="zbt" onClick={() => setMCust('')}>Reset</button>
+                <button className="zbt" onClick={() => { setMCust(''); setMYear(new Date().getFullYear()); setMMonth(new Date().getMonth() + 1); }}>Reset</button>
               </div>
             </div>
 
             {mLoad ? <Skel /> : (
-              <div className="zpnl">
+              <>
+                {/* Daily trend line chart */}
+                {mData?.daily?.length > 0 && (
+                  <div className="zpnl" style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 18px 12px', borderBottom: '1px solid var(--ln)' }}>
+                      <h2 style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--ink)', letterSpacing: '-.2px' }}>
+                        Daily Trend — {MNF[mMonth - 1]} {mYear}
+                      </h2>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {(Object.keys(MCFG) as Metric[]).map(m => {
+                          const active = mMetrics.has(m);
+                          return (
+                            <button key={m} onClick={() => toggleMetric(m)} style={{
+                              padding: '5px 13px', borderRadius: 6, fontSize: 12,
+                              fontWeight: 700, cursor: 'pointer', transition: '.12s', letterSpacing: '.02em',
+                              border: `1.5px solid ${active ? MCFG[m].color : 'var(--lns)'}`,
+                              background: active ? MCFG[m].color : 'var(--sf2)',
+                              color: active ? '#fff' : 'var(--mu)',
+                              boxShadow: active ? `0 2px 0 rgba(0,0,0,.2)` : 'none',
+                            }}>
+                              {MCFG[m].label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div style={{ height: 260, padding: '12px 12px 8px' }}>
+                      {(() => {
+                        // pg returns NUMERIC as strings — parse to numbers so Recharts computes domain correctly
+                        const dailyParsed = mData.daily.map((d: any) => ({
+                          ...d,
+                          messages: Number(d.messages ?? 0),
+                          revenue:  Number(d.revenue  ?? 0),
+                          margin:   Number(d.margin   ?? 0),
+                        }));
+                        const showLeft  = mMetrics.has('messages');
+                        const showRight = mMetrics.has('revenue') || mMetrics.has('margin');
+                        const multi     = mMetrics.size > 1;
+                        return (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={dailyParsed}
+                              margin={{ top: 8, right: showRight ? 60 : 16, bottom: 0, left: 0 }}>
+                              <defs>
+                                {(Object.keys(MCFG) as Metric[]).map(m => (
+                                  <linearGradient key={m} id={`mlg_${m}`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%"   stopColor={MCFG[m].color} stopOpacity={multi ? 0.22 : 0.45} />
+                                    <stop offset="100%" stopColor={MCFG[m].color} stopOpacity={0.02} />
+                                  </linearGradient>
+                                ))}
+                              </defs>
+                              <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
+                              <XAxis dataKey="date" {...AX} tickFormatter={(v: string) => v.slice(5)} />
+                              {/* Left axis — messages */}
+                              <YAxis yAxisId="left" orientation="left" {...AX}
+                                width={showLeft ? 54 : 0} hide={!showLeft}
+                                domain={[0, (d: number) => d * 1.15]}
+                                tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}K`} />
+                              {/* Right axis — revenue / margin */}
+                              <YAxis yAxisId="right" orientation="right" {...AX}
+                                width={showRight ? 60 : 0} hide={!showRight}
+                                domain={[0, (d: number) => d * 1.15]}
+                                tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}K`} />
+                              <Tooltip {...TIP}
+                                formatter={(v: any, name: string) => {
+                                  const m = name as Metric;
+                                  return [MCFG[m]?.fmt(v) ?? v, MCFG[m]?.label ?? name];
+                                }}
+                                labelFormatter={(v: string) => `Date: ${v}`} />
+                              {(Object.keys(MCFG) as Metric[]).filter(m => mMetrics.has(m)).map(m => (
+                                <Area key={m} yAxisId={MCFG[m].yAxis} type="monotone" dataKey={m} name={m} connectNulls
+                                  stroke={MCFG[m].color} strokeWidth={2.5}
+                                  fill={`url(#mlg_${m})`} dot={false}
+                                  activeDot={{ r: 4, stroke: '#fff', strokeWidth: 2, fill: MCFG[m].color }} />
+                              ))}
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                <div className="zpnl">
                 <PH title="Monthly Data" right={mSorted.length ? `${mSorted.length} of ${mRows.length}` : undefined} />
                 {!mSorted.length ? (
                   <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No data for this period.</div>
@@ -741,6 +840,7 @@ export default function ZamaniTrafficPage() {
                   </div>
                 )}
               </div>
+              </>
             )}
           </>
         )}
