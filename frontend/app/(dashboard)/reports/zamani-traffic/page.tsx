@@ -12,6 +12,7 @@ const MNF = ['January','February','March','April','May','June','July','August','
 const MNS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 const yd  = () => { const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); };
+const dby = () => { const d = new Date(); d.setDate(d.getDate()-2); return d.toISOString().slice(0,10); };
 const fN  = (n: any) => n != null ? Number(n).toLocaleString('en-US',{maximumFractionDigits:0}) : '—';
 const fR  = (n: any) => n != null ? `$${Number(n).toFixed(2)}` : '—';
 const fM  = (n: any) => { if (n==null) return '—'; const v=Number(n); return v>=1e6?`$${(v/1e6).toFixed(2)}M`:v>=1e3?`$${(v/1e3).toFixed(1)}K`:`$${v.toFixed(2)}`; };
@@ -210,6 +211,48 @@ function Skel() {
   );
 }
 
+/* ── Comparison pie helper ───────────────────────────────── */
+function CmpPie({ rows, revKey }: { rows: any[]; revKey: string }) {
+  const data = React.useMemo(() => {
+    const sorted = [...rows].sort((a, b) => Number(b[revKey] ?? 0) - Number(a[revKey] ?? 0)).slice(0, 10);
+    const tot = sorted.reduce((s: number, r: any) => s + Number(r[revKey] ?? 0), 0);
+    return sorted
+      .map((r: any, i: number) => ({
+        name: r.customer_name ?? 'Unknown',
+        value: Number(r[revKey] ?? 0),
+        pct: tot ? Number(r[revKey] ?? 0) / tot * 100 : 0,
+        fill: PAL[i % PAL.length],
+      }))
+      .filter(d => d.value > 0);
+  }, [rows, revKey]);
+
+  if (!data.length) return <div style={{ padding: 20, color: 'var(--mu)', fontSize: 13 }}>No data.</div>;
+
+  return (
+    <div className="zpb" style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ flex: '0 0 180px' }}>
+        <ResponsiveContainer width={180} height={180}>
+          <PieChart>
+            <Pie data={data} dataKey="value" innerRadius={48} outerRadius={80} paddingAngle={2} startAngle={90} endAngle={-270} strokeWidth={0}>
+              {data.map((e: any, i: number) => <Cell key={i} fill={e.fill} />)}
+            </Pie>
+            <Tooltip {...TIP} formatter={(v: any, _: any, p: any) => [`${fR(v)} (${p.payload.pct.toFixed(1)}%)`, 'Revenue']} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="zleg" style={{ flex: '1 1 120px' }}>
+        {data.map((d: any, i: number) => (
+          <div key={i} className="li">
+            <span className="sw" style={{ background: d.fill }} />
+            {d.name}
+            <b>{d.pct.toFixed(1)}%</b>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── Sortable TH helper ──────────────────────────────────── */
 function useSortState(defaultKey: string) {
   const [s, set] = React.useState<{ k: string; d: 1 | -1 }>({ k: defaultKey, d: -1 });
@@ -254,8 +297,8 @@ export default function ZamaniTrafficPage() {
   const ySort = useSortState('revenue');
 
   /* comparison */
-  const [cOld, setCOld] = React.useState('');
-  const [cNew, setCNew] = React.useState('');
+  const [cOld, setCOld] = React.useState(dby);
+  const [cNew, setCNew] = React.useState(yd);
   const [cData, setCData] = React.useState<any>(null);
   const [cLoad, setCLoad] = React.useState(false);
 
@@ -478,157 +521,106 @@ export default function ZamaniTrafficPage() {
         ════════════════════════════════════════════════ */}
         {tab === 'comparison' && (
           <>
+            {/* Filter strip */}
             <div className="zpnl zfilt">
               <div className="zff">
-                <label>Date New</label>
-                <input className="zdi" type="date" value={cNew} onChange={e => setCNew(e.target.value)} />
+                <label>Date 1</label>
+                <input className="zdi" type="date" value={cOld} onChange={e => setCOld(e.target.value)} />
               </div>
               <div className="zff">
-                <label>Date Old</label>
-                <input className="zdi" type="date" value={cOld} onChange={e => setCOld(e.target.value)} />
+                <label>Date 2</label>
+                <input className="zdi" type="date" value={cNew} onChange={e => setCNew(e.target.value)} />
               </div>
             </div>
 
+            {/* Summary cards */}
             {cTotals && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 18 }}>
-                <Kpi color="kt" label="Messages (New)" icon={IC.msg}
-                  value={fN(cTotals.msg_new)}
-                  sub={<><Delta diff={cTotals.msg_old ? (cTotals.msg_new - cTotals.msg_old) / cTotals.msg_old * 100 : null} /> vs {fN(cTotals.msg_old)}</>} />
-                <Kpi color="kb" label="Revenue (New)" icon={IC.rev}
-                  value={fM(cTotals.rev_new)}
-                  sub={<><Delta diff={cTotals.rev_old ? (cTotals.rev_new - cTotals.rev_old) / cTotals.rev_old * 100 : null} /> vs {fM(cTotals.rev_old)}</>} />
-                <Kpi color="kg" label="Margin (New)" icon={IC.trend}
-                  value={fM(cTotals.mar_new)}
-                  sub={<><Delta diff={cTotals.mar_old ? (cTotals.mar_new - cTotals.mar_old) / cTotals.mar_old * 100 : null} /> vs {fM(cTotals.mar_old)}</>} />
-                <Kpi color="kp" label="Avg DLR %" icon={IC.dlr}
-                  value={fP(cTotals.dlr_pct_new)} sub="delivered ÷ sent" />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                {/* Gray card — Date 1 (cOld) */}
+                <div style={{ background: 'var(--asphalt)', borderRadius: 10, padding: '20px 22px', color: '#fff', boxShadow: '0 4px 0 rgba(0,0,0,.18)' }}>
+                  <div style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 13, marginBottom: 16, opacity: .75, letterSpacing: '.04em' }}>{cOld || '—'}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' }}>
+                    {([['Messages', fN(cTotals.msg_old)], ['Delivered', fN(cTotals.dlr_old)], ['Revenue', fM(cTotals.rev_old)], ['Margin', fM(cTotals.mar_old)]] as [string, string][]).map(([lbl, val]) => (
+                      <div key={lbl}>
+                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', opacity: .6 }}>{lbl}</div>
+                        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 600, fontSize: 19, marginTop: 3 }}>{val}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* Green card — Date 2 (cNew) */}
+                <div style={{ background: 'var(--nephritis)', borderRadius: 10, padding: '20px 22px', color: '#fff', boxShadow: '0 4px 0 rgba(0,0,0,.18)' }}>
+                  <div style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 13, marginBottom: 16, opacity: .75, letterSpacing: '.04em' }}>{cNew || '—'}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' }}>
+                    {([['Messages', fN(cTotals.msg_new)], ['Delivered', fN(cTotals.dlr_new)], ['Revenue', fM(cTotals.rev_new)], ['Margin', fM(cTotals.mar_new)]] as [string, string][]).map(([lbl, val]) => (
+                      <div key={lbl}>
+                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', opacity: .6 }}>{lbl}</div>
+                        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 600, fontSize: 19, marginTop: 3 }}>{val}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
             {cLoad ? <Skel /> : (
               <>
-                {/* Row 1: Sender donut + last 7 days area */}
-                {(pieData.length > 0 || (cData?.last7Days?.length ?? 0) > 0) && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.15fr .85fr', gap: 16, marginBottom: 16 }}>
-                    <div className="zpnl">
-                      <PH title="Messages by Sender ID" right={cNew || 'new date'} />
-                      <div className="zpb" style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
-                        {pieData.length > 0 ? (
-                          <>
-                            <div style={{ flex: '0 0 200px' }}>
-                              <ResponsiveContainer width={200} height={200}>
-                                <PieChart>
-                                  <Pie data={pieData} dataKey="value" innerRadius={55} outerRadius={88} paddingAngle={2} startAngle={90} endAngle={-270} strokeWidth={0}>
-                                    {pieData.map((e: any, i: number) => <Cell key={i} fill={e.fill} />)}
-                                  </Pie>
-                                  <Tooltip {...TIP} formatter={(v: any, _: any, p: any) => [`${fN(v)} (${p.payload.pct.toFixed(1)}%)`, 'Messages']} />
-                                </PieChart>
-                              </ResponsiveContainer>
-                            </div>
-                            <div className="zleg" style={{ flex: '1 1 150px' }}>
-                              {pieData.map((d: any, i: number) => (
-                                <div key={i} className="li">
-                                  <span className="sw" style={{ background: d.fill }} />
-                                  {d.name}
-                                  <b>{d.pct.toFixed(1)}%</b>
-                                </div>
-                              ))}
-                            </div>
-                          </>
-                        ) : (
-                          <div style={{ padding: 20, color: 'var(--mu)', fontSize: 13 }}>No sender data for selected date.</div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="zpnl">
-                      <PH title="Last 7 Days" right="Messages" />
-                      <div style={{ height: 240, padding: '8px 8px 12px' }}>
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={cData?.last7Days ?? []} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-                            <defs><linearGradient id="ag1" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%"  stopColor={PAL[0]} stopOpacity={0.35} />
-                              <stop offset="95%" stopColor={PAL[0]} stopOpacity={0.02} />
-                            </linearGradient></defs>
-                            <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
-                            <XAxis dataKey="date" {...AX} tickFormatter={v => v.slice(5)} />
-                            <YAxis {...AX} width={46} tickFormatter={v => `${(v / 1000).toFixed(0)}K`} />
-                            <Tooltip {...TIP} formatter={(v: any) => [fN(v), 'Messages']} />
-                            <Area type="monotone" dataKey="messages" stroke={PAL[0]} strokeWidth={2.5}
-                              fill="url(#ag1)" dot={false} activeDot={{ r: 4, fill: PAL[0], stroke: '#fff', strokeWidth: 2 }} />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Row 2: DLR table + bar chart */}
+                {/* Pie charts — one per date, top 10 by revenue */}
                 {cData?.rows?.length > 0 && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.15fr .85fr', gap: 16, marginBottom: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
                     <div className="zpnl">
-                      <PH title="Delivery Rate (DLR %)" />
-                      <div style={{ overflowX: 'auto' }}>
-                        <table className="zt">
-                          <thead><tr>
-                            <th style={{ textAlign: 'left' }}>Customer</th>
-                            <th>Sent Old</th><th>Sent New</th><th>DLR Old</th><th>DLR New</th>
-                          </tr></thead>
-                          <tbody>
-                            {cData.rows.map((r: any, i: number) => (
-                              <tr key={i}>
-                                <td><div className="zconn"><span className="zdot" style={{ background: PAL[i % PAL.length] }} />{r.customer_name}</div></td>
-                                <td>{fN(r.messages_old)}</td>
-                                <td>{fN(r.messages_new)}</td>
-                                <td style={{ color: 'var(--mu)', fontSize: 12 }}>{fP(r.dlr_pct_old)}</td>
-                                <td>{fP(r.dlr_pct_new)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          {cTotals && (
-                            <tfoot><tr>
-                              <td>Total</td>
-                              <td>{fN(cTotals.msg_old)}</td>
-                              <td>{fN(cTotals.msg_new)}</td>
-                              <td style={{ color: 'var(--mu)' }}>{fP(cTotals.msg_old ? cTotals.dlr_old / cTotals.msg_old * 100 : 0)}</td>
-                              <td>{fP(cTotals.dlr_pct_new)}</td>
-                            </tr></tfoot>
-                          )}
-                        </table>
-                      </div>
+                      <PH title="Revenue Share — Top 10" right={cOld || '—'} />
+                      <CmpPie rows={cData.rows} revKey="revenue_old" />
                     </div>
                     <div className="zpnl">
-                      <PH title="Messages by Customer" right="New vs Old" />
-                      <div style={{ height: 260, padding: '8px 8px 12px' }}>
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart
-                            data={cData.rows.slice(0, 8).map((r: any) => ({ name: r.customer_name?.split('_')[0] ?? '?', old: Number(r.messages_old ?? 0), new: Number(r.messages_new ?? 0) }))}
-                            margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                            <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
-                            <XAxis dataKey="name" {...AX} />
-                            <YAxis {...AX} width={42} tickFormatter={v => `${(v / 1000).toFixed(0)}K`} />
-                            <Tooltip {...TIP} />
-                            <Bar dataKey="old" fill={PAL[4]} fillOpacity={0.65} radius={[3, 3, 0, 0]} name="Old" />
-                            <Bar dataKey="new" fill={PAL[0]} fillOpacity={0.85} radius={[3, 3, 0, 0]} name="New" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
+                      <PH title="Revenue Share — Top 10" right={cNew || '—'} />
+                      <CmpPie rows={cData.rows} revKey="revenue_new" />
                     </div>
                   </div>
                 )}
 
-                {/* Row 3: full comparison table */}
+                {/* Full-width grouped bar chart — top 10 by revenue */}
+                {cData?.rows?.length > 0 && (
+                  <div className="zpnl" style={{ marginBottom: 16 }}>
+                    <PH title="Top 10 Customers — Revenue" right={`${cOld || '…'} vs ${cNew || '…'}`} />
+                    <div style={{ height: 310, padding: '12px 12px 8px' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={[...cData.rows]
+                            .sort((a: any, b: any) => Number(b.revenue_new ?? 0) - Number(a.revenue_new ?? 0))
+                            .slice(0, 10)
+                            .map((r: any) => ({
+                              name: r.customer_name?.split(' ')[0] ?? '?',
+                              d1: Number(r.revenue_old ?? 0),
+                              d2: Number(r.revenue_new ?? 0),
+                            }))}
+                          margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+                          <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
+                          <XAxis dataKey="name" {...AX} tick={{ fontSize: 11, fill: 'var(--inks)' }} />
+                          <YAxis {...AX} width={54} tickFormatter={v => `$${(v / 1000).toFixed(0)}K`} />
+                          <Tooltip {...TIP} formatter={(v: any, name: string) => [fR(v), name]} labelStyle={{ color: 'var(--ink)', fontWeight: 600 }} />
+                          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: 'var(--ink)' }} />
+                          <Bar dataKey="d1" name={cOld || 'Date 1'} fill="#7f8c8d" fillOpacity={0.9} radius={[3, 3, 0, 0]} />
+                          <Bar dataKey="d2" name={cNew || 'Date 2'} fill="var(--nephritis)" fillOpacity={0.9} radius={[3, 3, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
+                {/* Comparison table */}
                 <div className="zpnl">
-                  <PH title="Old vs New — by Customer Connection" right="Message · Revenue · Margin" />
+                  <PH title="Full Comparison — by Customer" right="Messages · Revenue · Margin" />
                   {!cData?.rows?.length ? (
                     <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>Select two dates above to compare.</div>
                   ) : (
                     <div style={{ overflowX: 'auto' }}>
                       <table className="zt">
                         <thead><tr>
-                          <th style={{ textAlign: 'left' }}>Customer Connection</th>
-                          <th>Msg Old</th><th>Msg New</th><th style={{ textAlign: 'center' }}>Msg Δ%</th>
-                          <th>Rev Old</th><th>Rev New</th><th style={{ textAlign: 'center' }}>Rev Δ%</th>
-                          <th>Mar Old</th><th>Mar New</th><th style={{ textAlign: 'center' }}>Mar Δ%</th>
+                          <th style={{ textAlign: 'left' }}>Customer</th>
+                          <th>Msg {cOld}</th><th>Msg {cNew}</th><th style={{ textAlign: 'center' }}>Msg Δ%</th>
+                          <th>Rev {cOld}</th><th>Rev {cNew}</th><th style={{ textAlign: 'center' }}>Rev Δ%</th>
+                          <th>Mar {cOld}</th><th>Mar {cNew}</th><th style={{ textAlign: 'center' }}>Mar Δ%</th>
                         </tr></thead>
                         <tbody>
                           {cData.rows.map((r: any, i: number) => (
@@ -640,8 +632,8 @@ export default function ZamaniTrafficPage() {
                               <td>{r.revenue_old == null ? '—' : fR(r.revenue_old)}</td>
                               <td>{fR(r.revenue_new)}</td>
                               <td style={{ textAlign: 'center' }}><Diff o={r.revenue_old} n={r.revenue_new} /></td>
-                              <td>{r.margin_old == null ? '—' : fR(r.margin_old)}</td>
-                              <td>{fR(r.margin_new)}</td>
+                              <td className={Number(r.margin_old ?? 0) < 0 ? 'zneg' : ''}>{r.margin_old == null ? '—' : fR(r.margin_old)}</td>
+                              <td className={Number(r.margin_new ?? 0) < 0 ? 'zneg' : ''}>{fR(r.margin_new)}</td>
                               <td style={{ textAlign: 'center' }}><Diff o={r.margin_old} n={r.margin_new} /></td>
                             </tr>
                           ))}
