@@ -71,6 +71,7 @@ import { ZamaniReportModule } from './reports/zamani/zamani-report.module';
           max: 20,
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 5000,
+          options: '-c timezone=UTC',
         },
       }),
     }),
