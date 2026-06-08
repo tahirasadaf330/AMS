@@ -303,8 +303,8 @@ export default function ZamaniTrafficPage() {
   const [cLoad, setCLoad] = React.useState(false);
 
   /* mtd */
-  const [mYear,  setMYear]  = React.useState(new Date().getFullYear());
-  const [mMonth, setMMonth] = React.useState(new Date().getMonth() + 1);
+  const [mStart, setMStart] = React.useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; });
+  const [mEnd,   setMEnd]   = React.useState(() => new Date().toISOString().slice(0,10));
   const [mCust,  setMCust]  = React.useState('');
   const [mData,  setMData]  = React.useState<any>(null);
   const [mLoad,  setMLoad]  = React.useState(false);
@@ -349,10 +349,10 @@ export default function ZamaniTrafficPage() {
   React.useEffect(() => {
     if (tab !== 'mtd') return;
     setMLoad(true);
-    const p: Record<string, string> = { year: String(mYear), month: String(mMonth) };
+    const p: Record<string, string> = { start_date: mStart, end_date: mEnd };
     if (mCust) p.customer = mCust;
     zamaniApi.getMtd(p).then(r => setMData(r.data)).catch(console.error).finally(() => setMLoad(false));
-  }, [tab, mYear, mMonth, mCust]);
+  }, [tab, mStart, mEnd, mCust]);
 
   React.useEffect(() => {
     if (tab !== 'projections') return;
@@ -703,19 +703,20 @@ const TABS: { id: Tab; l: string }[] = [
                 </select>
               </div>
               <div className="zff">
-                <label>Month</label>
-                <select className="zsl" value={mMonth} onChange={e => setMMonth(Number(e.target.value))}>
-                  {MNF.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
-                </select>
+                <label>From</label>
+                <input className="zdi" type="date" value={mStart} onChange={e => setMStart(e.target.value)} />
               </div>
-              <div className="zff" style={{ maxWidth: 110 }}>
-                <label>Year</label>
-                <select className="zsl" value={mYear} onChange={e => setMYear(Number(e.target.value))}>
-                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(y => <option key={y} value={y}>{y}</option>)}
-                </select>
+              <div className="zff">
+                <label>To</label>
+                <input className="zdi" type="date" value={mEnd} onChange={e => setMEnd(e.target.value)} />
               </div>
               <div style={{ alignSelf: 'flex-end' }}>
-                <button className="zbt" onClick={() => { setMCust(''); setMYear(new Date().getFullYear()); setMMonth(new Date().getMonth() + 1); }}>Reset</button>
+                <button className="zbt" onClick={() => {
+                  const d = new Date();
+                  setMCust('');
+                  setMStart(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`);
+                  setMEnd(d.toISOString().slice(0,10));
+                }}>Reset</button>
               </div>
             </div>
 
@@ -726,7 +727,7 @@ const TABS: { id: Tab; l: string }[] = [
                   <div className="zpnl" style={{ marginBottom: 16 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 18px 12px', borderBottom: '1px solid var(--ln)' }}>
                       <h2 style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--ink)', letterSpacing: '-.2px' }}>
-                        Daily Trend — {MNF[mMonth - 1]} {mYear}
+                        Daily Trend — {fDate(mStart)} → {fDate(mEnd)}
                       </h2>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {(Object.keys(MCFG) as Metric[]).map(m => {

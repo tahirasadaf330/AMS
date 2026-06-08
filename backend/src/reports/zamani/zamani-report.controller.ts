@@ -35,14 +35,14 @@ export class ZamaniReportController {
 
   @Get('mtd')
   getMtd(
-    @Query('year') year: string,
-    @Query('month') month: string,
+    @Query('start_date') start_date: string,
+    @Query('end_date') end_date: string,
     @Query('customer') customer?: string,
     @Query('senderId') senderId?: string,
     @Query('accountManager') accountManager?: string,
     @Query('vendorConnection') vendorConnection?: string,
   ) {
-    return this.zamaniService.getMtd({ year: Number(year), month: Number(month), customer, senderId, accountManager, vendorConnection });
+    return this.zamaniService.getMtd({ start_date, end_date, customer, senderId, accountManager, vendorConnection });
   }
 
   @Get('projections')

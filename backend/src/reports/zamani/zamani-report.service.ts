@@ -486,8 +486,8 @@ export class ZamaniReportService implements OnModuleInit {
   // ── Month to Date ─────────────────────────────────────────────
 
   async getMtd(params: {
-    year: number;
-    month: number;
+    start_date: string;
+    end_date: string;
     customer?: string;
     senderId?: string;
     accountManager?: string;
@@ -495,13 +495,13 @@ export class ZamaniReportService implements OnModuleInit {
   }) {
     if (!(await this.stageExists())) return { rows: [], totals: null, daily: [] };
 
-    const args: unknown[] = [params.year, params.month];
+    const args: unknown[] = [params.start_date, params.end_date];
     const extra: string[] = [];
 
-    if (params.customer)        extra.push(`AND customerconnection = $${args.push(params.customer)}`);
-    if (params.senderId)        extra.push(`AND terminatedsenderid = $${args.push(params.senderId)}`);
-    if (params.accountManager)  extra.push(`AND accountmanager     = $${args.push(params.accountManager)}`);
-    if (params.vendorConnection) extra.push(`AND vendorconnection  = $${args.push(params.vendorConnection)}`);
+    if (params.customer)         extra.push(`AND customerconnection = $${args.push(params.customer)}`);
+    if (params.senderId)         extra.push(`AND terminatedsenderid = $${args.push(params.senderId)}`);
+    if (params.accountManager)   extra.push(`AND accountmanager     = $${args.push(params.accountManager)}`);
+    if (params.vendorConnection)  extra.push(`AND vendorconnection  = $${args.push(params.vendorConnection)}`);
 
     const [rows, daily] = await Promise.all([
       this.dataSource.query(
@@ -515,8 +515,7 @@ export class ZamaniReportService implements OnModuleInit {
            ROUND(SUM(negativemargin)::numeric, 4)                                      AS margin,
            ROUND(SUM(deliveredmessages)::numeric * 100.0 / NULLIF(SUM(numbersofmessages), 0), 1) AS dlr_pct
          FROM ${STAGE}
-         WHERE EXTRACT(YEAR  FROM receiveddate) = $1
-           AND EXTRACT(MONTH FROM receiveddate) = $2
+         WHERE receiveddate BETWEEN $1::date AND $2::date
            ${extra.join(' ')}
          GROUP BY customerconnection, vendorconnection
          ORDER BY messages DESC`,
@@ -529,11 +528,10 @@ export class ZamaniReportService implements OnModuleInit {
            ROUND(SUM(revenue)::numeric, 4)          AS revenue,
            ROUND(SUM(negativemargin)::numeric, 4)   AS margin
          FROM ${STAGE}
-         WHERE EXTRACT(YEAR  FROM receiveddate) = $1
-           AND EXTRACT(MONTH FROM receiveddate) = $2
+         WHERE receiveddate BETWEEN $1::date AND $2::date
          GROUP BY receiveddate
          ORDER BY receiveddate`,
-        [params.year, params.month],
+        [params.start_date, params.end_date],
       ),
     ]);
 
