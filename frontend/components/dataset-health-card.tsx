@@ -10,10 +10,10 @@ interface DatasetHealthCardProps {
   className?: string;
 }
 
-function getDatasetStatus(dataset: Dataset): 'ok' | 'failed' | 'stale' {
-  if (!dataset.last_refresh) return 'stale';
+function getDatasetStatus(dataset: Dataset): 'ok' | 'failed' | 'stale' | 'pending' {
+  if (!dataset.last_refresh) return 'pending';
   if (dataset.last_refresh.status === 'failed') return 'failed';
-  // Consider stale if not refreshed in 2x the schedule interval (approximate)
+  if (dataset.last_refresh.status === 'running') return 'ok';
   const lastRefreshed = new Date(dataset.last_refresh.refreshed_at).getTime();
   const hoursSince = (Date.now() - lastRefreshed) / (1000 * 60 * 60);
   if (hoursSince > 24) return 'stale';
@@ -28,6 +28,7 @@ export function DatasetHealthCard({ dataset, className }: DatasetHealthCardProps
     ok: 'border-green-300 dark:border-green-700/50 hover:border-green-500 dark:hover:border-green-600',
     failed: 'border-red-300 dark:border-red-700/50 hover:border-red-500 dark:hover:border-red-600',
     stale: 'border-amber-300 dark:border-amber-700/50 hover:border-amber-500 dark:hover:border-amber-600',
+    pending: 'border-blue-300 dark:border-blue-700/50 hover:border-blue-500 dark:hover:border-blue-600',
   };
 
   return (
@@ -60,7 +61,7 @@ export function DatasetHealthCard({ dataset, className }: DatasetHealthCardProps
             </p>
           </>
         ) : (
-          <p className="text-gray-400 dark:text-gray-500">Never refreshed</p>
+          <p className="text-gray-400 dark:text-gray-500">Awaiting first run</p>
         )}
         <p>
           <span className="text-gray-400 dark:text-gray-500">Schedule:</span>{' '}

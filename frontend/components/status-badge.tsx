@@ -14,6 +14,7 @@ const STATUS_CONFIG: Record<string, { variant: BadgeProps['variant']; label: str
   sent: { variant: 'success', label: 'Sent' },
   failed: { variant: 'destructive', label: 'Failed' },
   stale: { variant: 'warning', label: 'Stale' },
+  pending: { variant: 'blue', label: 'Pending' },
   skipped: { variant: 'gray', label: 'Skipped' },
   running: { variant: 'blue', label: 'Running' },
   warning: { variant: 'warning', label: 'Warning' },

@@ -31,21 +31,49 @@ export class DashboardService {
     private dataSource: DataSource,
   ) {}
 
-  async getDatasets(userId: string, userRole: UserRole): Promise<Dataset[]> {
+  async getDatasets(userId: string, userRole: UserRole): Promise<(Dataset & { lastRefresh: Record<string, unknown> | null })[]> {
     try {
+      let datasets: Dataset[];
+
       if (userRole === 'admin') {
-        return this.datasetRepo.find({ where: { isActive: true }, order: { name: 'ASC' } });
+        datasets = await this.datasetRepo.find({ where: { isActive: true }, order: { name: 'ASC' } });
+      } else {
+        const access = await this.accessRepo.find({ where: { userId }, relations: ['dataset'] });
+        datasets = access
+          .filter((a) => a.dataset?.isActive)
+          .map((a) => a.dataset)
+          .filter((d): d is Dataset => d !== null && d !== undefined);
       }
 
-      const access = await this.accessRepo.find({
-        where: { userId },
-        relations: ['dataset'],
-      });
+      // Attach latest refresh log entry for each dataset
+      const logRows = await this.dataSource.query<Array<{
+        dataset_id: string;
+        status: string;
+        row_count: number | null;
+        duration_ms: number | null;
+        finished_at: Date | null;
+      }>>(
+        `SELECT DISTINCT ON (dataset_id)
+           dataset_id, status, row_count, duration_ms, finished_at
+         FROM dataset_refresh_log
+         ORDER BY dataset_id, started_at DESC`,
+      );
+      const logMap = new Map(logRows.map((r) => [r.dataset_id, r]));
 
-      return access
-        .filter((a) => a.dataset?.isActive)
-        .map((a) => a.dataset)
-        .filter((d): d is Dataset => d !== null && d !== undefined);
+      return datasets.map((d) => {
+        const log = logMap.get(d.id) ?? null;
+        return {
+          ...d,
+          lastRefresh: log
+            ? {
+                status:     log.status,
+                rowCount:   log.row_count,
+                durationMs: log.duration_ms,
+                refreshedAt: log.finished_at?.toISOString() ?? null,
+              }
+            : null,
+        };
+      });
     } catch (err) {
       this.logger.error('Error getting datasets for user', err);
       throw err;
