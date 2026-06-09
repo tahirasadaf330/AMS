@@ -602,7 +602,7 @@ export class ZamaniReportService implements OnModuleInit {
       [params.year, params.month],
     );
 
-    const [last7Days, [targetRow], mtdPerCustomer, last7PerCustomer] = await Promise.all([
+    const [last7Days, [targetRow], mtdPerCustomer, last7PerCustomer, senderRows] = await Promise.all([
       this.dataSource.query(
         `SELECT
            receiveddate::text                       AS date,
@@ -655,6 +655,25 @@ export class ZamaniReportService implements OnModuleInit {
          GROUP BY customerconnection`,
         [params.year, params.month],
       ),
+      // Per-sender breakdown for last N days (for expand rows)
+      this.dataSource.query(
+        `SELECT
+           customerconnection                           AS customer_name,
+           COALESCE(terminatedsenderid, '(unknown)')   AS sender_id,
+           SUM(numbersofmessages)::bigint              AS messages_last7,
+           ROUND(SUM(revenue)::numeric, 4)             AS revenue_last7
+         FROM ${STAGE}
+         WHERE receiveddate IN (
+           SELECT DISTINCT receiveddate FROM ${STAGE}
+           WHERE receiveddate < CURRENT_DATE
+             AND EXTRACT(YEAR  FROM receiveddate) = $1
+             AND EXTRACT(MONTH FROM receiveddate) = $2
+           ORDER BY receiveddate DESC LIMIT 7
+         )
+         GROUP BY customerconnection, terminatedsenderid
+         ORDER BY customerconnection, messages_last7 DESC`,
+        [params.year, params.month],
+      ),
     ]);
 
     const actualMessages = Number(actual?.messages ?? 0);
@@ -688,6 +707,13 @@ export class ZamaniReportService implements OnModuleInit {
       };
     });
 
+    const sMap: Record<string, any[]> = {};
+    for (const r of senderRows) {
+      if (!sMap[r.customer_name]) sMap[r.customer_name] = [];
+      sMap[r.customer_name].push(r);
+    }
+    const sendersByCustomer = Object.entries(sMap).map(([customer_name, senders]) => ({ customer_name, senders }));
+
     return {
       actual:    { messages: actualMessages, revenue: actualRevenue, margin: Number(actual?.margin ?? 0) },
       projected: { messages: projectedMessages, revenue: projectedRevenue },
@@ -696,6 +722,7 @@ export class ZamaniReportService implements OnModuleInit {
       daysInfo: { daysInMonth, currentDay, remainingDays, daysUsed: n, avgDayMessages: Math.round(avgDayMsgs), avgDayRevenue: Number(avgDayRev.toFixed(2)) },
       gap,
       perCustomer,
+      sendersByCustomer,
     };
   }
 

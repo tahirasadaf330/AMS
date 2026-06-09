@@ -322,6 +322,7 @@ export default function ZamaniTrafficPage() {
   /* projections */
   const [pYear,  setPYear]  = React.useState(new Date().getFullYear());
   const [pMonth, setPMonth] = React.useState(new Date().getMonth() + 1);
+  const [pExpanded, setPExpanded] = React.useState<Set<string>>(new Set());
   const [pData,  setPData]  = React.useState<any>(null);
   const [pLoad,  setPLoad]  = React.useState(false);
 
@@ -1003,15 +1004,54 @@ const TABS: { id: Tab; l: string }[] = [
                         <th>Revenue (Last {pData.days_info?.days_used ?? 7} Days)</th><th>Projected Revenue (Month End Total)</th>
                       </tr></thead>
                       <tbody>
-                        {pData.per_customer.map((r: any, i: number) => (
-                          <tr key={i}>
-                            <td><div className="zconn"><span className="zdot" style={{ background: PAL[i % PAL.length] }} />{r.customer_name}</div></td>
-                            <td>{fN(r.messages_last7)}</td>
-                            <td>{fN(r.projected_messages)}</td>
-                            <td>{fR(r.revenue_last7)}</td>
-                            <td className="zpos">{fR(r.projected_revenue)}</td>
-                          </tr>
-                        ))}
+                        {pData.per_customer.map((r: any, i: number) => {
+                          const col = PAL[i % PAL.length];
+                          const senders: any[] = (pData?.senders_by_customer ?? []).find((g: any) => g.customer_name === r.customer_name)?.senders ?? [];
+                          const isOpen = pExpanded.has(r.customer_name);
+                          const toggleExpand = () => setPExpanded(prev => {
+                            const next = new Set(prev);
+                            if (next.has(r.customer_name)) next.delete(r.customer_name); else next.add(r.customer_name);
+                            return next;
+                          });
+                          return (
+                            <React.Fragment key={i}>
+                              <tr style={{ cursor: senders.length ? 'pointer' : undefined }} onClick={senders.length ? toggleExpand : undefined}>
+                                <td>
+                                  <div className="zconn">
+                                    {senders.length > 0 && (
+                                      <span style={{
+                                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                        width: 14, height: 14, border: '1px solid var(--lns)', borderRadius: 2,
+                                        fontSize: 12, fontWeight: 700, lineHeight: 1, color: 'var(--inks)',
+                                        background: 'var(--sf2)', marginRight: 6, flexShrink: 0, userSelect: 'none',
+                                      }}>{isOpen ? '−' : '+'}</span>
+                                    )}
+                                    <span className="zdot" style={{ background: col }} />
+                                    {r.customer_name}
+                                  </div>
+                                </td>
+                                <td>{fN(r.messages_last7)}</td>
+                                <td>{fN(r.projected_messages)}</td>
+                                <td>{fR(r.revenue_last7)}</td>
+                                <td className="zpos">{fR(r.projected_revenue)}</td>
+                              </tr>
+                              {isOpen && senders.map((s: any, si: number) => (
+                                <tr key={`${i}-s-${si}`} style={{ background: 'var(--sf2)' }}>
+                                  <td style={{ paddingLeft: 40 }}>
+                                    <div className="zconn">
+                                      <span className="zdot" style={{ background: col, opacity: 0.45 }} />
+                                      <span style={{ color: 'var(--inks)', fontWeight: 500 }}>{s.sender_id}</span>
+                                    </div>
+                                  </td>
+                                  <td>{fN(s.messages_last7)}</td>
+                                  <td>—</td>
+                                  <td>{fR(s.revenue_last7)}</td>
+                                  <td>—</td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          );
+                        })}
                       </tbody>
                       <tfoot><tr>
                         <td>Total</td>
