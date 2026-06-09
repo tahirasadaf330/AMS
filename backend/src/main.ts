@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IoAdapter } from '@nestjs/platform-socket.io';
+import { SocketIoAdapter } from './websocket/socket-io.adapter';
 import * as cookieParser from 'cookie-parser';
 import type { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
@@ -66,7 +66,7 @@ async function bootstrap(): Promise<void> {
   app.useGlobalInterceptors(new SnakeCaseInterceptor());
 
   // WebSocket adapter
-  app.useWebSocketAdapter(new IoAdapter(app));
+  app.useWebSocketAdapter(new SocketIoAdapter(app));
 
   await app.listen(port);
   console.log(`AMS Backend running on port ${port}`);
