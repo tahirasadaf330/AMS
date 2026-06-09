@@ -515,7 +515,7 @@ export class ZamaniReportService implements OnModuleInit {
            ROUND(SUM(negativemargin)::numeric, 4)                                      AS margin,
            ROUND(SUM(deliveredmessages)::numeric * 100.0 / NULLIF(SUM(numbersofmessages), 0), 1) AS dlr_pct
          FROM ${STAGE}
-         WHERE receiveddate BETWEEN $1::date AND $2::date
+         WHERE receiveddate >= $1::date AND receiveddate < ($2::date + INTERVAL '1 day')
            ${extra.join(' ')}
          GROUP BY customerconnection, vendorconnection
          ORDER BY messages DESC`,
@@ -523,14 +523,14 @@ export class ZamaniReportService implements OnModuleInit {
       ),
       this.dataSource.query(
         `SELECT
-           receiveddate::text                       AS date,
+           receiveddate::date::text                 AS date,
            SUM(numbersofmessages)::bigint           AS messages,
            ROUND(SUM(revenue)::numeric, 4)          AS revenue,
            ROUND(SUM(negativemargin)::numeric, 4)   AS margin
          FROM ${STAGE}
-         WHERE receiveddate BETWEEN $1::date AND $2::date
-         GROUP BY receiveddate
-         ORDER BY receiveddate`,
+         WHERE receiveddate >= $1::date AND receiveddate < ($2::date + INTERVAL '1 day')
+         GROUP BY receiveddate::date
+         ORDER BY receiveddate::date`,
         [params.start_date, params.end_date],
       ),
     ]);

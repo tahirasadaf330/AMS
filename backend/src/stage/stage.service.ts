@@ -190,7 +190,7 @@ export class StageService {
 
     this.logger.warn(`Stage table "${tableName}" not found — auto-creating`);
 
-    const typeMap: Record<string, string> = { numeric: 'NUMERIC', date: 'TIMESTAMPTZ', text: 'TEXT' };
+    const typeMap: Record<string, string> = { numeric: 'NUMERIC', date: 'DATE', text: 'TEXT' };
     const meta = Array.isArray(columnMetadata)
       ? (columnMetadata as Array<{ key: string; type: string }>)
       : [];

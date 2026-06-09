@@ -303,8 +303,9 @@ export default function ZamaniTrafficPage() {
   const [cLoad, setCLoad] = React.useState(false);
 
   /* mtd */
+  const toLocalDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const [mStart, setMStart] = React.useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; });
-  const [mEnd,   setMEnd]   = React.useState(() => new Date().toISOString().slice(0,10));
+  const [mEnd,   setMEnd]   = React.useState(() => toLocalDate(new Date()));
   const [mCust,  setMCust]  = React.useState('');
   const [mData,  setMData]  = React.useState<any>(null);
   const [mLoad,  setMLoad]  = React.useState(false);
@@ -715,7 +716,7 @@ const TABS: { id: Tab; l: string }[] = [
                   const d = new Date();
                   setMCust('');
                   setMStart(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`);
-                  setMEnd(d.toISOString().slice(0,10));
+                  setMEnd(toLocalDate(d));
                 }}>Reset</button>
               </div>
             </div>
