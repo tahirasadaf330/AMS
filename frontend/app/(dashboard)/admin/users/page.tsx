@@ -302,16 +302,26 @@ export default function AdminUsersPage() {
                       <Button variant="ghost" size="icon-sm" onClick={() => openEdit(user)} title="Edit">
                         <Edit2 className="h-3.5 w-3.5 text-blue-400" />
                       </Button>
-                      {user.role !== 'admin' && (
-                        <Button variant="ghost" size="icon-sm" onClick={() => openAccessDrawer(user)} title="Manage Access">
-                          <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                        </Button>
-                      )}
-                      {user.is_active && (
-                        <Button variant="ghost" size="icon-sm" onClick={() => setDeactivateTarget(user)} title="Deactivate">
-                          <UserX className="h-3.5 w-3.5 text-red-400" />
-                        </Button>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => openAccessDrawer(user)}
+                        title="Manage Access"
+                        className={user.role === 'admin' ? 'invisible' : ''}
+                        tabIndex={user.role === 'admin' ? -1 : 0}
+                      >
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => setDeactivateTarget(user)}
+                        title="Deactivate"
+                        className={!user.is_active ? 'invisible' : ''}
+                        tabIndex={!user.is_active ? -1 : 0}
+                      >
+                        <UserX className="h-3.5 w-3.5 text-red-400" />
+                      </Button>
                     </div>
                   </td>
                 </tr>
