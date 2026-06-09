@@ -310,6 +310,7 @@ export default function ZamaniTrafficPage() {
   const [mCust,  setMCust]  = React.useState('');
   const [mData,  setMData]  = React.useState<any>(null);
   const [mLoad,  setMLoad]  = React.useState(false);
+  const [mExpanded, setMExpanded] = React.useState<Set<string>>(new Set());
   const [mMetrics, setMMetrics] = React.useState<Set<Metric>>(new Set<Metric>(['messages']));
   const toggleMetric = (m: Metric) => setMMetrics(prev => {
     const next = new Set(prev);
@@ -856,15 +857,53 @@ const TABS: { id: Tab; l: string }[] = [
                         {mSort.th('pct', 'Margin %')}
                       </tr></thead>
                       <tbody>
-                        {mSorted.map((r: any, i: number) => (
-                          <tr key={i}>
-                            <td><div className="zconn"><span className="zdot" style={{ background: r.col }} />{r.name}</div></td>
-                            <td>{fN(r.messages)}</td>
-                            <td>{fR(r.revenue)}</td>
-                            <td className={r.margin < 0 ? 'zneg' : 'zpos'}>{fR(r.margin)}</td>
-                            <td>{fP(r.pct)}</td>
-                          </tr>
-                        ))}
+                        {mSorted.map((r: any, i: number) => {
+                          const senders: any[] = (mData?.senders_by_customer ?? []).find((g: any) => g.customer_name === r.name)?.senders ?? [];
+                          const isOpen = mExpanded.has(r.name);
+                          const toggleExpand = () => setMExpanded(prev => {
+                            const next = new Set(prev);
+                            if (next.has(r.name)) next.delete(r.name); else next.add(r.name);
+                            return next;
+                          });
+                          return (
+                            <React.Fragment key={i}>
+                              <tr style={{ cursor: senders.length ? 'pointer' : undefined }} onClick={senders.length ? toggleExpand : undefined}>
+                                <td>
+                                  <div className="zconn">
+                                    {senders.length > 0 && (
+                                      <span style={{
+                                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                        width: 14, height: 14, border: '1px solid var(--lns)', borderRadius: 2,
+                                        fontSize: 12, fontWeight: 700, lineHeight: 1, color: 'var(--inks)',
+                                        background: 'var(--sf2)', marginRight: 6, flexShrink: 0, userSelect: 'none',
+                                      }}>{isOpen ? '−' : '+'}</span>
+                                    )}
+                                    <span className="zdot" style={{ background: r.col }} />
+                                    {r.name}
+                                  </div>
+                                </td>
+                                <td>{fN(r.messages)}</td>
+                                <td>{fR(r.revenue)}</td>
+                                <td className={r.margin < 0 ? 'zneg' : 'zpos'}>{fR(r.margin)}</td>
+                                <td>{fP(r.pct)}</td>
+                              </tr>
+                              {isOpen && senders.map((s: any, si: number) => (
+                                <tr key={`${i}-s-${si}`} style={{ background: 'var(--sf2)' }}>
+                                  <td style={{ paddingLeft: 40 }}>
+                                    <div className="zconn">
+                                      <span className="zdot" style={{ background: r.col, opacity: 0.45 }} />
+                                      <span style={{ color: 'var(--inks)', fontWeight: 500 }}>{s.sender_id}</span>
+                                    </div>
+                                  </td>
+                                  <td>{fN(s.messages)}</td>
+                                  <td>{fR(s.revenue)}</td>
+                                  <td className={Number(s.margin) < 0 ? 'zneg' : 'zpos'}>{fR(s.margin)}</td>
+                                  <td>{fP(Number(s.revenue) > 0 ? Number(s.margin) / Number(s.revenue) * 100 : 0)}</td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          );
+                        })}
                       </tbody>
                       {mData?.totals && (
                         <tfoot><tr>

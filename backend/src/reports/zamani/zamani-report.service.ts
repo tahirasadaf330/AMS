@@ -527,7 +527,7 @@ export class ZamaniReportService implements OnModuleInit {
     if (params.accountManager)   extra.push(`AND accountmanager     = $${args.push(params.accountManager)}`);
     if (params.vendorConnection)  extra.push(`AND vendorconnection  = $${args.push(params.vendorConnection)}`);
 
-    const [rows, daily] = await Promise.all([
+    const [rows, daily, senderRows] = await Promise.all([
       this.dataSource.query(
         `SELECT
            customerconnection                                                           AS customer_name,
@@ -557,9 +557,30 @@ export class ZamaniReportService implements OnModuleInit {
          ORDER BY receiveddate::date`,
         [params.start_date, params.end_date],
       ),
+      this.dataSource.query(
+        `SELECT
+           customerconnection                                                           AS customer_name,
+           COALESCE(terminatedsenderid, '(unknown)')                                   AS sender_id,
+           SUM(numbersofmessages)::bigint                                              AS messages,
+           ROUND(SUM(revenue)::numeric, 4)                                             AS revenue,
+           ROUND(SUM(negativemargin)::numeric, 4)                                      AS margin
+         FROM ${STAGE}
+         WHERE receiveddate >= $1::date AND receiveddate < ($2::date + INTERVAL '1 day')
+           ${extra.join(' ')}
+         GROUP BY customerconnection, terminatedsenderid
+         ORDER BY customerconnection, messages DESC`,
+        args,
+      ),
     ]);
 
-    return { rows, totals: this.sumTotals(rows), daily };
+    const map: Record<string, any[]> = {};
+    for (const r of senderRows) {
+      if (!map[r.customer_name]) map[r.customer_name] = [];
+      map[r.customer_name].push(r);
+    }
+    const sendersByCustomer = Object.entries(map).map(([customer_name, senders]) => ({ customer_name, senders }));
+
+    return { rows, totals: this.sumTotals(rows), daily, senders_by_customer: sendersByCustomer };
   }
 
   // ── Projections ───────────────────────────────────────────────
