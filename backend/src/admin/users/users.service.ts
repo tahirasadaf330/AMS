@@ -216,12 +216,17 @@ export class AdminUsersService implements OnModuleInit {
         mustChangePassword: dto.mustChangePassword ?? user.mustChangePassword,
       });
 
+      // Accept both camelCase (bodyToCamel converted) and snake_case (raw body)
+      const raw = dto as Record<string, unknown>;
+      const datasetAccess = (dto.datasetAccess ?? raw['dataset_access']) as string[] | undefined;
+      const reportAccess  = (dto.reportAccess  ?? raw['report_access'])  as string[] | undefined;
+
       // Sync dataset access only when the field is explicitly provided
-      if (dto.datasetAccess !== undefined) {
+      if (datasetAccess !== undefined) {
         await this.dataSource.query(
           `DELETE FROM user_dataset_access WHERE user_id = $1`, [id],
         );
-        for (const datasetId of dto.datasetAccess) {
+        for (const datasetId of datasetAccess) {
           await this.dataSource.query(
             `INSERT INTO user_dataset_access (user_id, dataset_id, granted_by) VALUES ($1, $2, $3)`,
             [id, datasetId, updatedBy],
@@ -230,11 +235,11 @@ export class AdminUsersService implements OnModuleInit {
       }
 
       // Sync report access only when the field is explicitly provided
-      if (dto.reportAccess !== undefined) {
+      if (reportAccess !== undefined) {
         await this.dataSource.query(
           `DELETE FROM user_report_access WHERE user_id = $1`, [id],
         );
-        for (const reportSlug of dto.reportAccess) {
+        for (const reportSlug of reportAccess) {
           await this.dataSource.query(
             `INSERT INTO user_report_access (user_id, report_slug, granted_by) VALUES ($1, $2, $3)`,
             [id, reportSlug, updatedBy],
