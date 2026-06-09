@@ -425,12 +425,13 @@ export class ZamaniReportService implements OnModuleInit {
       ),
     ]);
 
-    // Group senderRows by customer_name for easy lookup on the frontend
-    const sendersByCustomer: Record<string, any[]> = {};
+    // Group senderRows by customer_name — returned as array to avoid key mangling by SnakeCaseInterceptor
+    const map: Record<string, any[]> = {};
     for (const r of senderRows) {
-      if (!sendersByCustomer[r.customer_name]) sendersByCustomer[r.customer_name] = [];
-      sendersByCustomer[r.customer_name].push(r);
+      if (!map[r.customer_name]) map[r.customer_name] = [];
+      map[r.customer_name].push(r);
     }
+    const sendersByCustomer = Object.entries(map).map(([customer_name, senders]) => ({ customer_name, senders }));
 
     return { rows, totals: this.sumTotals(rows), senders_by_customer: sendersByCustomer };
   }

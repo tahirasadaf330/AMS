@@ -500,7 +500,7 @@ const TABS: { id: Tab; l: string }[] = [
                       <tbody>
                         {ySorted.map((r: any, i: number) => {
                           const w = ((r.revenue / yMaxRev) * 100).toFixed(1);
-                          const senders: any[] = yData?.senders_by_customer?.[r.name] ?? [];
+                          const senders: any[] = (yData?.senders_by_customer ?? []).find((g: any) => g.customer_name === r.name)?.senders ?? [];
                           const isOpen = yExpanded.has(r.name);
                           const toggleExpand = () => setYExpanded(prev => {
                             const next = new Set(prev);
