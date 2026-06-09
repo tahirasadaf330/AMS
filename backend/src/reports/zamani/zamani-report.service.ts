@@ -449,7 +449,7 @@ export class ZamaniReportService implements OnModuleInit {
     const extra: string[] = [];
     if (params.customer) extra.push(`AND customerconnection = $${args.push(params.customer)}`);
 
-    const [rows, pieRows, last7Days] = await Promise.all([
+    const [rows, pieRows, last7Days, senderRows] = await Promise.all([
       this.dataSource.query(
         `SELECT
            customerconnection                                                                  AS customer_name,
@@ -488,7 +488,32 @@ export class ZamaniReportService implements OnModuleInit {
          GROUP BY receiveddate
          ORDER BY receiveddate`,
       ),
+      // Per-sender breakdown for both dates
+      this.dataSource.query(
+        `SELECT
+           customerconnection                                                                  AS customer_name,
+           COALESCE(terminatedsenderid, '(unknown)')                                          AS sender_id,
+           SUM(CASE WHEN receiveddate=$1::date THEN numbersofmessages ELSE 0 END)::bigint     AS messages_old,
+           SUM(CASE WHEN receiveddate=$2::date THEN numbersofmessages ELSE 0 END)::bigint     AS messages_new,
+           ROUND(SUM(CASE WHEN receiveddate=$1::date THEN revenue ELSE 0 END)::numeric,4)     AS revenue_old,
+           ROUND(SUM(CASE WHEN receiveddate=$2::date THEN revenue ELSE 0 END)::numeric,4)     AS revenue_new,
+           ROUND(SUM(CASE WHEN receiveddate=$1::date THEN negativemargin ELSE 0 END)::numeric,4) AS margin_old,
+           ROUND(SUM(CASE WHEN receiveddate=$2::date THEN negativemargin ELSE 0 END)::numeric,4) AS margin_new
+         FROM ${STAGE}
+         WHERE receiveddate IN ($1::date, $2::date)
+           ${extra.join(' ')}
+         GROUP BY customerconnection, terminatedsenderid
+         ORDER BY customerconnection, messages_new DESC`,
+        args,
+      ),
     ]);
+
+    const sMap: Record<string, any[]> = {};
+    for (const r of senderRows) {
+      if (!sMap[r.customer_name]) sMap[r.customer_name] = [];
+      sMap[r.customer_name].push(r);
+    }
+    const sendersByCustomer = Object.entries(sMap).map(([customer_name, senders]) => ({ customer_name, senders }));
 
     return {
       rows: rows.map((r: any) => ({
@@ -504,6 +529,7 @@ export class ZamaniReportService implements OnModuleInit {
       })),
       pieData: pieRows,
       last7Days,
+      sendersByCustomer,
     };
   }
 

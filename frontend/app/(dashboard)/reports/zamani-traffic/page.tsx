@@ -14,8 +14,8 @@ const MNS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','
 const yd  = () => { const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); };
 const dby = () => { const d = new Date(); d.setDate(d.getDate()-2); return d.toISOString().slice(0,10); };
 const fN  = (n: any) => n != null ? Number(n).toLocaleString('en-US',{maximumFractionDigits:0}) : '—';
-const fR  = (n: any) => n != null ? `$${Number(n).toFixed(2)}` : '—';
-const fM  = (n: any) => { if (n==null) return '—'; const v=Number(n); return v>=1e6?`$${(v/1e6).toFixed(2)}M`:v>=1e3?`$${(v/1e3).toFixed(1)}K`:`$${v.toFixed(2)}`; };
+const fR  = (n: any) => n != null ? `$${Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
+const fM  = (n: any) => { if (n==null) return '—'; const v=Number(n); return v>=1e6?`$${(v/1e6).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}M`:v>=1e3?`$${(v/1e3).toLocaleString('en-US',{minimumFractionDigits:1,maximumFractionDigits:1})}K`:`$${v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`; };
 const fP  = (n: any) => n != null ? `${Number(n).toFixed(1)}%` : '—';
 const fDate=(s: string) => {
   if (!s) return '';
@@ -302,6 +302,7 @@ export default function ZamaniTrafficPage() {
   const [cNew, setCNew] = React.useState(yd);
   const [cData, setCData] = React.useState<any>(null);
   const [cLoad, setCLoad] = React.useState(false);
+  const [cExpanded, setCExpanded] = React.useState<Set<string>>(new Set());
 
   /* mtd */
   const toLocalDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -680,20 +681,64 @@ const TABS: { id: Tab; l: string }[] = [
                           <th>Mar {cOld}</th><th>Mar {cNew}</th><th style={{ textAlign: 'center' }}>Mar Δ%</th>
                         </tr></thead>
                         <tbody>
-                          {cData.rows.map((r: any, i: number) => (
-                            <tr key={i}>
-                              <td><div className="zconn"><span className="zdot" style={{ background: PAL[i % PAL.length] }} />{r.customer_name}</div></td>
-                              <td>{r.messages_old == null ? '—' : fN(r.messages_old)}</td>
-                              <td>{fN(r.messages_new)}</td>
-                              <td style={{ textAlign: 'center' }}><Diff o={r.messages_old} n={r.messages_new} /></td>
-                              <td>{r.revenue_old == null ? '—' : fR(r.revenue_old)}</td>
-                              <td>{fR(r.revenue_new)}</td>
-                              <td style={{ textAlign: 'center' }}><Diff o={r.revenue_old} n={r.revenue_new} /></td>
-                              <td className={Number(r.margin_old ?? 0) < 0 ? 'zneg' : ''}>{r.margin_old == null ? '—' : fR(r.margin_old)}</td>
-                              <td className={Number(r.margin_new ?? 0) < 0 ? 'zneg' : ''}>{fR(r.margin_new)}</td>
-                              <td style={{ textAlign: 'center' }}><Diff o={r.margin_old} n={r.margin_new} /></td>
-                            </tr>
-                          ))}
+                          {cData.rows.map((r: any, i: number) => {
+                            const col = PAL[i % PAL.length];
+                            const senders: any[] = (cData?.senders_by_customer ?? []).find((g: any) => g.customer_name === r.customer_name)?.senders ?? [];
+                            const isOpen = cExpanded.has(r.customer_name);
+                            const toggleExpand = () => setCExpanded(prev => {
+                              const next = new Set(prev);
+                              if (next.has(r.customer_name)) next.delete(r.customer_name); else next.add(r.customer_name);
+                              return next;
+                            });
+                            return (
+                              <React.Fragment key={i}>
+                                <tr style={{ cursor: senders.length ? 'pointer' : undefined }} onClick={senders.length ? toggleExpand : undefined}>
+                                  <td>
+                                    <div className="zconn">
+                                      {senders.length > 0 && (
+                                        <span style={{
+                                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                          width: 14, height: 14, border: '1px solid var(--lns)', borderRadius: 2,
+                                          fontSize: 12, fontWeight: 700, lineHeight: 1, color: 'var(--inks)',
+                                          background: 'var(--sf2)', marginRight: 6, flexShrink: 0, userSelect: 'none',
+                                        }}>{isOpen ? '−' : '+'}</span>
+                                      )}
+                                      <span className="zdot" style={{ background: col }} />
+                                      {r.customer_name}
+                                    </div>
+                                  </td>
+                                  <td>{r.messages_old == null ? '—' : fN(r.messages_old)}</td>
+                                  <td>{fN(r.messages_new)}</td>
+                                  <td style={{ textAlign: 'center' }}><Diff o={r.messages_old} n={r.messages_new} /></td>
+                                  <td>{r.revenue_old == null ? '—' : fR(r.revenue_old)}</td>
+                                  <td>{fR(r.revenue_new)}</td>
+                                  <td style={{ textAlign: 'center' }}><Diff o={r.revenue_old} n={r.revenue_new} /></td>
+                                  <td className={Number(r.margin_old ?? 0) < 0 ? 'zneg' : ''}>{r.margin_old == null ? '—' : fR(r.margin_old)}</td>
+                                  <td className={Number(r.margin_new ?? 0) < 0 ? 'zneg' : ''}>{fR(r.margin_new)}</td>
+                                  <td style={{ textAlign: 'center' }}><Diff o={r.margin_old} n={r.margin_new} /></td>
+                                </tr>
+                                {isOpen && senders.map((s: any, si: number) => (
+                                  <tr key={`${i}-s-${si}`} style={{ background: 'var(--sf2)' }}>
+                                    <td style={{ paddingLeft: 40 }}>
+                                      <div className="zconn">
+                                        <span className="zdot" style={{ background: col, opacity: 0.45 }} />
+                                        <span style={{ color: 'var(--inks)', fontWeight: 500 }}>{s.sender_id}</span>
+                                      </div>
+                                    </td>
+                                    <td>{fN(s.messages_old)}</td>
+                                    <td>{fN(s.messages_new)}</td>
+                                    <td style={{ textAlign: 'center' }}><Diff o={s.messages_old} n={s.messages_new} /></td>
+                                    <td>{fR(s.revenue_old)}</td>
+                                    <td>{fR(s.revenue_new)}</td>
+                                    <td style={{ textAlign: 'center' }}><Diff o={s.revenue_old} n={s.revenue_new} /></td>
+                                    <td className={Number(s.margin_old) < 0 ? 'zneg' : ''}>{fR(s.margin_old)}</td>
+                                    <td className={Number(s.margin_new) < 0 ? 'zneg' : ''}>{fR(s.margin_new)}</td>
+                                    <td style={{ textAlign: 'center' }}><Diff o={s.margin_old} n={s.margin_new} /></td>
+                                  </tr>
+                                ))}
+                              </React.Fragment>
+                            );
+                          })}
                         </tbody>
                         {cTotals && (
                           <tfoot><tr>
@@ -967,7 +1012,7 @@ const TABS: { id: Tab; l: string }[] = [
                         ['Days in Month', pData.days_info.days_in_month],
                         ['Days Recorded', pData.days_info.current_day],
                         ['Days Remaining', pData.days_info.remaining_days],
-                        ['Avg / Day', `$${Number(pData.days_info.avg_day_revenue ?? 0).toFixed(0)}`],
+                        ['Avg / Day', `$${Number(pData.days_info.avg_day_revenue ?? 0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}`],
                       ].map(([l, v]) => (
                         <div key={l as string}>
                           <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--mu)', marginBottom: 3 }}>{l}</div>
