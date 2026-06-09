@@ -4,14 +4,16 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  OnModuleInit,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User, UserRole } from '../../common/entities/user.entity';
 import { Session } from '../../common/entities/session.entity';
 import { PasswordHistory } from '../../common/entities/password-history.entity';
 import { UserDatasetAccess } from '../../common/entities/user-dataset-access.entity';
+import { UserReportAccess } from '../../common/entities/user-report-access.entity';
 import { GraphEmailService } from '../../notifications/graph-email.service';
 
 const BCRYPT_ROUNDS = 12;
@@ -23,6 +25,7 @@ export interface CreateUserDto {
   password: string;
   role: UserRole;
   datasetAccess?: string[];
+  reportAccess?: string[];
 }
 
 export interface UpdateUserDto {
@@ -32,10 +35,11 @@ export interface UpdateUserDto {
   isActive?: boolean;
   mustChangePassword?: boolean;
   datasetAccess?: string[];
+  reportAccess?: string[];
 }
 
 @Injectable()
-export class AdminUsersService {
+export class AdminUsersService implements OnModuleInit {
   private readonly logger = new Logger(AdminUsersService.name);
 
   constructor(
@@ -47,22 +51,56 @@ export class AdminUsersService {
     private passwordHistoryRepo: Repository<PasswordHistory>,
     @InjectRepository(UserDatasetAccess)
     private accessRepo: Repository<UserDatasetAccess>,
+    @InjectRepository(UserReportAccess)
+    private reportAccessRepo: Repository<UserReportAccess>,
+    @InjectDataSource()
+    private dataSource: DataSource,
     private graphEmailService: GraphEmailService,
   ) {}
 
-  async findAll(): Promise<(Omit<User, 'passwordHash'> & { dataset_access: string[] })[]> {
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.dataSource.query(`
+        CREATE TABLE IF NOT EXISTS user_report_access (
+          id          BIGSERIAL PRIMARY KEY,
+          user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          report_slug VARCHAR(100) NOT NULL,
+          granted_by  UUID        REFERENCES users(id) ON DELETE SET NULL,
+          granted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT uq_user_report UNIQUE (user_id, report_slug)
+        )
+      `);
+    } catch (err) {
+      this.logger.error('Failed to ensure user_report_access table', err);
+    }
+  }
+
+  async findAll(): Promise<(Omit<User, 'passwordHash'> & { dataset_access: string[]; report_access: string[] })[]> {
     try {
       const users = await this.userRepo.find({ order: { createdAt: 'DESC' } });
-      const accesses = await this.accessRepo.find();
+      const [accesses, reportAccesses] = await Promise.all([
+        this.accessRepo.find(),
+        this.reportAccessRepo.find(),
+      ]);
+
       const accessMap = new Map<string, string[]>();
       for (const a of accesses) {
         const list = accessMap.get(a.userId) ?? [];
         list.push(a.datasetId);
         accessMap.set(a.userId, list);
       }
+
+      const reportMap = new Map<string, string[]>();
+      for (const r of reportAccesses) {
+        const list = reportMap.get(r.userId) ?? [];
+        list.push(r.reportSlug);
+        reportMap.set(r.userId, list);
+      }
+
       return users.map(({ passwordHash, ...u }) => ({
         ...(u as Omit<User, 'passwordHash'>),
         dataset_access: accessMap.get(u.id) ?? [],
+        report_access:  reportMap.get(u.id)  ?? [],
       }));
     } catch (err) {
       this.logger.error('Error finding users', err);
@@ -70,14 +108,18 @@ export class AdminUsersService {
     }
   }
 
-  async findOne(id: string): Promise<Omit<User, 'passwordHash'> & { dataset_access: string[] }> {
+  async findOne(id: string): Promise<Omit<User, 'passwordHash'> & { dataset_access: string[]; report_access: string[] }> {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`User ${id} not found`);
-    const accesses = await this.accessRepo.find({ where: { userId: id } });
+    const [accesses, reportAccesses] = await Promise.all([
+      this.accessRepo.find({ where: { userId: id } }),
+      this.reportAccessRepo.find({ where: { userId: id } }),
+    ]);
     const { passwordHash, ...u } = user;
     return {
       ...(u as Omit<User, 'passwordHash'>),
       dataset_access: accesses.map((a) => a.datasetId),
+      report_access:  reportAccesses.map((r) => r.reportSlug),
     };
   }
 
@@ -122,6 +164,15 @@ export class AdminUsersService {
         }
       }
 
+      // Grant report access
+      if (dto.reportAccess?.length) {
+        for (const reportSlug of dto.reportAccess) {
+          await this.reportAccessRepo.save(
+            this.reportAccessRepo.create({ userId: saved.id, reportSlug, grantedBy: createdBy }),
+          );
+        }
+      }
+
       // Send welcome email (fire and forget)
       this.sendWelcomeEmail(saved, dto.password).catch((err) => {
         this.logger.error('Failed to send welcome email', err);
@@ -161,6 +212,16 @@ export class AdminUsersService {
         for (const datasetId of dto.datasetAccess) {
           await this.accessRepo.save(
             this.accessRepo.create({ userId: id, datasetId, grantedBy: updatedBy }),
+          );
+        }
+      }
+
+      // Sync report access only when the field is explicitly provided
+      if (dto.reportAccess !== undefined) {
+        await this.reportAccessRepo.delete({ userId: id });
+        for (const reportSlug of dto.reportAccess) {
+          await this.reportAccessRepo.save(
+            this.reportAccessRepo.create({ userId: id, reportSlug, grantedBy: updatedBy }),
           );
         }
       }

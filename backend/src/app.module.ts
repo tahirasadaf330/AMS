@@ -8,6 +8,7 @@ import { PasswordHistory } from './common/entities/password-history.entity';
 import { Session } from './common/entities/session.entity';
 import { Dataset } from './common/entities/dataset.entity';
 import { UserDatasetAccess } from './common/entities/user-dataset-access.entity';
+import { UserReportAccess } from './common/entities/user-report-access.entity';
 import { DatasetRefreshLog } from './common/entities/dataset-refresh-log.entity';
 import { Condition } from './common/entities/condition.entity';
 import { NotificationLog } from './common/entities/notification-log.entity';
@@ -57,6 +58,7 @@ import { ZamaniReportModule } from './reports/zamani/zamani-report.module';
           Session,
           Dataset,
           UserDatasetAccess,
+          UserReportAccess,
           DatasetRefreshLog,
           Condition,
           NotificationLog,

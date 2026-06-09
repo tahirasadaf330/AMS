@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Edit2, UserX, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { Plus, Edit2, UserX, ShieldCheck } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,12 +39,17 @@ function useAdminUsers() {
   });
 }
 
+const AVAILABLE_REPORTS = [
+  { id: 'zamani', name: 'Zamani Traffic' },
+];
+
 interface UserFormData {
   name: string;
   email: string;
   password: string;
   role: string;
   dataset_access: string[];
+  report_access: string[];
   send_welcome_email: boolean;
 }
 
@@ -54,6 +59,7 @@ const defaultFormData: UserFormData = {
   password: '',
   role: 'viewer',
   dataset_access: [],
+  report_access: [],
   send_welcome_email: false,
 };
 
@@ -71,6 +77,9 @@ export default function AdminUsersPage() {
   const [drawerUser, setDrawerUser] = React.useState<AdminUser | null>(null);
   const [sessions, setSessions] = React.useState<UserSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = React.useState(false);
+  const [accessDrawerUser, setAccessDrawerUser] = React.useState<AdminUser | null>(null);
+  const [accessFormData, setAccessFormData] = React.useState<{ dataset_access: string[]; report_access: string[] }>({ dataset_access: [], report_access: [] });
+  const [accessSaving, setAccessSaving] = React.useState(false);
 
   const createMutation = useMutation({
     mutationFn: async (data: UserFormData) =>
@@ -80,6 +89,7 @@ export default function AdminUsersPage() {
         password: data.password,
         role: data.role,
         dataset_access: data.dataset_access,
+        report_access: data.report_access,
         send_welcome_email: data.send_welcome_email,
       }),
     onSuccess: () => {
@@ -147,6 +157,7 @@ export default function AdminUsersPage() {
       password: '',
       role: user.role,
       dataset_access: user.dataset_access ?? [],
+      report_access: user.report_access ?? [],
       send_welcome_email: false,
     });
   };
@@ -160,6 +171,7 @@ export default function AdminUsersPage() {
           name: formData.name,
           role: formData.role as AdminUser['role'],
           dataset_access: formData.dataset_access,
+          report_access: formData.report_access,
         },
       });
     } else {
@@ -174,6 +186,43 @@ export default function AdminUsersPage() {
         ? prev.dataset_access.filter((id) => id !== datasetId)
         : [...prev.dataset_access, datasetId],
     }));
+  };
+
+  const toggleReportAccess = (reportId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      report_access: prev.report_access.includes(reportId)
+        ? prev.report_access.filter((id) => id !== reportId)
+        : [...prev.report_access, reportId],
+    }));
+  };
+
+  const openAccessDrawer = (user: AdminUser) => {
+    setAccessDrawerUser(user);
+    setAccessFormData({
+      dataset_access: user.dataset_access ?? [],
+      report_access: user.report_access ?? [],
+    });
+  };
+
+  const saveAccess = async () => {
+    if (!accessDrawerUser) return;
+    setAccessSaving(true);
+    try {
+      await updateMutation.mutateAsync({
+        id: accessDrawerUser.id,
+        data: {
+          dataset_access: accessFormData.dataset_access,
+          report_access: accessFormData.report_access,
+        },
+      });
+      addToast({ title: 'Access updated', variant: 'success' });
+      setAccessDrawerUser(null);
+    } catch {
+      addToast({ title: 'Failed to update access', variant: 'destructive' });
+    } finally {
+      setAccessSaving(false);
+    }
   };
 
   if (!isAdmin) {
@@ -207,7 +256,7 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Email</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Datasets</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Datasets / Reports</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Login</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
@@ -231,7 +280,9 @@ export default function AdminUsersPage() {
                     {user.role === 'admin' ? (
                       <span className="text-purple-600 dark:text-purple-400">All</span>
                     ) : (
-                      (user.dataset_access ?? []).length
+                      <span>
+                        {(user.dataset_access ?? []).length} datasets · {(user.report_access ?? []).length} reports
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-3">
@@ -245,6 +296,11 @@ export default function AdminUsersPage() {
                       <Button variant="ghost" size="icon-sm" onClick={() => openEdit(user)} title="Edit">
                         <Edit2 className="h-3.5 w-3.5 text-blue-400" />
                       </Button>
+                      {user.role !== 'admin' && (
+                        <Button variant="ghost" size="icon-sm" onClick={() => openAccessDrawer(user)} title="Manage Access">
+                          <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                        </Button>
+                      )}
                       {user.is_active && (
                         <Button variant="ghost" size="icon-sm" onClick={() => setDeactivateTarget(user)} title="Deactivate">
                           <UserX className="h-3.5 w-3.5 text-red-400" />
@@ -293,19 +349,45 @@ export default function AdminUsersPage() {
             </div>
             {formData.role !== 'admin' && (
               <div className="space-y-1.5">
-                <Label>Dataset Access</Label>
-                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 rounded border border-gray-200 dark:border-gray-700">
-                  {(datasets ?? []).map((d) => (
-                    <label key={d.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
-                      <input
-                        type="checkbox"
-                        checked={formData.dataset_access.includes(d.id)}
-                        onChange={() => toggleDatasetAccess(d.id)}
-                        className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-blue-600"
-                      />
-                      {d.name}
-                    </label>
-                  ))}
+                <Label>Access</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Datasets */}
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Datasets</p>
+                    <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto p-2 rounded border border-gray-200 dark:border-gray-700">
+                      {(datasets ?? []).length === 0 && (
+                        <p className="text-xs text-gray-400 dark:text-gray-500">No datasets</p>
+                      )}
+                      {(datasets ?? []).map((d) => (
+                        <label key={d.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                          <input
+                            type="checkbox"
+                            checked={formData.dataset_access.includes(d.id)}
+                            onChange={() => toggleDatasetAccess(d.id)}
+                            className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-blue-600"
+                          />
+                          <span className="truncate">{d.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Reports */}
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Reports</p>
+                    <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto p-2 rounded border border-gray-200 dark:border-gray-700">
+                      {AVAILABLE_REPORTS.map((r) => (
+                        <label key={r.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                          <input
+                            type="checkbox"
+                            checked={formData.report_access.includes(r.id)}
+                            onChange={() => toggleReportAccess(r.id)}
+                            className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-emerald-600"
+                          />
+                          <span className="truncate">{r.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -347,6 +429,92 @@ export default function AdminUsersPage() {
         </DialogBody>
       </Dialog>
 
+      {/* Manage Access drawer */}
+      <Drawer
+        open={!!accessDrawerUser}
+        onClose={() => setAccessDrawerUser(null)}
+        title={`Access — ${accessDrawerUser?.name ?? ''}`}
+        description={accessDrawerUser?.email}
+      >
+        <div className="p-6 space-y-6">
+          {accessDrawerUser && (
+            <>
+              {/* Datasets */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                  <span>Datasets</span>
+                  <span className="text-xs font-normal text-gray-400 dark:text-gray-500">
+                    {accessFormData.dataset_access.length} of {(datasets ?? []).length} granted
+                  </span>
+                </h3>
+                <div className="space-y-2">
+                  {(datasets ?? []).map((d) => {
+                    const checked = accessFormData.dataset_access.includes(d.id);
+                    return (
+                      <label key={d.id} className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{d.name}</span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setAccessFormData((prev) => ({
+                            ...prev,
+                            dataset_access: checked
+                              ? prev.dataset_access.filter((id) => id !== d.id)
+                              : [...prev.dataset_access, d.id],
+                          }))}
+                          className="rounded border-gray-300 dark:border-gray-600 text-blue-600"
+                        />
+                      </label>
+                    );
+                  })}
+                  {(datasets ?? []).length === 0 && (
+                    <p className="text-xs text-gray-400 dark:text-gray-500">No datasets configured.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Reports */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                  <span>Reports</span>
+                  <span className="text-xs font-normal text-gray-400 dark:text-gray-500">
+                    {accessFormData.report_access.length} of {AVAILABLE_REPORTS.length} granted
+                  </span>
+                </h3>
+                <div className="space-y-2">
+                  {AVAILABLE_REPORTS.map((r) => {
+                    const checked = accessFormData.report_access.includes(r.id);
+                    return (
+                      <label key={r.id} className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{r.name}</span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setAccessFormData((prev) => ({
+                            ...prev,
+                            report_access: checked
+                              ? prev.report_access.filter((id) => id !== r.id)
+                              : [...prev.report_access, r.id],
+                          }))}
+                          className="rounded border-gray-300 dark:border-gray-600 text-emerald-600"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <Button variant="ghost" onClick={() => setAccessDrawerUser(null)}>Cancel</Button>
+                <Button onClick={() => void saveAccess()} isLoading={accessSaving}>
+                  Save Access
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      </Drawer>
+
       {/* User detail drawer */}
       <Drawer open={!!drawerUser} onClose={() => setDrawerUser(null)} title={drawerUser?.name} description={drawerUser?.email}>
         <div className="p-6 space-y-6">
@@ -372,6 +540,45 @@ export default function AdminUsersPage() {
                   <p className="text-gray-700 dark:text-gray-300">{drawerUser.last_login ? formatDatetime(drawerUser.last_login) : '—'}</p>
                 </div>
               </div>
+
+              {/* Access summary */}
+              {drawerUser.role !== 'admin' && (
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Access</h3>
+                  <div className="space-y-2 text-xs">
+                    <div className="rounded border border-gray-200 dark:border-gray-700 p-3">
+                      <p className="font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Datasets ({(drawerUser.dataset_access ?? []).length})</p>
+                      {(drawerUser.dataset_access ?? []).length === 0 ? (
+                        <p className="text-gray-400 dark:text-gray-500">No datasets granted</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {(drawerUser.dataset_access ?? []).map((id) => {
+                            const ds = (datasets ?? []).find((d) => d.id === id);
+                            return ds ? (
+                              <span key={id} className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{ds.name}</span>
+                            ) : null;
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    <div className="rounded border border-gray-200 dark:border-gray-700 p-3">
+                      <p className="font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Reports ({(drawerUser.report_access ?? []).length})</p>
+                      {(drawerUser.report_access ?? []).length === 0 ? (
+                        <p className="text-gray-400 dark:text-gray-500">No reports granted</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {(drawerUser.report_access ?? []).map((slug) => {
+                            const rpt = AVAILABLE_REPORTS.find((r) => r.id === slug);
+                            return rpt ? (
+                              <span key={slug} className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">{rpt.name}</span>
+                            ) : null;
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Active sessions */}
               <div>

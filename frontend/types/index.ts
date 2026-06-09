@@ -12,6 +12,7 @@ export interface User {
   role: UserRole;
   is_active: boolean;
   dataset_access: string[];
+  report_access: string[];
   must_change_password?: boolean;
   last_login?: string;
   created_at: string;

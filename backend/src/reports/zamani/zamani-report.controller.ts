@@ -1,9 +1,12 @@
 import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { ReportAccessGuard } from '../../common/guards/report-access.guard';
+import { ReportAccess } from '../../common/decorators/report-access.decorator';
 import { ZamaniReportService } from './zamani-report.service';
 
 @Controller('reports/zamani')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ReportAccessGuard)
+@ReportAccess('zamani')
 export class ZamaniReportController {
   constructor(private readonly zamaniService: ZamaniReportService) {}
 
