@@ -391,25 +391,48 @@ export class ZamaniReportService implements OnModuleInit {
     if (params.accountManager)  extra.push(`AND accountmanager     = $${args.push(params.accountManager)}`);
     if (params.vendorConnection) extra.push(`AND vendorconnection  = $${args.push(params.vendorConnection)}`);
 
-    const rows = await this.dataSource.query(
-      `SELECT
-         customerconnection                                                           AS customer_name,
-         vendorconnection                                                             AS destination_name,
-         SUM(numbersofmessages)::bigint                                              AS messages,
-         SUM(deliveredmessages)::bigint                                              AS dlr_sms,
-         ROUND(SUM(revenue)::numeric, 4)                                             AS revenue,
-         ROUND(SUM(revenue - negativemargin)::numeric, 4)                            AS cost,
-         ROUND(SUM(negativemargin)::numeric, 4)                                      AS margin,
-         ROUND(SUM(deliveredmessages)::numeric * 100.0 / NULLIF(SUM(numbersofmessages), 0), 1) AS dlr_pct
-       FROM ${STAGE}
-       WHERE receiveddate = $1::date
-         ${extra.join(' ')}
-       GROUP BY customerconnection, vendorconnection
-       ORDER BY messages DESC`,
-      args,
-    );
+    const [rows, senderRows] = await Promise.all([
+      this.dataSource.query(
+        `SELECT
+           customerconnection                                                           AS customer_name,
+           vendorconnection                                                             AS destination_name,
+           SUM(numbersofmessages)::bigint                                              AS messages,
+           SUM(deliveredmessages)::bigint                                              AS dlr_sms,
+           ROUND(SUM(revenue)::numeric, 4)                                             AS revenue,
+           ROUND(SUM(revenue - negativemargin)::numeric, 4)                            AS cost,
+           ROUND(SUM(negativemargin)::numeric, 4)                                      AS margin,
+           ROUND(SUM(deliveredmessages)::numeric * 100.0 / NULLIF(SUM(numbersofmessages), 0), 1) AS dlr_pct
+         FROM ${STAGE}
+         WHERE receiveddate = $1::date
+           ${extra.join(' ')}
+         GROUP BY customerconnection, vendorconnection
+         ORDER BY messages DESC`,
+        args,
+      ),
+      this.dataSource.query(
+        `SELECT
+           customerconnection                                                           AS customer_name,
+           COALESCE(terminatedsenderid, '(unknown)')                                   AS sender_id,
+           SUM(numbersofmessages)::bigint                                              AS messages,
+           ROUND(SUM(revenue)::numeric, 4)                                             AS revenue,
+           ROUND(SUM(negativemargin)::numeric, 4)                                      AS margin
+         FROM ${STAGE}
+         WHERE receiveddate = $1::date
+           ${extra.join(' ')}
+         GROUP BY customerconnection, terminatedsenderid
+         ORDER BY customerconnection, messages DESC`,
+        args,
+      ),
+    ]);
 
-    return { rows, totals: this.sumTotals(rows) };
+    // Group senderRows by customer_name for easy lookup on the frontend
+    const sendersByCustomer: Record<string, any[]> = {};
+    for (const r of senderRows) {
+      if (!sendersByCustomer[r.customer_name]) sendersByCustomer[r.customer_name] = [];
+      sendersByCustomer[r.customer_name].push(r);
+    }
+
+    return { rows, totals: this.sumTotals(rows), senders_by_customer: sendersByCustomer };
   }
 
   // ── Comparison ────────────────────────────────────────────────

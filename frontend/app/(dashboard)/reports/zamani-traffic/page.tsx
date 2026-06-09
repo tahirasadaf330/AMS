@@ -294,6 +294,7 @@ export default function ZamaniTrafficPage() {
   const [yCust, setYCust] = React.useState('');
   const [yData, setYData] = React.useState<any>(null);
   const [yLoad, setYLoad] = React.useState(false);
+  const [yExpanded, setYExpanded] = React.useState<Set<string>>(new Set());
   const ySort = useSortState('revenue');
 
   /* comparison */
@@ -499,17 +500,48 @@ const TABS: { id: Tab; l: string }[] = [
                       <tbody>
                         {ySorted.map((r: any, i: number) => {
                           const w = ((r.revenue / yMaxRev) * 100).toFixed(1);
+                          const senders: any[] = yData?.senders_by_customer?.[r.name] ?? [];
+                          const isOpen = yExpanded.has(r.name);
+                          const toggleExpand = () => setYExpanded(prev => {
+                            const next = new Set(prev);
+                            if (next.has(r.name)) next.delete(r.name); else next.add(r.name);
+                            return next;
+                          });
                           return (
-                            <tr key={i}>
-                              <td><div className="zconn"><span className="zdot" style={{ background: r.col }} />{r.name}</div></td>
-                              <td>{fN(r.messages)}</td>
-                              <td className="zrc">
-                                <div className="zrb" style={{ width: `${w}%` }} />
-                                <span className="zrv">{fR(r.revenue)}</span>
-                              </td>
-                              <td className={r.margin < 0 ? 'zneg' : 'zpos'}>{fR(r.margin)}</td>
-                              <td>{fP(r.pct)}</td>
-                            </tr>
+                            <React.Fragment key={i}>
+                              <tr style={{ cursor: senders.length ? 'pointer' : undefined }} onClick={senders.length ? toggleExpand : undefined}>
+                                <td>
+                                  <div className="zconn">
+                                    <span className="zdot" style={{ background: r.col }} />
+                                    {senders.length > 0 && (
+                                      <span style={{ fontSize: 10, color: 'var(--mu)', marginRight: 4, userSelect: 'none' }}>{isOpen ? '▼' : '▶'}</span>
+                                    )}
+                                    {r.name}
+                                  </div>
+                                </td>
+                                <td>{fN(r.messages)}</td>
+                                <td className="zrc">
+                                  <div className="zrb" style={{ width: `${w}%` }} />
+                                  <span className="zrv">{fR(r.revenue)}</span>
+                                </td>
+                                <td className={r.margin < 0 ? 'zneg' : 'zpos'}>{fR(r.margin)}</td>
+                                <td>{fP(r.pct)}</td>
+                              </tr>
+                              {isOpen && senders.map((s: any, si: number) => (
+                                <tr key={`${i}-s-${si}`} style={{ background: 'var(--sf2)' }}>
+                                  <td style={{ paddingLeft: 40 }}>
+                                    <div className="zconn">
+                                      <span className="zdot" style={{ background: r.col, opacity: 0.45 }} />
+                                      <span style={{ color: 'var(--inks)', fontWeight: 500 }}>{s.sender_id}</span>
+                                    </div>
+                                  </td>
+                                  <td>{fN(s.messages)}</td>
+                                  <td>{fR(s.revenue)}</td>
+                                  <td className={Number(s.margin) < 0 ? 'zneg' : 'zpos'}>{fR(s.margin)}</td>
+                                  <td>{fP(Number(s.revenue) > 0 ? Number(s.margin) / Number(s.revenue) * 100 : 0)}</td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
                           );
                         })}
                       </tbody>
