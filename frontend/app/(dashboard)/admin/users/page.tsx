@@ -115,6 +115,11 @@ export default function AdminUsersPage() {
     onError: () => addToast({ title: 'Failed to update user', variant: 'destructive' }),
   });
 
+  const accessMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: { dataset_access: string[]; report_access: string[] } }) =>
+      adminUsersApi.update(id, data as Partial<AdminUser>),
+  });
+
   const deactivateMutation = useMutation({
     mutationFn: async (id: string) => adminUsersApi.deactivate(id),
     onSuccess: () => {
@@ -209,13 +214,14 @@ export default function AdminUsersPage() {
     if (!accessDrawerUser) return;
     setAccessSaving(true);
     try {
-      await updateMutation.mutateAsync({
+      await accessMutation.mutateAsync({
         id: accessDrawerUser.id,
         data: {
           dataset_access: accessFormData.dataset_access,
           report_access: accessFormData.report_access,
         },
       });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       addToast({ title: 'Access updated', variant: 'success' });
       setAccessDrawerUser(null);
     } catch {
