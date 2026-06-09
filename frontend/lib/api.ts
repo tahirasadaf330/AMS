@@ -208,6 +208,7 @@ export const adminUsersApi = {
     password: string;
     role: string;
     dataset_access: string[];
+    report_access?: string[];
     send_welcome_email?: boolean;
   }) => api.post<AdminUser>('/admin/users', data),
 
