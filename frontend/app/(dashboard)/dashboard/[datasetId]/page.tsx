@@ -2,17 +2,15 @@
 
 import * as React from 'react';
 import { useParams } from 'next/navigation';
-import { RefreshCw, LayoutList, Grid3x3 } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { ExportButtons } from '@/components/export-buttons';
 import { TableView } from '@/components/table-view';
-import { MatrixView } from '@/components/matrix-view';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
 import {
   useDashboardData,
-  useDashboardMatrix,
   useRefreshHistory,
   useTriggerRefresh,
   useDatasets,
@@ -24,14 +22,11 @@ import { formatDatetimeFull, formatNumber } from '@/lib/utils';
 import { RefreshHistoryTable } from '@/components/refresh-history-table';
 import { useConditions } from '@/hooks/useConditions';
 
-type ViewMode = 'table' | 'matrix';
-
 export default function DatasetDashboardPage() {
   const params = useParams();
   const datasetId = params.datasetId as string;
   const canRefresh = useAuthStore((s) => s.canAccess('trigger_refresh'));
 
-  const [viewMode, setViewMode] = React.useState<ViewMode>('table');
   const [page, setPage] = React.useState(1);
   const [sort, setSort] = React.useState<string | undefined>(undefined);
   const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
@@ -58,7 +53,6 @@ export default function DatasetDashboardPage() {
   };
 
   const { data: tableData, isLoading: tableLoading } = useDashboardData(datasetId, tableParams);
-  const { data: matrixData, isLoading: matrixLoading } = useDashboardMatrix(datasetId);
   const { data: historyData, isLoading: historyLoading } = useRefreshHistory(datasetId);
   const { data: datasetsAll } = useDatasets();
   const { data: conditions } = useConditions();
@@ -179,57 +173,23 @@ export default function DatasetDashboardPage() {
         </div>
       )}
 
-      {/* View toggle */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => setViewMode('table')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-            viewMode === 'table'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-          }`}
-        >
-          <LayoutList className="h-4 w-4" />
-          Table View
-        </button>
-        <button
-          onClick={() => setViewMode('matrix')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-            viewMode === 'matrix'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-          }`}
-        >
-          <Grid3x3 className="h-4 w-4" />
-          Matrix View
-        </button>
-      </div>
-
       {/* Main content */}
-      {viewMode === 'table' ? (
-        <TableView
-          columns={columns}
-          rows={tableData?.rows ?? []}
-          total={tableData?.total ?? 0}
-          page={page}
-          limit={50}
-          isLoading={tableLoading}
-          sort={sort}
-          sortDir={sortDir}
-          onSort={handleSort}
-          onPageChange={setPage}
-          columnFilters={columnFilters}
-          onFilterChange={handleFilterChange}
-          visibleColumnKeys={visibleColumnKeys}
-          onVisibleColumnsChange={setVisibleColumnKeys}
-        />
-      ) : (
-        <MatrixView
-          rows={matrixData?.rows ?? []}
-          columns={matrixData?.columns ?? columns}
-          isLoading={matrixLoading}
-        />
-      )}
+      <TableView
+        columns={columns}
+        rows={tableData?.rows ?? []}
+        total={tableData?.total ?? 0}
+        page={page}
+        limit={50}
+        isLoading={tableLoading}
+        sort={sort}
+        sortDir={sortDir}
+        onSort={handleSort}
+        onPageChange={setPage}
+        columnFilters={columnFilters}
+        onFilterChange={handleFilterChange}
+        visibleColumnKeys={visibleColumnKeys}
+        onVisibleColumnsChange={setVisibleColumnKeys}
+      />
 
       {/* Refresh history toggle */}
       <div>
