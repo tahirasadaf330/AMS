@@ -602,7 +602,7 @@ export class ZamaniReportService implements OnModuleInit {
       [params.year, params.month],
     );
 
-    const [last7Days, [targetRow], mtdPerCustomer, last7PerCustomer, senderRows] = await Promise.all([
+    const [last7Days, [targetRow], mtdPerCustomer, last7PerCustomer, senderRows, senderMtdRows] = await Promise.all([
       this.dataSource.query(
         `SELECT
            receiveddate::text                       AS date,
@@ -655,7 +655,7 @@ export class ZamaniReportService implements OnModuleInit {
          GROUP BY customerconnection`,
         [params.year, params.month],
       ),
-      // Per-sender breakdown for last N days (for expand rows)
+      // Per-sender last N days
       this.dataSource.query(
         `SELECT
            customerconnection                           AS customer_name,
@@ -672,6 +672,20 @@ export class ZamaniReportService implements OnModuleInit {
          )
          GROUP BY customerconnection, terminatedsenderid
          ORDER BY customerconnection, messages_last7 DESC`,
+        [params.year, params.month],
+      ),
+      // Per-sender MTD totals (up to yesterday) for projections
+      this.dataSource.query(
+        `SELECT
+           customerconnection                           AS customer_name,
+           COALESCE(terminatedsenderid, '(unknown)')   AS sender_id,
+           SUM(numbersofmessages)::bigint              AS mtd_messages,
+           ROUND(SUM(revenue)::numeric, 4)             AS mtd_revenue
+         FROM ${STAGE}
+         WHERE EXTRACT(YEAR  FROM receiveddate) = $1
+           AND EXTRACT(MONTH FROM receiveddate) = $2
+           AND receiveddate < CURRENT_DATE
+         GROUP BY customerconnection, terminatedsenderid`,
         [params.year, params.month],
       ),
     ]);
@@ -707,10 +721,23 @@ export class ZamaniReportService implements OnModuleInit {
       };
     });
 
+    // Build per-sender projections
+    const senderMtdMap = new Map<string, any>();
+    for (const r of senderMtdRows) {
+      senderMtdMap.set(`${r.customer_name}||${r.sender_id}`, r);
+    }
+
     const sMap: Record<string, any[]> = {};
     for (const r of senderRows) {
+      const mtd = senderMtdMap.get(`${r.customer_name}||${r.sender_id}`) ?? { mtd_messages: 0, mtd_revenue: 0 };
+      const avgMsgs = Number(r.messages_last7) / (n || 1);
+      const avgRev  = Number(r.revenue_last7)  / (n || 1);
       if (!sMap[r.customer_name]) sMap[r.customer_name] = [];
-      sMap[r.customer_name].push(r);
+      sMap[r.customer_name].push({
+        ...r,
+        projected_messages: Math.round(Number(mtd.mtd_messages) + avgMsgs * remainingDays),
+        projected_revenue:  Number((Number(mtd.mtd_revenue) + avgRev * remainingDays).toFixed(2)),
+      });
     }
     const sendersByCustomer = Object.entries(sMap).map(([customer_name, senders]) => ({ customer_name, senders }));
 

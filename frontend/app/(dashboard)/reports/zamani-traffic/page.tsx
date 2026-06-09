@@ -1044,9 +1044,9 @@ const TABS: { id: Tab; l: string }[] = [
                                     </div>
                                   </td>
                                   <td>{fN(s.messages_last7)}</td>
-                                  <td>—</td>
+                                  <td>{fN(s.projected_messages)}</td>
                                   <td>{fR(s.revenue_last7)}</td>
-                                  <td>—</td>
+                                  <td className="zpos">{fR(s.projected_revenue)}</td>
                                 </tr>
                               ))}
                             </React.Fragment>
