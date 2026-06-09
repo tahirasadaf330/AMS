@@ -514,7 +514,12 @@ const TABS: { id: Tab; l: string }[] = [
                                   <div className="zconn">
                                     <span className="zdot" style={{ background: r.col }} />
                                     {senders.length > 0 && (
-                                      <span style={{ fontSize: 10, color: 'var(--mu)', marginRight: 4, userSelect: 'none' }}>{isOpen ? '▼' : '▶'}</span>
+                                      <span style={{
+                                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                        width: 14, height: 14, border: '1px solid var(--lns)', borderRadius: 2,
+                                        fontSize: 12, fontWeight: 700, lineHeight: 1, color: 'var(--inks)',
+                                        background: 'var(--sf2)', marginRight: 6, flexShrink: 0, userSelect: 'none',
+                                      }}>{isOpen ? '−' : '+'}</span>
                                     )}
                                     {r.name}
                                   </div>
