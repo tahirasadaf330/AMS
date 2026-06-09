@@ -79,22 +79,26 @@ export class AdminUsersService implements OnModuleInit {
     try {
       const users = await this.userRepo.find({ order: { createdAt: 'DESC' } });
       const [accesses, reportAccesses] = await Promise.all([
-        this.accessRepo.find(),
-        this.reportAccessRepo.find(),
+        this.dataSource.query<{ user_id: string; dataset_id: string }[]>(
+          `SELECT user_id, dataset_id FROM user_dataset_access`,
+        ),
+        this.dataSource.query<{ user_id: string; report_slug: string }[]>(
+          `SELECT user_id, report_slug FROM user_report_access`,
+        ),
       ]);
 
       const accessMap = new Map<string, string[]>();
       for (const a of accesses) {
-        const list = accessMap.get(a.userId) ?? [];
-        list.push(a.datasetId);
-        accessMap.set(a.userId, list);
+        const list = accessMap.get(a.user_id) ?? [];
+        list.push(a.dataset_id);
+        accessMap.set(a.user_id, list);
       }
 
       const reportMap = new Map<string, string[]>();
       for (const r of reportAccesses) {
-        const list = reportMap.get(r.userId) ?? [];
-        list.push(r.reportSlug);
-        reportMap.set(r.userId, list);
+        const list = reportMap.get(r.user_id) ?? [];
+        list.push(r.report_slug);
+        reportMap.set(r.user_id, list);
       }
 
       return users.map(({ passwordHash, ...u }) => ({
@@ -112,14 +116,18 @@ export class AdminUsersService implements OnModuleInit {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`User ${id} not found`);
     const [accesses, reportAccesses] = await Promise.all([
-      this.accessRepo.find({ where: { userId: id } }),
-      this.reportAccessRepo.find({ where: { userId: id } }),
+      this.dataSource.query<{ dataset_id: string }[]>(
+        `SELECT dataset_id FROM user_dataset_access WHERE user_id = $1`, [id],
+      ),
+      this.dataSource.query<{ report_slug: string }[]>(
+        `SELECT report_slug FROM user_report_access WHERE user_id = $1`, [id],
+      ),
     ]);
     const { passwordHash, ...u } = user;
     return {
       ...(u as Omit<User, 'passwordHash'>),
-      dataset_access: accesses.map((a) => a.datasetId),
-      report_access:  reportAccesses.map((r) => r.reportSlug),
+      dataset_access: accesses.map((a) => a.dataset_id),
+      report_access:  reportAccesses.map((r) => r.report_slug),
     };
   }
 
@@ -158,8 +166,9 @@ export class AdminUsersService implements OnModuleInit {
       // Grant dataset access
       if (dto.datasetAccess?.length) {
         for (const datasetId of dto.datasetAccess) {
-          await this.accessRepo.save(
-            this.accessRepo.create({ userId: saved.id, datasetId, grantedBy: createdBy }),
+          await this.dataSource.query(
+            `INSERT INTO user_dataset_access (user_id, dataset_id, granted_by) VALUES ($1, $2, $3)`,
+            [saved.id, datasetId, createdBy],
           );
         }
       }
@@ -167,8 +176,9 @@ export class AdminUsersService implements OnModuleInit {
       // Grant report access
       if (dto.reportAccess?.length) {
         for (const reportSlug of dto.reportAccess) {
-          await this.reportAccessRepo.save(
-            this.reportAccessRepo.create({ userId: saved.id, reportSlug, grantedBy: createdBy }),
+          await this.dataSource.query(
+            `INSERT INTO user_report_access (user_id, report_slug, granted_by) VALUES ($1, $2, $3)`,
+            [saved.id, reportSlug, createdBy],
           );
         }
       }
@@ -208,20 +218,26 @@ export class AdminUsersService implements OnModuleInit {
 
       // Sync dataset access only when the field is explicitly provided
       if (dto.datasetAccess !== undefined) {
-        await this.accessRepo.delete({ userId: id });
+        await this.dataSource.query(
+          `DELETE FROM user_dataset_access WHERE user_id = $1`, [id],
+        );
         for (const datasetId of dto.datasetAccess) {
-          await this.accessRepo.save(
-            this.accessRepo.create({ userId: id, datasetId, grantedBy: updatedBy }),
+          await this.dataSource.query(
+            `INSERT INTO user_dataset_access (user_id, dataset_id, granted_by) VALUES ($1, $2, $3)`,
+            [id, datasetId, updatedBy],
           );
         }
       }
 
       // Sync report access only when the field is explicitly provided
       if (dto.reportAccess !== undefined) {
-        await this.reportAccessRepo.delete({ userId: id });
+        await this.dataSource.query(
+          `DELETE FROM user_report_access WHERE user_id = $1`, [id],
+        );
         for (const reportSlug of dto.reportAccess) {
-          await this.reportAccessRepo.save(
-            this.reportAccessRepo.create({ userId: id, reportSlug, grantedBy: updatedBy }),
+          await this.dataSource.query(
+            `INSERT INTO user_report_access (user_id, report_slug, granted_by) VALUES ($1, $2, $3)`,
+            [id, reportSlug, updatedBy],
           );
         }
       }
