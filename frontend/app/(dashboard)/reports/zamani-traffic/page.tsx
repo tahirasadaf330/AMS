@@ -512,7 +512,6 @@ const TABS: { id: Tab; l: string }[] = [
                               <tr style={{ cursor: senders.length ? 'pointer' : undefined }} onClick={senders.length ? toggleExpand : undefined}>
                                 <td>
                                   <div className="zconn">
-                                    <span className="zdot" style={{ background: r.col }} />
                                     {senders.length > 0 && (
                                       <span style={{
                                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -521,6 +520,7 @@ const TABS: { id: Tab; l: string }[] = [
                                         background: 'var(--sf2)', marginRight: 6, flexShrink: 0, userSelect: 'none',
                                       }}>{isOpen ? '−' : '+'}</span>
                                     )}
+                                    <span className="zdot" style={{ background: r.col }} />
                                     {r.name}
                                   </div>
                                 </td>
