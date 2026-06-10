@@ -307,7 +307,7 @@ export default function ZamaniTrafficPage() {
   /* mtd */
   const toLocalDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const [mStart, setMStart] = React.useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; });
-  const [mEnd,   setMEnd]   = React.useState(() => toLocalDate(new Date()));
+  const [mEnd,   setMEnd]   = React.useState(() => { const d = new Date(); d.setDate(d.getDate() - 1); return toLocalDate(d); });
   const [mCust,  setMCust]  = React.useState('');
   const [mData,  setMData]  = React.useState<any>(null);
   const [mLoad,  setMLoad]  = React.useState(false);
