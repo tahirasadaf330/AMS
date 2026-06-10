@@ -29,11 +29,18 @@ export class ZamaniReportController {
 
   @Get('comparison')
   getComparison(
-    @Query('old_date') old_date: string,
-    @Query('new_date') new_date: string,
-    @Query('customer') customer?: string,
+    @Query('old_date')  old_date?:  string,
+    @Query('new_date')  new_date?:  string,
+    @Query('old_start') old_start?: string,
+    @Query('old_end')   old_end?:   string,
+    @Query('new_start') new_start?: string,
+    @Query('new_end')   new_end?:   string,
+    @Query('customer')  customer?:  string,
   ) {
-    return this.zamaniService.getComparison({ old_date, new_date, customer });
+    if (old_start && old_end && new_start && new_end) {
+      return this.zamaniService.getComparisonRange({ old_start, old_end, new_start, new_end, customer });
+    }
+    return this.zamaniService.getComparison({ old_date: old_date!, new_date: new_date!, customer });
   }
 
   @Get('mtd')

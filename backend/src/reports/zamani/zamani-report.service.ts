@@ -533,6 +533,102 @@ export class ZamaniReportService implements OnModuleInit {
     };
   }
 
+  // ── Comparison (date range vs date range) ────────────────────
+
+  async getComparisonRange(params: {
+    old_start: string;
+    old_end:   string;
+    new_start: string;
+    new_end:   string;
+    customer?: string;
+  }) {
+    if (!(await this.stageExists())) return { rows: [], pieData: [], last7Days: [] };
+
+    const args: unknown[] = [params.old_start, params.old_end, params.new_start, params.new_end];
+    const extra: string[] = [];
+    if (params.customer) extra.push(`AND customerconnection = $${args.push(params.customer)}`);
+
+    const [rows, pieRows, last7Days, senderRows] = await Promise.all([
+      this.dataSource.query(
+        `SELECT
+           customerconnection AS customer_name,
+           SUM(CASE WHEN receiveddate BETWEEN $1::date AND $2::date THEN numbersofmessages ELSE 0 END)::bigint        AS messages_old,
+           SUM(CASE WHEN receiveddate BETWEEN $3::date AND $4::date THEN numbersofmessages ELSE 0 END)::bigint        AS messages_new,
+           ROUND(SUM(CASE WHEN receiveddate BETWEEN $1::date AND $2::date THEN revenue        ELSE 0 END)::numeric,4) AS revenue_old,
+           ROUND(SUM(CASE WHEN receiveddate BETWEEN $3::date AND $4::date THEN revenue        ELSE 0 END)::numeric,4) AS revenue_new,
+           ROUND(SUM(CASE WHEN receiveddate BETWEEN $1::date AND $2::date THEN negativemargin ELSE 0 END)::numeric,4) AS margin_old,
+           ROUND(SUM(CASE WHEN receiveddate BETWEEN $3::date AND $4::date THEN negativemargin ELSE 0 END)::numeric,4) AS margin_new,
+           SUM(CASE WHEN receiveddate BETWEEN $1::date AND $2::date THEN deliveredmessages ELSE 0 END)::bigint        AS dlr_old,
+           SUM(CASE WHEN receiveddate BETWEEN $3::date AND $4::date THEN deliveredmessages ELSE 0 END)::bigint        AS dlr_new
+         FROM ${STAGE}
+         WHERE (receiveddate BETWEEN $1::date AND $2::date OR receiveddate BETWEEN $3::date AND $4::date)
+           ${extra.join(' ')}
+         GROUP BY customerconnection
+         ORDER BY messages_new DESC`,
+        args,
+      ),
+      this.dataSource.query(
+        `SELECT terminatedsenderid AS name, SUM(numbersofmessages)::bigint AS value
+         FROM ${STAGE}
+         WHERE receiveddate BETWEEN $1::date AND $2::date
+         GROUP BY terminatedsenderid
+         ORDER BY value DESC
+         LIMIT 12`,
+        [params.new_start, params.new_end],
+      ),
+      this.dataSource.query(
+        `SELECT receiveddate::text AS date, SUM(numbersofmessages)::bigint AS messages
+         FROM ${STAGE}
+         WHERE receiveddate IN (
+           SELECT DISTINCT receiveddate FROM ${STAGE} ORDER BY receiveddate DESC LIMIT 7
+         )
+         GROUP BY receiveddate
+         ORDER BY receiveddate`,
+      ),
+      this.dataSource.query(
+        `SELECT
+           customerconnection AS customer_name,
+           COALESCE(terminatedsenderid, '(unknown)') AS sender_id,
+           SUM(CASE WHEN receiveddate BETWEEN $1::date AND $2::date THEN numbersofmessages ELSE 0 END)::bigint        AS messages_old,
+           SUM(CASE WHEN receiveddate BETWEEN $3::date AND $4::date THEN numbersofmessages ELSE 0 END)::bigint        AS messages_new,
+           ROUND(SUM(CASE WHEN receiveddate BETWEEN $1::date AND $2::date THEN revenue        ELSE 0 END)::numeric,4) AS revenue_old,
+           ROUND(SUM(CASE WHEN receiveddate BETWEEN $3::date AND $4::date THEN revenue        ELSE 0 END)::numeric,4) AS revenue_new,
+           ROUND(SUM(CASE WHEN receiveddate BETWEEN $1::date AND $2::date THEN negativemargin ELSE 0 END)::numeric,4) AS margin_old,
+           ROUND(SUM(CASE WHEN receiveddate BETWEEN $3::date AND $4::date THEN negativemargin ELSE 0 END)::numeric,4) AS margin_new
+         FROM ${STAGE}
+         WHERE (receiveddate BETWEEN $1::date AND $2::date OR receiveddate BETWEEN $3::date AND $4::date)
+           ${extra.join(' ')}
+         GROUP BY customerconnection, terminatedsenderid
+         ORDER BY customerconnection, messages_new DESC`,
+        args,
+      ),
+    ]);
+
+    const sMap: Record<string, any[]> = {};
+    for (const r of senderRows) {
+      if (!sMap[r.customer_name]) sMap[r.customer_name] = [];
+      sMap[r.customer_name].push(r);
+    }
+    const sendersByCustomer = Object.entries(sMap).map(([customer_name, senders]) => ({ customer_name, senders }));
+
+    return {
+      rows: rows.map((r: any) => ({
+        ...r,
+        messages_diff_pct: this.diffPct(r.messages_old, r.messages_new),
+        revenue_diff_pct:  this.diffPct(r.revenue_old,  r.revenue_new),
+        margin_diff_pct:   this.diffPct(r.margin_old,   r.margin_new),
+        dlr_diff_pct:      this.diffPct(r.dlr_old,      r.dlr_new),
+        dlr_pct_old: Number(r.messages_old) > 0
+          ? Math.round(Number(r.dlr_old) / Number(r.messages_old) * 1000) / 10 : 0,
+        dlr_pct_new: Number(r.messages_new) > 0
+          ? Math.round(Number(r.dlr_new) / Number(r.messages_new) * 1000) / 10 : 0,
+      })),
+      pieData: pieRows,
+      last7Days,
+      sendersByCustomer,
+    };
+  }
+
   // ── Month to Date ─────────────────────────────────────────────
 
   async getMtd(params: {

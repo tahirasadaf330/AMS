@@ -303,6 +303,33 @@ export default function ZamaniTrafficPage() {
   const [cData, setCData] = React.useState<any>(null);
   const [cLoad, setCLoad] = React.useState(false);
   const [cExpanded, setCExpanded] = React.useState<Set<string>>(new Set());
+  const [cMode, setCMode] = React.useState<'day' | 'month' | 'range'>('day');
+  // month mode
+  const [cOldMonth, setCOldMonth] = React.useState<string>(() => {
+    const d = new Date(); d.setDate(0);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  });
+  const [cNewMonth, setCNewMonth] = React.useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  });
+  // range mode
+  const [cOldStart, setCOldStart] = React.useState<string>(() => {
+    const d = new Date(); d.setDate(0);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+  });
+  const [cOldEnd, setCOldEnd] = React.useState<string>(() => {
+    const d = new Date(); d.setDate(0);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  });
+  const [cNewStart, setCNewStart] = React.useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+  });
+  const [cNewEnd, setCNewEnd] = React.useState<string>(() => {
+    const d = new Date(); d.setDate(d.getDate()-1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  });
 
   /* mtd */
   const toLocalDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -346,10 +373,22 @@ export default function ZamaniTrafficPage() {
   }, [tab, yDate, yCust]);
 
   React.useEffect(() => {
-    if (tab !== 'comparison' || !cOld || !cNew) return;
-    setCLoad(true);
-    zamaniApi.getComparison({ old_date: cOld, new_date: cNew }).then(r => setCData(r.data)).catch(console.error).finally(() => setCLoad(false));
-  }, [tab, cOld, cNew]);
+    if (tab !== 'comparison') return;
+    if (cMode === 'day') {
+      if (!cOld || !cNew) return;
+      setCLoad(true);
+      zamaniApi.getComparison({ old_date: cOld, new_date: cNew }).then(r => setCData(r.data)).catch(console.error).finally(() => setCLoad(false));
+    } else if (cMode === 'month') {
+      if (!cOldMonth || !cNewMonth) return;
+      const lastDay = (ym: string) => { const [y, m] = ym.split('-').map(Number); return new Date(y, m, 0).toISOString().slice(0,10); };
+      setCLoad(true);
+      zamaniApi.getComparison({ old_start: `${cOldMonth}-01`, old_end: lastDay(cOldMonth), new_start: `${cNewMonth}-01`, new_end: lastDay(cNewMonth) }).then(r => setCData(r.data)).catch(console.error).finally(() => setCLoad(false));
+    } else {
+      if (!cOldStart || !cOldEnd || !cNewStart || !cNewEnd) return;
+      setCLoad(true);
+      zamaniApi.getComparison({ old_start: cOldStart, old_end: cOldEnd, new_start: cNewStart, new_end: cNewEnd }).then(r => setCData(r.data)).catch(console.error).finally(() => setCLoad(false));
+    }
+  }, [tab, cMode, cOld, cNew, cOldMonth, cNewMonth, cOldStart, cOldEnd, cNewStart, cNewEnd]);
 
   React.useEffect(() => {
     if (tab !== 'mtd') return;
@@ -399,6 +438,10 @@ export default function ZamaniTrafficPage() {
       fill: PAL[i % PAL.length],
     }));
   }, [cData]);
+
+  const cMonthName = (ym: string) => { if (!ym) return '—'; const [y, m] = ym.split('-').map(Number); return `${MNF[m-1]} ${y}`; };
+  const cOldLabel = cMode === 'day' ? (cOld || '—') : cMode === 'month' ? cMonthName(cOldMonth) : (cOldStart && cOldEnd ? `${fDate(cOldStart)} – ${fDate(cOldEnd)}` : '—');
+  const cNewLabel = cMode === 'day' ? (cNew || '—') : cMode === 'month' ? cMonthName(cNewMonth) : (cNewStart && cNewEnd ? `${fDate(cNewStart)} – ${fDate(cNewEnd)}` : '—');
 
   type Metric = 'messages' | 'revenue' | 'margin';
 const MCFG: Record<Metric, { label: string; color: string; yAxis: 'left' | 'right'; fmt: (v: any) => string }> = {
@@ -576,23 +619,80 @@ const TABS: { id: Tab; l: string }[] = [
         {tab === 'comparison' && (
           <>
             {/* Filter strip */}
-            <div className="zpnl zfilt">
-              <div className="zff">
-                <label>Date 1</label>
-                <input className="zdi" type="date" value={cOld} onChange={e => setCOld(e.target.value)} />
+            <div className="zpnl" style={{ padding: '14px 18px', marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Mode toggle */}
+              <div style={{ display: 'flex', gap: 8 }}>
+                {([['day', 'Day'], ['month', 'Month'], ['range', 'Range']] as const).map(([m, label]) => (
+                  <button key={m} onClick={() => setCMode(m)} style={{
+                    padding: '6px 18px', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                    border: `1.5px solid ${cMode === m ? 'var(--turquoise)' : 'var(--lns)'}`,
+                    background: cMode === m ? 'var(--turquoise)' : 'var(--sf2)',
+                    color: cMode === m ? '#fff' : 'var(--mu)', transition: '.12s',
+                    boxShadow: cMode === m ? '0 3px 0 var(--green-sea)' : 'none',
+                  }}>
+                    {label}
+                  </button>
+                ))}
               </div>
-              <div className="zff">
-                <label>Date 2</label>
-                <input className="zdi" type="date" value={cNew} onChange={e => setCNew(e.target.value)} />
+              {/* Date inputs */}
+              <div style={{ display: 'flex', gap: 13, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                {cMode === 'day' ? (
+                  <>
+                    <div className="zff">
+                      <label>Date 1</label>
+                      <input className="zdi" type="date" value={cOld} onChange={e => setCOld(e.target.value)} />
+                    </div>
+                    <div className="zff">
+                      <label>Date 2</label>
+                      <input className="zdi" type="date" value={cNew} onChange={e => setCNew(e.target.value)} />
+                    </div>
+                  </>
+                ) : cMode === 'month' ? (
+                  <>
+                    <div className="zff">
+                      <label>Date 1 — Month</label>
+                      <input className="zdi" type="month" value={cOldMonth} onChange={e => setCOldMonth(e.target.value)} />
+                    </div>
+                    <div className="zff">
+                      <label>Date 2 — Month</label>
+                      <input className="zdi" type="month" value={cNewMonth} onChange={e => setCNewMonth(e.target.value)} />
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, width: '100%' }}>
+                    {/* Date 1 group — aligns with left card */}
+                    <div style={{ display: 'flex', gap: 13, flexWrap: 'wrap' }}>
+                      <div className="zff" style={{ flex: '1 1 140px' }}>
+                        <label>Date 1 — From</label>
+                        <input className="zdi" type="date" value={cOldStart} onChange={e => setCOldStart(e.target.value)} />
+                      </div>
+                      <div className="zff" style={{ flex: '1 1 140px' }}>
+                        <label>Date 1 — To</label>
+                        <input className="zdi" type="date" value={cOldEnd} onChange={e => setCOldEnd(e.target.value)} />
+                      </div>
+                    </div>
+                    {/* Date 2 group — aligns with right card */}
+                    <div style={{ display: 'flex', gap: 13, flexWrap: 'wrap' }}>
+                      <div className="zff" style={{ flex: '1 1 140px' }}>
+                        <label>Date 2 — From</label>
+                        <input className="zdi" type="date" value={cNewStart} onChange={e => setCNewStart(e.target.value)} />
+                      </div>
+                      <div className="zff" style={{ flex: '1 1 140px' }}>
+                        <label>Date 2 — To</label>
+                        <input className="zdi" type="date" value={cNewEnd} onChange={e => setCNewEnd(e.target.value)} />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Summary cards */}
             {cTotals && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                {/* Slate-blue card — Date 1 (cOld) */}
+                {/* Slate-blue card — Period 1 */}
                 <div style={{ background: '#6b8fa8', borderRadius: 10, padding: '20px 22px', color: '#fff', boxShadow: '0 4px 0 rgba(0,0,0,.18)' }}>
-                  <div style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 13, marginBottom: 16, opacity: .75, letterSpacing: '.04em' }}>{cOld || '—'}</div>
+                  <div style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 13, marginBottom: 16, opacity: .75, letterSpacing: '.04em' }}>{cOldLabel}</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' }}>
                     {([['Messages', fN(cTotals.msg_old)], ['Delivered', fN(cTotals.dlr_old)], ['Revenue', fM(cTotals.rev_old)], ['Margin', fM(cTotals.mar_old)]] as [string, string][]).map(([lbl, val]) => (
                       <div key={lbl}>
@@ -602,9 +702,9 @@ const TABS: { id: Tab; l: string }[] = [
                     ))}
                   </div>
                 </div>
-                {/* Blue card — Date 2 (cNew) */}
+                {/* Blue card — Period 2 */}
                 <div style={{ background: 'var(--belize)', borderRadius: 10, padding: '20px 22px', color: '#fff', boxShadow: '0 4px 0 rgba(0,0,0,.18)' }}>
-                  <div style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 13, marginBottom: 16, opacity: .75, letterSpacing: '.04em' }}>{cNew || '—'}</div>
+                  <div style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 13, marginBottom: 16, opacity: .75, letterSpacing: '.04em' }}>{cNewLabel}</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' }}>
                     {([['Messages', fN(cTotals.msg_new)], ['Delivered', fN(cTotals.dlr_new)], ['Revenue', fM(cTotals.rev_new)], ['Margin', fM(cTotals.mar_new)]] as [string, string][]).map(([lbl, val]) => (
                       <div key={lbl}>
@@ -623,11 +723,11 @@ const TABS: { id: Tab; l: string }[] = [
                 {cData?.rows?.length > 0 && (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
                     <div className="zpnl">
-                      <PH title="Revenue Share — Top 10" right={cOld || '—'} />
+                      <PH title="Revenue Share — Top 10" right={cOldLabel} />
                       <CmpPie rows={cData.rows} revKey="revenue_old" />
                     </div>
                     <div className="zpnl">
-                      <PH title="Revenue Share — Top 10" right={cNew || '—'} />
+                      <PH title="Revenue Share — Top 10" right={cNewLabel} />
                       <CmpPie rows={cData.rows} revKey="revenue_new" />
                     </div>
                   </div>
@@ -636,7 +736,7 @@ const TABS: { id: Tab; l: string }[] = [
                 {/* Full-width grouped bar chart — top 10 by revenue */}
                 {cData?.rows?.length > 0 && (
                   <div className="zpnl" style={{ marginBottom: 16 }}>
-                    <PH title="Top 10 Customers — Revenue" right={`${cOld || '…'} vs ${cNew || '…'}`} />
+                    <PH title="Top 10 Customers — Revenue" right={`${cOldLabel} vs ${cNewLabel}`} />
                     <div style={{ height: 310, padding: '12px 12px 8px' }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
@@ -658,8 +758,8 @@ const TABS: { id: Tab; l: string }[] = [
                             itemStyle={{ color: '#ecf0f1' }}
                             formatter={(v: any, name: string) => [fR(v), name]} />
                           <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: '#ecf0f1' }} />
-                          <Bar dataKey="d1" name={cOld || 'Date 1'} fill="#6b8fa8" fillOpacity={1} radius={[3, 3, 0, 0]} />
-                          <Bar dataKey="d2" name={cNew || 'Date 2'} fill="var(--belize)" fillOpacity={1} radius={[3, 3, 0, 0]} />
+                          <Bar dataKey="d1" name={cOldLabel} fill="#6b8fa8" fillOpacity={1} radius={[3, 3, 0, 0]} />
+                          <Bar dataKey="d2" name={cNewLabel} fill="var(--belize)" fillOpacity={1} radius={[3, 3, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -676,9 +776,9 @@ const TABS: { id: Tab; l: string }[] = [
                       <table className="zt">
                         <thead><tr>
                           <th style={{ textAlign: 'left' }}>Customer</th>
-                          <th>Msg {cOld}</th><th>Msg {cNew}</th><th style={{ textAlign: 'center' }}>Msg Δ%</th>
-                          <th>Rev {cOld}</th><th>Rev {cNew}</th><th style={{ textAlign: 'center' }}>Rev Δ%</th>
-                          <th>Mar {cOld}</th><th>Mar {cNew}</th><th style={{ textAlign: 'center' }}>Mar Δ%</th>
+                          <th>Msg D1</th><th>Msg D2</th><th style={{ textAlign: 'center' }}>Msg Δ%</th>
+                          <th>Rev D1</th><th>Rev D2</th><th style={{ textAlign: 'center' }}>Rev Δ%</th>
+                          <th>Mar D1</th><th>Mar D2</th><th style={{ textAlign: 'center' }}>Mar Δ%</th>
                         </tr></thead>
                         <tbody>
                           {cData.rows.map((r: any, i: number) => {
