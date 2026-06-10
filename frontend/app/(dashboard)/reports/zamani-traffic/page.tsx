@@ -797,10 +797,11 @@ const TABS: { id: Tab; l: string }[] = [
               </div>
               <div style={{ alignSelf: 'flex-end' }}>
                 <button className="zbt" onClick={() => {
-                  const d = new Date();
+                  const yesterday = new Date();
+                  yesterday.setDate(yesterday.getDate() - 1);
                   setMCust('');
-                  setMStart(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`);
-                  setMEnd(toLocalDate(d));
+                  setMStart(`${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,'0')}-01`);
+                  setMEnd(toLocalDate(yesterday));
                 }}>Reset</button>
               </div>
             </div>
