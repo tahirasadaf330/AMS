@@ -14,8 +14,8 @@ apt-get update -qq
 apt-get install -y python3 python3-pip
 
 echo "==> Installing common Python libraries..."
-pip3 install --upgrade pip
-pip3 install \
+pip3 install --upgrade pip --break-system-packages
+pip3 install --break-system-packages \
   numpy \
   pandas \
   scipy \

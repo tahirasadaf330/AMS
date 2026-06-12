@@ -196,7 +196,10 @@ export class SettingsService {
       const { stdout } = await execFileAsync(py, ['-m', 'pip', 'list', '--format=json'], {
         timeout: 30_000,
       });
-      return JSON.parse(stdout) as Array<{ name: string; version: string }>;
+      // Strip any warning lines before the JSON array (Debian can emit warnings to stdout)
+      const jsonStart = stdout.indexOf('[');
+      if (jsonStart === -1) return [];
+      return JSON.parse(stdout.slice(jsonStart)) as Array<{ name: string; version: string }>;
     } catch (err) {
       this.logger.error('pip list failed', err);
       throw new Error('Failed to list Python packages. Is Python installed and pip available?');
@@ -211,7 +214,7 @@ export class SettingsService {
     try {
       const { stdout, stderr } = await execFileAsync(
         py,
-        ['-m', 'pip', 'install', packageSpec],
+        ['-m', 'pip', 'install', '--break-system-packages', packageSpec],
         { timeout: 120_000 },
       );
       return { success: true, output: (stdout + '\n' + stderr).trim() };
@@ -229,7 +232,7 @@ export class SettingsService {
     try {
       const { stdout, stderr } = await execFileAsync(
         py,
-        ['-m', 'pip', 'uninstall', '-y', name],
+        ['-m', 'pip', 'uninstall', '--break-system-packages', '-y', name],
         { timeout: 60_000 },
       );
       return { success: true, output: (stdout + '\n' + stderr).trim() };
