@@ -38,12 +38,18 @@ export class Condition {
   @Column({ type: 'varchar', length: 255 })
   name: string;
 
-  @Column({ name: 'dataset_id', type: 'uuid' })
-  datasetId: string;
+  @Column({ type: 'varchar', length: 20, default: 'dataset' })
+  type: 'dataset' | 'python';
 
-  @ManyToOne(() => Dataset, { onDelete: 'CASCADE' })
+  @Column({ name: 'python_script', type: 'text', nullable: true })
+  pythonScript: string | null;
+
+  @Column({ name: 'dataset_id', type: 'uuid', nullable: true })
+  datasetId: string | null;
+
+  @ManyToOne(() => Dataset, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'dataset_id' })
-  dataset: Dataset;
+  dataset: Dataset | null;
 
   @Column({ type: 'varchar', length: 8, default: 'AND' })
   logic: 'AND' | 'OR';

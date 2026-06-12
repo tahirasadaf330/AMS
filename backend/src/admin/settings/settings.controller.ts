@@ -68,6 +68,23 @@ export class SettingsController {
     return this.settingsService.testTeams(body.webhookUrl);
   }
 
+  @Get('python-packages')
+  listPythonPackages() {
+    return this.settingsService.listPythonPackages();
+  }
+
+  @Post('python-packages/install')
+  @HttpCode(HttpStatus.OK)
+  installPythonPackage(@Body('packageSpec') packageSpec: string) {
+    return this.settingsService.installPythonPackage(packageSpec ?? '');
+  }
+
+  @Post('python-packages/uninstall')
+  @HttpCode(HttpStatus.OK)
+  uninstallPythonPackage(@Body('name') name: string) {
+    return this.settingsService.uninstallPythonPackage(name ?? '');
+  }
+
   @Post('rotate-key')
   @HttpCode(HttpStatus.OK)
   async rotateKey(

@@ -875,6 +875,34 @@ export class ZamaniReportService implements OnModuleInit {
     };
   }
 
+  // ── Cost vs Revenue ──────────────────────────────────────────
+
+  async getCostVsRevenue(): Promise<Array<{ month_label: string; year: number; month_num: number; revenue: number; cost: number }>> {
+    if (!(await this.stageExists())) return [];
+
+    const rows = await this.dataSource.query(
+      `SELECT
+         TO_CHAR(DATE_TRUNC('month', receiveddate), 'Mon YYYY')   AS month_label,
+         EXTRACT(YEAR  FROM receiveddate)::int                    AS year,
+         EXTRACT(MONTH FROM receiveddate)::int                    AS month_num,
+         ROUND(SUM(revenue)::numeric, 2)                          AS revenue,
+         ROUND(SUM(revenue - negativemargin)::numeric, 2)         AS cost
+       FROM ${STAGE}
+       GROUP BY DATE_TRUNC('month', receiveddate),
+                EXTRACT(YEAR  FROM receiveddate),
+                EXTRACT(MONTH FROM receiveddate)
+       ORDER BY DATE_TRUNC('month', receiveddate)`,
+    );
+
+    return rows.map((r: any) => ({
+      month_label: r.month_label as string,
+      year:        Number(r.year),
+      month_num:   Number(r.month_num),
+      revenue:     Number(r.revenue ?? 0),
+      cost:        Number(r.cost    ?? 0),
+    }));
+  }
+
   // ── Targets ───────────────────────────────────────────────────
 
   async getTargets() {

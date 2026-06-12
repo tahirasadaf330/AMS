@@ -285,6 +285,21 @@ export const adminSettingsApi = {
     api.post<{ success: boolean; message: string }>('/admin/settings/test-teams'),
 
   rotateKey: () => api.post<{ message: string }>('/admin/settings/rotate-key'),
+
+  listPythonPackages: () =>
+    api.get<Array<{ name: string; version: string }>>('/admin/settings/python-packages'),
+
+  installPythonPackage: (packageSpec: string) =>
+    api.post<{ success: boolean; output: string }>(
+      '/admin/settings/python-packages/install',
+      { packageSpec },
+    ),
+
+  uninstallPythonPackage: (name: string) =>
+    api.post<{ success: boolean; output: string }>(
+      '/admin/settings/python-packages/uninstall',
+      { name },
+    ),
 };
 
 // ── ADMIN — AUDIT LOG ─────────────────────────────────────────
@@ -314,6 +329,10 @@ export const zamaniApi = {
   getProjections: (params: Record<string, string>) => api.get('/reports/zamani/projections', { params }),
   upsertTarget: (data: { year: number; month: number; messages_target: number; revenue_target: number }) =>
     api.post('/reports/zamani/targets', data),
+  getCostVsRevenue: () =>
+    api.get<Array<{ month_label: string; year: number; month_num: number; revenue: number; cost: number }>>(
+      '/reports/zamani/cost-vs-revenue',
+    ),
 };
 
 // ── VCS BALANCE REPORT ────────────────────────────────────────

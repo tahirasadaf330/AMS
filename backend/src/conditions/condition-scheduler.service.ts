@@ -6,6 +6,7 @@ import { CronJob } from 'cron';
 import { Condition } from '../common/entities/condition.entity';
 import { ConditionEvaluatorService } from './condition-evaluator.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PythonExecutorService } from './python-executor.service';
 
 @Injectable()
 export class ConditionSchedulerService implements OnModuleInit {
@@ -19,6 +20,7 @@ export class ConditionSchedulerService implements OnModuleInit {
     private dataSource: DataSource,
     private evaluatorService: ConditionEvaluatorService,
     private notificationsService: NotificationsService,
+    private pythonExecutor: PythonExecutorService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -82,44 +84,94 @@ export class ConditionSchedulerService implements OnModuleInit {
       relations: ['dataset'],
     });
 
-    if (!condition?.dataset) {
-      this.logger.warn(`Condition ${conditionId} not found or missing dataset — skipping`);
+    if (!condition) {
+      this.logger.warn(`Condition ${conditionId} not found — skipping`);
       return;
     }
 
-    this.logger.log(`Evaluating condition: "${condition.name}"`);
+    this.logger.log(`Evaluating condition: "${condition.name}" (type: ${condition.type ?? 'dataset'})`);
 
     try {
-      const rows: Record<string, unknown>[] = await this.dataSource.query(
-        `SELECT * FROM ${condition.dataset.stageTableName} LIMIT 1000`,
-      );
-
-      const matchedRows = this.evaluatorService.previewCondition(
-        condition.conditionRows,
-        condition.logic,
-        rows,
-      );
-
-      if (matchedRows.length === 0) {
-        this.logger.log(`Condition "${condition.name}": no rows matched`);
-        return;
+      if (condition.type === 'python') {
+        await this.runPythonCycle(condition); // handles its own errors + logging
+      } else {
+        await this.runDatasetCycle(condition);
       }
-
-      this.logger.log(`Condition "${condition.name}": ${matchedRows.length} row(s) matched — dispatching`);
-
-      await this.conditionRepo.update(condition.id, { lastTriggeredAt: new Date() });
-
-      await this.notificationsService.dispatch({
-        condition,
-        datasetName: condition.dataset.name,
-        matchedRows,
-        columnMeta: Array.isArray(condition.dataset.columnMetadata)
-          ? (condition.dataset.columnMetadata as any[])
-          : undefined,
-      });
     } catch (err) {
       this.logger.error(`Evaluation cycle failed for condition ${condition.id}`, err);
-      throw err;
+      throw err; // dataset-cycle errors still surface
+    }
+  }
+
+  private async runDatasetCycle(condition: Condition): Promise<void> {
+    if (!condition.dataset) {
+      this.logger.warn(`Condition "${condition.name}" has no dataset — skipping`);
+      return;
+    }
+
+    const rows: Record<string, unknown>[] = await this.dataSource.query(
+      `SELECT * FROM ${condition.dataset.stageTableName} LIMIT 1000`,
+    );
+
+    const matchedRows = this.evaluatorService.previewCondition(
+      condition.conditionRows,
+      condition.logic,
+      rows,
+    );
+
+    if (matchedRows.length === 0) {
+      this.logger.log(`Condition "${condition.name}": no rows matched`);
+      return;
+    }
+
+    this.logger.log(`Condition "${condition.name}": ${matchedRows.length} row(s) matched — dispatching`);
+    await this.conditionRepo.update(condition.id, { lastTriggeredAt: new Date() });
+
+    await this.notificationsService.dispatch({
+      condition,
+      datasetName: condition.dataset.name,
+      matchedRows,
+      columnMeta: Array.isArray(condition.dataset.columnMetadata)
+        ? (condition.dataset.columnMetadata as any[])
+        : undefined,
+    });
+  }
+
+  private async runPythonCycle(condition: Condition): Promise<void> {
+    if (!condition.pythonScript) {
+      this.logger.warn(`Python condition "${condition.name}" has no script — skipping`);
+      return;
+    }
+
+    try {
+      const result = await this.pythonExecutor.execute(condition.pythonScript);
+
+      if (result.triggered) {
+        this.logger.log(`Python condition "${condition.name}": triggered (${result.rows?.length ?? 0} row(s))`);
+        await this.conditionRepo.update(condition.id, { lastTriggeredAt: new Date() });
+        await this.notificationsService.logScriptExecution({
+          condition,
+          status: 'sent',
+          message: result.message,
+          rows: result.rows,
+        });
+      } else {
+        this.logger.log(`Python condition "${condition.name}": not triggered (triggered=false)`);
+        await this.notificationsService.logScriptExecution({
+          condition,
+          status: 'skipped',
+          message: result.message,
+        });
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Python condition "${condition.name}" failed: ${errorMessage}`);
+      await this.notificationsService.logScriptExecution({
+        condition,
+        status: 'failed',
+        errorMessage,
+      });
+      // Don't re-throw — failure is logged, scheduler should continue
     }
   }
 }

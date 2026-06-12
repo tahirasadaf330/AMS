@@ -55,7 +55,7 @@ export class AuthService {
     dto: LoginDto,
     ipAddress?: string,
     userAgent?: string,
-  ): Promise<{ token: string; refreshToken: string; must_change_password: boolean; user: Partial<User> & { dataset_access: string[] } }> {
+  ): Promise<{ token: string; refreshToken: string; must_change_password: boolean; user: Partial<User> & { dataset_access: string[]; report_access: string[] } }> {
     const user = await this.userRepo.findOne({ where: { email: dto.email.toLowerCase() } });
 
     if (!user || !user.isActive) {

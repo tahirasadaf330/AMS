@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Setting } from '../../common/entities/setting.entity';
@@ -7,6 +7,10 @@ import { GraphEmailService } from '../../notifications/graph-email.service';
 import { TeamsWebhookService } from '../../notifications/teams-webhook.service';
 import { CredentialsService } from '../../credentials/credentials.service';
 import * as crypto from 'crypto';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 const ENCRYPTED_KEYS = ['jerasoft_pass', 'graph_client_secret', 'teams_webhook_url'];
 
@@ -172,6 +176,66 @@ export class SettingsService {
       return { reachable };
     } catch (err) {
       return { reachable: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private getPythonCmd(): string {
+    return process.platform === 'win32' ? 'python' : 'python3';
+  }
+
+  private validatePackageSpec(spec: string): boolean {
+    if (!spec || spec.length > 200) return false;
+    // Block shell metacharacters — execFile doesn't spawn a shell so this is
+    // just a sanity check, not a security boundary.
+    return !/[;&|`$\s\\/]/.test(spec);
+  }
+
+  async listPythonPackages(): Promise<Array<{ name: string; version: string }>> {
+    const py = this.getPythonCmd();
+    try {
+      const { stdout } = await execFileAsync(py, ['-m', 'pip', 'list', '--format=json'], {
+        timeout: 30_000,
+      });
+      return JSON.parse(stdout) as Array<{ name: string; version: string }>;
+    } catch (err) {
+      this.logger.error('pip list failed', err);
+      throw new Error('Failed to list Python packages. Is Python installed and pip available?');
+    }
+  }
+
+  async installPythonPackage(packageSpec: string): Promise<{ success: boolean; output: string }> {
+    if (!this.validatePackageSpec(packageSpec)) {
+      throw new BadRequestException('Invalid package specification');
+    }
+    const py = this.getPythonCmd();
+    try {
+      const { stdout, stderr } = await execFileAsync(
+        py,
+        ['-m', 'pip', 'install', packageSpec],
+        { timeout: 120_000 },
+      );
+      return { success: true, output: (stdout + '\n' + stderr).trim() };
+    } catch (err: any) {
+      const output = ((err.stdout ?? '') + '\n' + (err.stderr ?? '')).trim() || String(err);
+      return { success: false, output };
+    }
+  }
+
+  async uninstallPythonPackage(name: string): Promise<{ success: boolean; output: string }> {
+    if (!this.validatePackageSpec(name)) {
+      throw new BadRequestException('Invalid package name');
+    }
+    const py = this.getPythonCmd();
+    try {
+      const { stdout, stderr } = await execFileAsync(
+        py,
+        ['-m', 'pip', 'uninstall', '-y', name],
+        { timeout: 60_000 },
+      );
+      return { success: true, output: (stdout + '\n' + stderr).trim() };
+    } catch (err: any) {
+      const output = ((err.stdout ?? '') + '\n' + (err.stderr ?? '')).trim() || String(err);
+      return { success: false, output };
     }
   }
 

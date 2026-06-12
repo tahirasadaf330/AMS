@@ -9,6 +9,10 @@ import {
   XCircle,
   Download,
   RotateCcw,
+  PackagePlus,
+  Trash2,
+  RefreshCw,
+  Terminal,
 } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -325,6 +329,214 @@ function SecurityTab({ settings, onSave, isSaving }: {
   );
 }
 
+// ── PYTHON LIBRARIES TAB ─────────────────────────────────────
+function PythonLibrariesTab() {
+  const [packageSpec, setPackageSpec] = React.useState('');
+  const [search, setSearch] = React.useState('');
+  const [output, setOutput] = React.useState<{ text: string; success: boolean } | null>(null);
+  const [installing, setInstalling] = React.useState(false);
+  const [uninstallingPkg, setUninstallingPkg] = React.useState<string | null>(null);
+  const [confirmUninstall, setConfirmUninstall] = React.useState<string | null>(null);
+  const addToast = useUIStore((s) => s.addToast);
+  const queryClient = useQueryClient();
+
+  const { data: packages, isLoading, refetch } = useQuery({
+    queryKey: ['admin', 'python-packages'],
+    queryFn: async () => {
+      const { data } = await adminSettingsApi.listPythonPackages();
+      return data;
+    },
+  });
+
+  const filtered = React.useMemo(() => {
+    if (!packages) return [];
+    const q = search.toLowerCase();
+    return q ? packages.filter((p) => p.name.toLowerCase().includes(q)) : packages;
+  }, [packages, search]);
+
+  const handleInstall = async () => {
+    // Strip accidental "pip install", "pip3 install", etc. prefixes
+    let spec = packageSpec.trim();
+    spec = spec.replace(/^pip3?\s+install\s+/i, '').trim();
+    if (!spec) return;
+    setInstalling(true);
+    setOutput(null);
+    try {
+      const { data } = await adminSettingsApi.installPythonPackage(spec);
+      setOutput({ text: data.output, success: data.success });
+      if (data.success) {
+        addToast({ title: `Installed ${spec}`, variant: 'success' });
+        setPackageSpec('');
+        void queryClient.invalidateQueries({ queryKey: ['admin', 'python-packages'] });
+      } else {
+        addToast({ title: `Install failed`, variant: 'destructive' });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Install failed';
+      setOutput({ text: msg, success: false });
+      addToast({ title: msg, variant: 'destructive' });
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const handleUninstall = async (name: string) => {
+    setUninstallingPkg(name);
+    setOutput(null);
+    setConfirmUninstall(null);
+    try {
+      const { data } = await adminSettingsApi.uninstallPythonPackage(name);
+      setOutput({ text: data.output, success: data.success });
+      if (data.success) {
+        addToast({ title: `Uninstalled ${name}`, variant: 'success' });
+        void queryClient.invalidateQueries({ queryKey: ['admin', 'python-packages'] });
+      } else {
+        addToast({ title: `Uninstall failed`, variant: 'destructive' });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Uninstall failed';
+      setOutput({ text: msg, success: false });
+    } finally {
+      setUninstallingPkg(null);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Install bar */}
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 space-y-3">
+        <div>
+          <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">Install Package</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Packages are installed via <code className="text-gray-300">pip</code> and will be available to all Python alert scripts.
+            You can use version specifiers: <code className="text-gray-300">requests==2.28.0</code> or <code className="text-gray-300">numpy&gt;=1.20</code>.
+          </p>
+        </div>
+        <div className="flex gap-2 items-center">
+          <div className="flex flex-1 items-center rounded-md border border-gray-700 bg-gray-900 overflow-hidden focus-within:ring-1 focus-within:ring-blue-500">
+            <span className="px-3 text-xs text-gray-500 font-mono whitespace-nowrap select-none border-r border-gray-700 h-full flex items-center py-2">
+              pip install
+            </span>
+            <input
+              value={packageSpec}
+              onChange={(e) => setPackageSpec(e.target.value)}
+              placeholder="numpy, requests==2.28.0, psycopg2-binary"
+              className="flex-1 bg-transparent px-3 py-2 font-mono text-sm text-gray-100 placeholder-gray-600 outline-none"
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleInstall(); }}
+            />
+          </div>
+          <Button onClick={() => void handleInstall()} isLoading={installing} disabled={!packageSpec.trim()}>
+            <PackagePlus className="h-4 w-4" />
+            Install
+          </Button>
+        </div>
+
+        {/* Output terminal */}
+        {output && (
+          <div className={`rounded-md border p-3 ${output.success ? 'border-emerald-700 bg-gray-900' : 'border-red-700 bg-gray-900'}`}>
+            <div className="flex items-center gap-1.5 mb-2">
+              <Terminal className="h-3.5 w-3.5 text-gray-500" />
+              <span className={`text-xs font-medium ${output.success ? 'text-emerald-400' : 'text-red-400'}`}>
+                {output.success ? 'Success' : 'Failed'}
+              </span>
+            </div>
+            <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
+              {output.text || '(no output)'}
+            </pre>
+          </div>
+        )}
+      </div>
+
+      {/* Package list */}
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-3">
+            <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200">
+              Installed Packages
+              {packages && (
+                <span className="ml-2 text-xs text-gray-500">({packages.length})</span>
+              )}
+            </h3>
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter packages..."
+              className="h-7 text-xs w-48"
+            />
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => void refetch()}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </Button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center h-32"><Spinner /></div>
+        ) : (
+          <div className="overflow-auto max-h-[480px]">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <tr>
+                  <th className="px-4 py-2 text-left font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Package</th>
+                  <th className="px-4 py-2 text-left font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Version</th>
+                  <th className="px-4 py-2 w-20"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-8 text-center text-gray-500">
+                      {search ? 'No packages match your filter' : 'No packages found — is Python installed?'}
+                    </td>
+                  </tr>
+                )}
+                {filtered.map((pkg) => (
+                  <tr key={pkg.name} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20">
+                    <td className="px-4 py-2 font-mono text-gray-800 dark:text-gray-200">{pkg.name}</td>
+                    <td className="px-4 py-2 text-gray-500 dark:text-gray-400 font-mono">{pkg.version}</td>
+                    <td className="px-4 py-2">
+                      <button
+                        type="button"
+                        onClick={() => setConfirmUninstall(pkg.name)}
+                        disabled={uninstallingPkg === pkg.name}
+                        className="text-red-400 hover:text-red-300 disabled:opacity-40 transition-colors"
+                        title={`Uninstall ${pkg.name}`}
+                      >
+                        {uninstallingPkg === pkg.name ? (
+                          <Spinner size="sm" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Uninstall confirm dialog */}
+      <Dialog open={!!confirmUninstall} onClose={() => setConfirmUninstall(null)} className="max-w-sm">
+        <DialogHeader title="Uninstall Package" onClose={() => setConfirmUninstall(null)} />
+        <DialogBody>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+            Remove <code className="font-mono text-gray-200 bg-gray-800 px-1 py-0.5 rounded">{confirmUninstall}</code>?
+            Python alerts that depend on it will fail.
+          </p>
+          <div className="flex justify-end gap-3">
+            <Button variant="ghost" onClick={() => setConfirmUninstall(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => confirmUninstall && void handleUninstall(confirmUninstall)}>
+              Uninstall
+            </Button>
+          </div>
+        </DialogBody>
+      </Dialog>
+    </div>
+  );
+}
+
 // ── AUDIT LOG TAB ────────────────────────────────────────────
 function AuditLogTab() {
   const [filterUser, setFilterUser] = React.useState('');
@@ -487,6 +699,7 @@ export default function AdminSettingsPage() {
           <TabsTrigger value="graph">Microsoft Graph / Email</TabsTrigger>
           <TabsTrigger value="teams">Teams</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
+          <TabsTrigger value="python">Python Libraries</TabsTrigger>
           <TabsTrigger value="audit">Audit Log</TabsTrigger>
         </TabsList>
 
@@ -520,6 +733,10 @@ export default function AdminSettingsPage() {
             onSave={(data) => void updateMutation.mutateAsync(data)}
             isSaving={updateMutation.isPending}
           />
+        </TabsContent>
+
+        <TabsContent value="python">
+          <PythonLibrariesTab />
         </TabsContent>
 
         <TabsContent value="audit">

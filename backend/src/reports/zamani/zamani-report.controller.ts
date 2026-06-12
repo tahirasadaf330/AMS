@@ -63,6 +63,11 @@ export class ZamaniReportController {
     return this.zamaniService.getProjections({ year: Number(year), month: Number(month) });
   }
 
+  @Get('cost-vs-revenue')
+  getCostVsRevenue() {
+    return this.zamaniService.getCostVsRevenue();
+  }
+
   @Get('targets')
   getTargets() {
     return this.zamaniService.getTargets();

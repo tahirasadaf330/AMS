@@ -136,7 +136,9 @@ export interface ConditionChannels {
 export interface Condition {
   id: string;
   name: string;
-  dataset_id: string;
+  type?: 'dataset' | 'python';
+  python_script?: string | null;
+  dataset_id?: string | null;
   logic: 'AND' | 'OR';
   condition_rows: ConditionRow[];
   channels: ConditionChannels;
@@ -208,6 +210,7 @@ export interface NotificationLogResponse {
     total: number;
     email_count: number;
     teams_count: number;
+    script_count: number;
     failed_count: number;
     skipped_count: number;
   };

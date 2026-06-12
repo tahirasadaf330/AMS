@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Edit2, Trash2, Eye, Play } from 'lucide-react';
+import { Plus, Edit2, Trash2, Eye, Play, Code2, Database } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -91,9 +91,8 @@ export default function ConditionsPage() {
             <thead>
               <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Dataset</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Logic</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Rules</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Dataset / Script</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Channels</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Trigger</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Triggered</th>
@@ -104,12 +103,13 @@ export default function ConditionsPage() {
             <tbody>
               {(conditions ?? []).length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-gray-500 text-sm">
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-500 text-sm">
                     No conditions yet.{canCreate && ' Click "New Alert" to create one.'}
                   </td>
                 </tr>
               )}
               {(conditions ?? []).map((condition) => {
+                const isPython = condition.type === 'python';
                 const dataset = datasets?.find((d) => d.id === condition.dataset_id);
                 const channels = [];
                 if (condition.channels.email?.enabled) channels.push('email');
@@ -118,14 +118,24 @@ export default function ConditionsPage() {
                 return (
                   <tr key={condition.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20">
                     <td className="px-4 py-3 text-gray-800 dark:text-gray-200 font-medium">{condition.name}</td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{dataset?.name ?? condition.dataset_id}</td>
                     <td className="px-4 py-3">
-                      <Badge variant={condition.logic === 'AND' ? 'blue' : 'purple'}>
-                        {condition.logic}
-                      </Badge>
+                      {isPython ? (
+                        <Badge variant="green" className="flex items-center gap-1 w-fit text-xs">
+                          <Code2 className="h-3 w-3" />
+                          Python
+                        </Badge>
+                      ) : (
+                        <Badge variant="blue" className="flex items-center gap-1 w-fit text-xs">
+                          <Database className="h-3 w-3" />
+                          Dataset
+                        </Badge>
+                      )}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">
-                      {condition.condition_rows.length}
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
+                      {isPython
+                        ? <span className="italic text-gray-500 dark:text-gray-500">Custom script</span>
+                        : (dataset?.name ?? <span className="text-gray-400">—</span>)
+                      }
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
@@ -166,14 +176,16 @@ export default function ConditionsPage() {
                         >
                           <Play className="h-3.5 w-3.5 text-green-400" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => setPreviewTarget(condition)}
-                          title="Preview"
-                        >
-                          <Eye className="h-3.5 w-3.5 text-gray-400" />
-                        </Button>
+                        {!isPython && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => setPreviewTarget(condition)}
+                            title="Preview matches"
+                          >
+                            <Eye className="h-3.5 w-3.5 text-gray-400" />
+                          </Button>
+                        )}
                         {canCreate && (
                           <Button
                             variant="ghost"

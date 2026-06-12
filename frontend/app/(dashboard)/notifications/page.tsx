@@ -155,6 +155,12 @@ export default function NotificationsPage() {
             <span className="text-purple-600 dark:text-purple-400">Teams:</span>
             <span className="text-purple-700 dark:text-purple-100 font-medium">{summary.teams_count.toLocaleString()}</span>
           </div>
+          {(summary.script_count ?? 0) > 0 && (
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 text-sm">
+              <span className="text-emerald-600 dark:text-emerald-400">Script:</span>
+              <span className="text-emerald-700 dark:text-emerald-100 font-medium">{summary.script_count.toLocaleString()}</span>
+            </div>
+          )}
           <div className="flex items-center gap-2 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm">
             <span className="text-red-500 dark:text-red-400">Failed:</span>
             <span className="text-red-700 dark:text-red-100 font-medium">{summary.failed_count.toLocaleString()}</span>

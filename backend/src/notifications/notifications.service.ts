@@ -47,6 +47,50 @@ export class NotificationsService {
   ) {}
 
   /**
+   * Writes a single execution log entry for a Python script run.
+   * status: 'sent' = triggered+ran OK, 'skipped' = triggered=false, 'failed' = exception.
+   */
+  async logScriptExecution(params: {
+    condition: Condition;
+    status: 'sent' | 'skipped' | 'failed';
+    message?: string;
+    rows?: Record<string, unknown>[];
+    errorMessage?: string;
+  }): Promise<void> {
+    const log = this.notifLogRepo.create({
+      conditionId: params.condition.id,
+      datasetId: null,
+      channel: 'script',
+      recipients: null,
+      matchedRows: params.rows?.length ? params.rows : null,
+      matchedCount: params.rows?.length ?? 0,
+      status: params.status,
+      errorMessage: params.errorMessage ?? null,
+    });
+    const saved = await this.notifLogRepo.save(log);
+
+    if (this.eventsGateway) {
+      try {
+        if (params.status === 'sent') {
+          this.eventsGateway.emitNotificationSent({
+            notification_log_id: saved.id,
+            channel: 'script',
+            status: 'sent',
+            triggered_at: new Date().toISOString(),
+          });
+        } else if (params.status === 'failed') {
+          this.eventsGateway.emitNotificationFailed({
+            notification_log_id: saved.id,
+            channel: 'script',
+            error: params.errorMessage ?? 'Script failed',
+            triggered_at: new Date().toISOString(),
+          });
+        }
+      } catch { /* websocket errors are non-fatal */ }
+    }
+  }
+
+  /**
    * Dispatches notifications to all enabled channels independently.
    * Failure in one channel never blocks the other.
    */
@@ -88,7 +132,7 @@ export class NotificationsService {
         this.eventsGateway.emitConditionMatched({
           condition_id: condition.id,
           condition_name: condition.name,
-          dataset_id: condition.datasetId,
+          dataset_id: condition.datasetId ?? '',
           matched_count: matchedRows.length,
           channels_dispatched: channelsDispatched,
           triggered_at: new Date().toISOString(),
@@ -229,8 +273,9 @@ export class NotificationsService {
     if (query.dataset) qb.andWhere('nl.datasetId = :dataset', { dataset: query.dataset });
     if (query.condition) qb.andWhere('nl.conditionId = :condition', { condition: query.condition });
     if (query.userId && query.userRole !== 'admin') {
+      // Script-channel logs have no datasetId — always visible. Dataset logs filtered by access.
       qb.andWhere(
-        `nl.datasetId IN (SELECT dataset_id FROM user_dataset_access WHERE user_id = :userId)`,
+        `(nl.channel = 'script' OR nl.datasetId IN (SELECT dataset_id FROM user_dataset_access WHERE user_id = :userId))`,
         { userId: query.userId },
       );
     }
@@ -284,11 +329,12 @@ export class NotificationsService {
     const summaryRows: Array<{ channel: string; status: string; cnt: string }> =
       await summaryQb.getRawMany();
 
-    let emailCount = 0, teamsCount = 0, failedCount = 0, skippedCount = 0;
+    let emailCount = 0, teamsCount = 0, scriptCount = 0, failedCount = 0, skippedCount = 0;
     for (const r of summaryRows) {
       const cnt = parseInt(r.cnt, 10) || 0;
       if (r.channel === 'email') emailCount += cnt;
       if (r.channel === 'teams') teamsCount += cnt;
+      if (r.channel === 'script') scriptCount += cnt;
       if (r.status === 'failed' || r.status === 'permanently_failed') failedCount += cnt;
       if (r.status === 'skipped') skippedCount += cnt;
     }
@@ -302,6 +348,7 @@ export class NotificationsService {
         total,
         email_count: emailCount,
         teams_count: teamsCount,
+        script_count: scriptCount,
         failed_count: failedCount,
         skipped_count: skippedCount,
       },

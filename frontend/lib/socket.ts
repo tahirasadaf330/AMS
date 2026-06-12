@@ -10,11 +10,14 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'http://localhost:3001';
  * If the token has changed, the existing socket is disconnected and a new one is created.
  */
 export function getSocket(token: string): Socket {
-  if (_socket && _currentToken === token && _socket.connected) {
+  // Re-use the existing socket if it belongs to the same token — even while
+  // reconnecting. Disconnecting and recreating during a reconnect attempt
+  // prevents the built-in backoff from ever settling.
+  if (_socket && _currentToken === token) {
     return _socket;
   }
 
-  // Disconnect existing socket if token changed
+  // Token changed — tear down the old connection first.
   if (_socket) {
     _socket.disconnect();
     _socket = null;
@@ -26,10 +29,10 @@ export function getSocket(token: string): Socket {
     auth: { token },
     reconnection: true,
     reconnectionAttempts: Infinity,
-    reconnectionDelay: 1000,
+    reconnectionDelay: 2_000,
     reconnectionDelayMax: 30_000,
     randomizationFactor: 0.5,
-    transports: ['polling', 'websocket'],
+    transports: ['websocket', 'polling'],
     timeout: 20_000,
   });
 
@@ -42,7 +45,8 @@ export function getSocket(token: string): Socket {
   });
 
   _socket.on('connect_error', (err) => {
-    console.error('[Socket] Connection error:', err.message);
+    // Only log after a delay to avoid spamming the console on transient failures
+    console.warn('[Socket] Connection error:', err.message);
   });
 
   return _socket;

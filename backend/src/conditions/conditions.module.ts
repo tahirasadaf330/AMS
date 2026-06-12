@@ -4,6 +4,7 @@ import { ConditionsController } from './conditions.controller';
 import { ConditionsService } from './conditions.service';
 import { ConditionEvaluatorService } from './condition-evaluator.service';
 import { ConditionSchedulerService } from './condition-scheduler.service';
+import { PythonExecutorService } from './python-executor.service';
 import { Condition } from '../common/entities/condition.entity';
 import { UserDatasetAccess } from '../common/entities/user-dataset-access.entity';
 import { NotificationLog } from '../common/entities/notification-log.entity';
@@ -16,7 +17,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     forwardRef(() => NotificationsModule),
   ],
   controllers: [ConditionsController],
-  providers: [ConditionsService, ConditionEvaluatorService, ConditionSchedulerService],
-  exports: [ConditionsService, ConditionEvaluatorService, ConditionSchedulerService],
+  providers: [ConditionsService, ConditionEvaluatorService, ConditionSchedulerService, PythonExecutorService],
+  exports: [ConditionsService, ConditionEvaluatorService, ConditionSchedulerService, PythonExecutorService],
 })
 export class ConditionsModule {}
