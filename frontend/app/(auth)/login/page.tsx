@@ -43,6 +43,7 @@ export default function LoginPage() {
           name: data.user.name,
           role: data.user.role,
           dataset_access: data.user.dataset_access ?? [],
+          report_access: (data.user as { report_access?: string[] }).report_access ?? [],
         },
         data.token
       );

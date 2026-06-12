@@ -36,7 +36,7 @@ interface NavItem {
 
 export function NavSidebar() {
   const pathname = usePathname();
-  const { user, canAccess } = useAuthStore();
+  const { user, canAccess, hasReportAccess } = useAuthStore();
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
   const datasets = useDatasetStore((s) => s.datasets);
   const { connected } = useSocket();
@@ -102,9 +102,11 @@ export function NavSidebar() {
               <Clock className="h-5 w-5" />
             </Link>
           )}
-          <Link href="/reports/zamani-traffic" className={cn('p-2 rounded-lg hover:bg-gray-700', isActive('/reports') ? 'text-blue-400' : 'text-gray-400')} title="Reports">
-            <BarChart2 className="h-5 w-5" />
-          </Link>
+          {(hasReportAccess('zamani') || hasReportAccess('vcs-balance')) && (
+            <Link href={hasReportAccess('zamani') ? '/reports/zamani-traffic' : '/reports/vcs-balance'} className={cn('p-2 rounded-lg hover:bg-gray-700', isActive('/reports') ? 'text-blue-400' : 'text-gray-400')} title="Reports">
+              <BarChart2 className="h-5 w-5" />
+            </Link>
+          )}
           {canAccess('admin') && (
             <Link href="/admin/settings" className={cn('p-2 rounded-lg hover:bg-gray-700', isActive('/admin') ? 'text-blue-400' : 'text-gray-400')} title="Admin">
               <Settings className="h-5 w-5" />
@@ -212,32 +214,36 @@ export function NavSidebar() {
 
           {reportsOpen && (
             <div className="space-y-0.5 mt-1">
-              <Link
-                href="/reports/zamani-traffic"
-                className={cn(
-                  'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
-                  'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
-                  isActive('/reports/zamani-traffic')
-                    ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
-                    : 'text-gray-500 dark:text-gray-400'
-                )}
-              >
-                <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
-                <span>Zamani Traffic</span>
-              </Link>
-              <Link
-                href="/reports/vcs-balance"
-                className={cn(
-                  'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
-                  'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
-                  isActive('/reports/vcs-balance')
-                    ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
-                    : 'text-gray-500 dark:text-gray-400'
-                )}
-              >
-                <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
-                <span>Client Balances</span>
-              </Link>
+              {hasReportAccess('zamani') && (
+                <Link
+                  href="/reports/zamani-traffic"
+                  className={cn(
+                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
+                    'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
+                    isActive('/reports/zamani-traffic')
+                      ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
+                      : 'text-gray-500 dark:text-gray-400'
+                  )}
+                >
+                  <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>Zamani Traffic</span>
+                </Link>
+              )}
+              {hasReportAccess('vcs-balance') && (
+                <Link
+                  href="/reports/vcs-balance"
+                  className={cn(
+                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
+                    'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
+                    isActive('/reports/vcs-balance')
+                      ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
+                      : 'text-gray-500 dark:text-gray-400'
+                  )}
+                >
+                  <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>Client Balances</span>
+                </Link>
+              )}
             </div>
           )}
         </div>

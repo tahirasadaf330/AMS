@@ -15,6 +15,7 @@ import { User } from '../common/entities/user.entity';
 import { Session } from '../common/entities/session.entity';
 import { PasswordHistory } from '../common/entities/password-history.entity';
 import { UserDatasetAccess } from '../common/entities/user-dataset-access.entity';
+import { UserReportAccess } from '../common/entities/user-report-access.entity';
 import { Dataset } from '../common/entities/dataset.entity';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -44,6 +45,8 @@ export class AuthService {
     private datasetAccessRepo: Repository<UserDatasetAccess>,
     @InjectRepository(Dataset)
     private datasetRepo: Repository<Dataset>,
+    @InjectRepository(UserReportAccess)
+    private reportAccessRepo: Repository<UserReportAccess>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
@@ -115,14 +118,20 @@ export class AuthService {
       }),
     );
 
-    // Admin users have access to all active datasets; others use their explicit grants
+    // Admin users have access to all active datasets/reports; others use their explicit grants
     let datasetAccessIds: string[];
+    let reportAccessSlugs: string[];
     if (user.role === 'admin') {
       const allDatasets = await this.datasetRepo.find({ select: ['id'], where: { isActive: true } });
       datasetAccessIds = allDatasets.map((d) => d.id);
+      reportAccessSlugs = ['zamani', 'vcs-balance'];
     } else {
-      const datasetAccess = await this.datasetAccessRepo.find({ where: { userId: user.id } });
+      const [datasetAccess, reportAccess] = await Promise.all([
+        this.datasetAccessRepo.find({ where: { userId: user.id } }),
+        this.reportAccessRepo.find({ where: { userId: user.id } }),
+      ]);
       datasetAccessIds = datasetAccess.map((a) => a.datasetId);
+      reportAccessSlugs = reportAccess.map((r) => r.reportSlug);
     }
 
     return {
@@ -136,6 +145,7 @@ export class AuthService {
         role: user.role,
         mustChangePassword: user.mustChangePassword,
         dataset_access: datasetAccessIds,
+        report_access: reportAccessSlugs,
       },
     };
   }

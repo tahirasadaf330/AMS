@@ -9,6 +9,7 @@ interface AuthUser {
   name: string;
   role: UserRole;
   dataset_access: string[];
+  report_access: string[];
 }
 
 interface AuthStore {
@@ -19,6 +20,7 @@ interface AuthStore {
   isRole: (role: UserRole | UserRole[]) => boolean;
   canAccess: (permission: string) => boolean;
   hasDatasetAccess: (datasetId: string) => boolean;
+  hasReportAccess: (slug: string) => boolean;
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -63,5 +65,12 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     if (!user) return false;
     if (user.role === 'admin') return true;
     return user.dataset_access.includes(datasetId);
+  },
+
+  hasReportAccess: (slug: string) => {
+    const user = get().user;
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    return user.report_access.includes(slug);
   },
 }));
