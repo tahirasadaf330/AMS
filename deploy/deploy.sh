@@ -14,18 +14,9 @@ apt-get update -qq
 apt-get install -y python3 python3-pip
 
 echo "==> Installing common Python libraries..."
-pip3 install --upgrade pip --break-system-packages
-pip3 install --break-system-packages \
-  numpy \
-  pandas \
-  scipy \
-  matplotlib \
-  requests \
-  psycopg2-binary \
-  sqlalchemy \
-  openpyxl \
-  python-dateutil \
-  pytz
+export PIP_BREAK_SYSTEM_PACKAGES=1
+pip3 install --upgrade pip
+pip3 install numpy pandas scipy matplotlib requests psycopg2-binary sqlalchemy openpyxl python-dateutil pytz
 
 echo "==> Pulling latest code..."
 cd "$APP_DIR"
