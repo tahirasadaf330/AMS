@@ -1243,9 +1243,8 @@ const TABS: { id: Tab; l: string }[] = [
             }));
 
           const totRevenue   = enriched.reduce((s, r) => s + r.revenue,  0);
-          const totCost      = enriched.reduce((s, r) => s + r.cost,     0);
           const totCellusys  = enriched.reduce((s, r) => s + r.cellusys, 0);
-          const totalDeductions = totCost + totCellusys + ONE_TIME.cellusysSetup + ONE_TIME.q1Payment + ONE_TIME.equipment + ONE_TIME.tne;
+          const totalDeductions = totCellusys + ONE_TIME.cellusysSetup + ONE_TIME.q1Payment + ONE_TIME.equipment + ONE_TIME.tne;
           const netMargin    = totRevenue - totalDeductions;
 
           const fD = (n: number) =>
@@ -1268,7 +1267,6 @@ const TABS: { id: Tab; l: string }[] = [
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
                     {[
                       { label: 'Total Revenue',      value: fD(totRevenue),      color: '#60a5fa' },
-                      { label: 'Total Traffic Cost',  value: fD(totCost),         color: '#f87171' },
                       { label: 'Cellusys FW (3 mo)',  value: fD(totCellusys),     color: '#f87171' },
                       { label: 'One-time Costs',      value: fD(ONE_TIME.cellusysSetup + ONE_TIME.q1Payment + ONE_TIME.equipment + ONE_TIME.tne), color: '#f87171' },
                       { label: 'Net Margin',          value: fD(netMargin),       color: netMargin >= 0 ? '#4ade80' : '#f87171' },
@@ -1286,7 +1284,6 @@ const TABS: { id: Tab; l: string }[] = [
                         <tr>
                           <th style={{ textAlign: 'left', minWidth: 110 }}>Month</th>
                           <th style={{ textAlign: 'right' }}>Revenue</th>
-                          <th style={{ textAlign: 'right' }}>Vendor Cost</th>
                           <th style={{ textAlign: 'right' }}>Cellusys FW Support</th>
                           <th style={{ textAlign: 'right' }}>Cellusys Setup Fee</th>
                           <th style={{ textAlign: 'right' }}>Q1 - Payment</th>
@@ -1296,13 +1293,12 @@ const TABS: { id: Tab; l: string }[] = [
                       </thead>
                       <tbody>
                         {enriched.length === 0 && (
-                          <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px 0', color: 'var(--mu)' }}>No data available</td></tr>
+                          <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px 0', color: 'var(--mu)' }}>No data available</td></tr>
                         )}
                         {enriched.map((r, i) => (
                           <tr key={i}>
                             <td style={{ fontWeight: 600 }}>{r.month_label}</td>
                             <td style={cellStyle(r.revenue)}>{fD(r.revenue)}</td>
-                            <td style={cellStyle(r.cost)}>{fD(r.cost)}</td>
                             <td style={{ textAlign: 'right', color: r.cellusys > 0 ? '#f87171' : 'var(--mu)' }}>
                               {r.cellusys > 0 ? fD(r.cellusys) : '—'}
                             </td>
@@ -1317,7 +1313,7 @@ const TABS: { id: Tab; l: string }[] = [
                         {/* One-time costs row */}
                         <tr style={{ borderTop: '1px solid var(--lns)', background: 'var(--sf2)' }}>
                           <td style={{ fontWeight: 600, color: 'var(--inks)', fontSize: 11 }}>ONE-TIME COSTS</td>
-                          <td /><td /><td />
+                          <td /><td />
                           <td style={{ textAlign: 'right', color: '#f87171', fontWeight: 600 }}>{fD(ONE_TIME.cellusysSetup)}</td>
                           <td style={{ textAlign: 'right', color: '#f87171', fontWeight: 600 }}>{fD(ONE_TIME.q1Payment)}</td>
                           <td style={{ textAlign: 'right', color: '#f87171', fontWeight: 600 }}>{fD(ONE_TIME.equipment)}</td>
@@ -1327,7 +1323,6 @@ const TABS: { id: Tab; l: string }[] = [
                         <tr style={{ borderTop: '2px solid var(--lns)', fontWeight: 700 }}>
                           <td>Total</td>
                           <td style={cellStyle(totRevenue)}>{fD(totRevenue)}</td>
-                          <td style={{ textAlign: 'right', color: '#f87171' }}>{fD(totCost)}</td>
                           <td style={{ textAlign: 'right', color: '#f87171' }}>{totCellusys > 0 ? fD(totCellusys) : '—'}</td>
                           <td style={{ textAlign: 'right', color: '#f87171' }}>{fD(ONE_TIME.cellusysSetup)}</td>
                           <td style={{ textAlign: 'right', color: '#f87171' }}>{fD(ONE_TIME.q1Payment)}</td>
@@ -1337,7 +1332,7 @@ const TABS: { id: Tab; l: string }[] = [
                         {/* Net margin */}
                         <tr style={{ borderTop: '2px solid var(--lns)', background: netMargin >= 0 ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)' }}>
                           <td style={{ fontWeight: 800, fontSize: 13 }}>Net Margin</td>
-                          <td colSpan={6} style={{ textAlign: 'right', fontSize: 11, color: 'var(--mu)', fontStyle: 'italic', paddingRight: 8 }}>
+                          <td colSpan={5} style={{ textAlign: 'right', fontSize: 11, color: 'var(--mu)', fontStyle: 'italic', paddingRight: 8 }}>
                             {fD(totRevenue)} − {fD(totalDeductions)}
                           </td>
                           <td style={{ textAlign: 'right', fontSize: 15, fontWeight: 800, color: netMargin >= 0 ? '#4ade80' : '#f87171' }}>
