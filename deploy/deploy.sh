@@ -9,6 +9,10 @@ export NVM_DIR="/root/.nvm"
 source "$NVM_DIR/nvm.sh"
 nvm use 20.19.2
 
+echo "==> Ensuring Python 3 is installed..."
+apt-get update -qq
+apt-get install -y python3 python3-pip
+
 echo "==> Pulling latest code..."
 cd "$APP_DIR"
 git pull origin main
