@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { spawn } from 'child_process';
-import { writeFile, unlink } from 'fs/promises';
+import { writeFile, unlink, access } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -27,10 +27,20 @@ export class PythonExecutorService {
     }
   }
 
-  private runScript(scriptPath: string): Promise<string> {
+  private async getPythonCmd(): Promise<string> {
+    if (process.platform === 'win32') return 'python';
+    const venvPython = '/opt/ams-venv/bin/python3';
+    try {
+      await access(venvPython);
+      return venvPython;
+    } catch {
+      return 'python3';
+    }
+  }
+
+  private async runScript(scriptPath: string): Promise<string> {
+    const cmd = await this.getPythonCmd();
     return new Promise((resolve, reject) => {
-      // Try python3 first (Linux/Mac), fall back to python (Windows)
-      const cmd = process.platform === 'win32' ? 'python' : 'python3';
       const proc = spawn(cmd, [scriptPath], { timeout: this.TIMEOUT_MS });
 
       let stdout = '';
