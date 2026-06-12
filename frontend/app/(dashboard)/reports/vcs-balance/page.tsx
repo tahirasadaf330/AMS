@@ -1,129 +1,180 @@
 'use client';
 
 import * as React from 'react';
-import {
-  AlertTriangle, CreditCard, Users, TrendingDown,
-  RefreshCw, Search, Wifi,
-} from 'lucide-react';
 import { vcsBalanceApi } from '@/lib/api';
 
-// ── Formatters ─────────────────────────────────────────────────
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+.zr{
+  --turquoise:#1abc9c;--green-sea:#16a085;--emerald:#2ecc71;--nephritis:#27ae60;
+  --river:#3498db;--belize:#2980b9;--amethyst:#9b59b6;
+  --asphalt:#34495e;--midnight:#2c3e50;
+  --carrot:#e67e22;--alizarin:#e74c3c;
+  --pos:#27ae60;--neg:#e74c3c;
+  --bg:#ecf0f1;--sf:#ffffff;--sf2:#f5f7f8;--stripe:#f9fafb;
+  --ink:#2c3e50;--inks:#5d6d7e;--mu:#95a5a6;
+  --ln:#e4e9ec;--lns:#d3dadf;
+  font-family:'Hanken Grotesk',-apple-system,sans-serif;
+  color:var(--ink);background:var(--bg);
+}
+.dark .zr{
+  --bg:#1b2733;--sf:#22303f;--sf2:#1d2a37;--stripe:#1f2d3a;
+  --ink:#ecf0f1;--inks:#bdc8d2;--mu:#7f8c9a;
+  --ln:#2f4151;--lns:#3b5063;
+}
+
+.zk{border-radius:10px;padding:18px 18px 16px;color:#fff;box-shadow:0 4px 0 rgba(0,0,0,.15)}
+.zk.kt{background:var(--turquoise)} .zk.kb{background:var(--river)} .zk.kg{background:var(--emerald)}
+.zk.kc{background:var(--carrot)} .zk.kr{background:var(--alizarin)} .zk.kp{background:var(--amethyst)}
+.zk.kd{background:var(--asphalt)}
+.zk-top{display:flex;align-items:center;justify-content:space-between;opacity:.92}
+.zk-lbl{font-size:12.5px;font-weight:700;letter-spacing:.01em}
+.zk-ic{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:rgba(255,255,255,.22)}
+.zk-ic svg{width:17px;height:17px}
+.zk-val{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:26px;margin-top:14px;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.zk-sub{font-size:12px;margin-top:5px;opacity:.88;display:flex;align-items:center;gap:5px}
+
+.zpnl{background:var(--sf);border-radius:10px;border:1px solid var(--ln);box-shadow:0 2px 0 var(--ln)}
+.zph{display:flex;align-items:center;justify-content:space-between;padding:15px 18px 12px;border-bottom:1px solid var(--ln)}
+.zph h2{font-family:'Montserrat',sans-serif;font-weight:700;font-size:15px;color:var(--ink);letter-spacing:-.2px}
+.zph .ztag{font-size:11px;color:var(--mu);font-weight:600}
+
+.zdi{
+  appearance:none;font-family:'Hanken Grotesk',sans-serif;font-size:14px;color:var(--ink);
+  background:var(--sf2);border:1px solid var(--lns);border-radius:7px;padding:9px 12px;width:100%;
+  color-scheme:light;transition:border-color .15s,box-shadow .15s;
+}
+.dark .zdi{color-scheme:dark}
+.zdi:focus{outline:none;border-color:var(--turquoise);box-shadow:0 0 0 3px rgba(26,188,156,.18)}
+.zbt{border:0;background:var(--turquoise);color:#fff;font-family:'Hanken Grotesk',sans-serif;font-weight:700;
+  font-size:13px;padding:9px 18px;border-radius:7px;cursor:pointer;box-shadow:0 3px 0 var(--green-sea);transition:.12s;white-space:nowrap}
+.zbt:hover{filter:brightness(1.06)}.zbt:active{transform:translateY(2px);box-shadow:0 1px 0 var(--green-sea)}
+.zbt:disabled{opacity:.5;cursor:not-allowed;transform:none}
+
+.zt{width:100%;border-collapse:collapse;font-size:13.5px}
+.zt thead th{text-align:right;font-weight:700;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--mu);padding:0 16px 11px;border-bottom:2px solid var(--lns);white-space:nowrap}
+.zt thead th:first-child,.zt thead th.tl{text-align:left}
+.zt tbody td{padding:11px 16px;border-bottom:1px solid var(--ln);text-align:right;
+  font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;color:var(--inks);white-space:nowrap}
+.zt tbody td:first-child,.zt tbody td.tl{text-align:left;font-family:'Hanken Grotesk',sans-serif;font-weight:600;color:var(--ink)}
+.zt tbody tr:nth-child(even){background:var(--stripe)}
+.zt tbody tr:hover{background:var(--sf2)}
+.zt tfoot td{padding:12px 16px;font-family:'JetBrains Mono',monospace;font-weight:700;font-variant-numeric:tabular-nums;
+  text-align:right;color:var(--ink);border-top:2px solid var(--lns);background:var(--sf2)}
+.zt tfoot td:first-child{text-align:left;font-family:'Hanken Grotesk',sans-serif}
+
+.zdcard{background:var(--midnight);color:#fff;border-radius:8px;padding:9px 16px}
+.zdcard .dlbl{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#bdc3c7}
+.zdcard .dval{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:18px;display:flex;align-items:center;gap:8px;margin-top:1px}
+.zpulse{width:8px;height:8px;border-radius:50%;background:#2ecc71;flex-shrink:0;
+  box-shadow:0 0 0 0 rgba(46,204,113,.5);animation:zpls 2.4s infinite}
+@keyframes zpls{0%{box-shadow:0 0 0 0 rgba(46,204,113,.5)}70%{box-shadow:0 0 0 7px rgba(46,204,113,0)}100%{box-shadow:0 0 0 0 rgba(46,204,113,0)}}
+
+.zpos{color:var(--pos);font-weight:600}
+.zneg{color:var(--neg);font-weight:600}
+
+@keyframes shimmer{0%,100%{opacity:.55}50%{opacity:1}}
+.zskel{height:40px;border-radius:8px;background:var(--sf2);animation:shimmer 1.4s ease-in-out infinite}
+
+.zalert{display:flex;align-items:center;gap:10px;padding:12px 18px;border-radius:8px;
+  background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);margin-bottom:16px}
+.zalert svg{flex-shrink:0;width:18px;height:18px}
+.zalert p{font-size:13.5px;color:var(--alizarin);font-weight:600}
+
+.zleg-row{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--inks)}
+.zleg-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+
+.row-critical{background:rgba(231,76,60,.06)!important}
+.row-risk{background:rgba(230,126,34,.05)!important}
+.row-critical:hover{background:rgba(231,76,60,.11)!important}
+.row-risk:hover{background:rgba(230,126,34,.1)!important}
+
+.pct-wrap{display:inline-flex;flex-direction:column;align-items:flex-end;gap:3px}
+.pct-pill{display:inline-flex;align-items:center;border-radius:20px;padding:1px 8px;font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',monospace}
+.pct-bar{width:52px;height:3px;border-radius:2px;background:var(--lns);overflow:hidden}
+.pct-bar-fill{height:100%;border-radius:2px}
+`;
+
+const IC = {
+  users:    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+  credit:   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
+  alert:    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+  critical: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>,
+  refresh:  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>,
+  search:   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+};
+
+function Kpi({ color, label, value, sub, icon }: { color: string; label: string; value: string; sub?: string; icon: React.ReactNode }) {
+  return (
+    <div className={`zk ${color}`}>
+      <div className="zk-top"><span className="zk-lbl">{label}</span><span className="zk-ic">{icon}</span></div>
+      <div className="zk-val">{value}</div>
+      {sub && <div className="zk-sub">{sub}</div>}
+    </div>
+  );
+}
+
+function Skel() {
+  return (
+    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {[...Array(8)].map((_, i) => <div key={i} className="zskel" style={{ opacity: 1 - i * 0.1 }} />)}
+    </div>
+  );
+}
+
 const fmtRev = (n: any) =>
   n != null ? `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
-const fmtPct = (n: any) => (n != null ? `${Number(n).toFixed(1)}%` : '—');
+const fmtPct = (n: any) => n != null ? `${Number(n).toFixed(1)}%` : '—';
 
-// ── Days cell ──────────────────────────────────────────────────
+function RemainingBadge({ pct }: { pct: number | null }) {
+  if (pct == null) return <span style={{ color: 'var(--mu)' }}>—</span>;
+
+  const [pillBg, pillColor, barColor] =
+    pct < 10  ? ['rgba(231,76,60,.18)',  '#e74c3c', '#e74c3c'] :
+    pct < 20  ? ['rgba(230,126,34,.18)', '#e67e22', '#e67e22'] :
+    pct < 50  ? ['rgba(241,196,15,.18)', '#d4ac0d', '#f1c40f'] :
+                ['rgba(46,204,113,.18)', '#27ae60', '#2ecc71'];
+
+  return (
+    <div className="pct-wrap">
+      <span className="pct-pill" style={{ background: pillBg, color: pillColor }}>{fmtPct(pct)}</span>
+      <div className="pct-bar">
+        <div className="pct-bar-fill" style={{ width: `${Math.min(pct, 100)}%`, background: barColor }} />
+      </div>
+    </div>
+  );
+}
+
 function DaysCell({ days }: { days: number | null }) {
-  if (days == null)
-    return <td className="px-4 py-3 text-center text-gray-600 text-sm">—</td>;
+  if (days == null) return <td style={{ textAlign: 'center', color: 'var(--mu)' }}>—</td>;
 
   const color =
-    days <= 0 ? 'text-red-400 font-black animate-pulse'
-    : days <= 2 ? 'text-red-400 font-bold'
-    : days <= 7 ? 'text-amber-400 font-semibold'
-    : days <= 30 ? 'text-yellow-300 font-medium'
-    : 'text-emerald-400';
+    days <= 0  ? '#e74c3c' :
+    days <= 2  ? '#e74c3c' :
+    days <= 7  ? '#e67e22' :
+    days <= 30 ? '#d4ac0d' :
+                 '#27ae60';
 
+  const weight = days <= 7 ? 700 : 600;
   const label = days <= 0 ? 'NOW' : `${days}d`;
+
   return (
-    <td className="px-4 py-3 text-center">
-      <span className={`text-sm tabular-nums ${color}`}>{label}</span>
+    <td style={{ textAlign: 'center', fontFamily: "'JetBrains Mono',monospace", fontVariantNumeric: 'tabular-nums', color, fontWeight: weight }}>
+      {label}
     </td>
   );
 }
 
-// ── Remaining % badge ──────────────────────────────────────────
-function RemainingBadge({ pct }: { pct: number | null }) {
-  if (pct == null)
-    return <span className="text-gray-600 text-sm">—</span>;
-
-  const color =
-    pct < 10 ? 'bg-red-500/20 text-red-400 ring-red-500/40'
-    : pct < 20 ? 'bg-amber-500/20 text-amber-400 ring-amber-500/40'
-    : pct < 50 ? 'bg-yellow-500/20 text-yellow-400 ring-yellow-500/40'
-    : 'bg-emerald-500/20 text-emerald-400 ring-emerald-500/40';
-
-  const bar =
-    pct < 10 ? 'bg-red-400'
-    : pct < 20 ? 'bg-amber-400'
-    : pct < 50 ? 'bg-yellow-400'
-    : 'bg-emerald-400';
-
-  return (
-    <div className="flex flex-col gap-1 items-end">
-      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${color}`}>
-        {fmtPct(pct)}
-      </span>
-      <div className="w-16 h-1 rounded-full bg-gray-700/60 overflow-hidden">
-        <div className={`h-full rounded-full ${bar}`} style={{ width: `${Math.min(pct, 100)}%` }} />
-      </div>
-    </div>
-  );
-}
-
-// ── Row stripe based on risk ───────────────────────────────────
-function rowBg(pct: number | null): string {
+function rowClass(pct: number | null): string {
   if (pct == null) return '';
-  if (pct < 10) return 'bg-red-500/5 hover:bg-red-500/10';
-  if (pct < 20) return 'bg-amber-500/5 hover:bg-amber-500/10';
-  return 'hover:bg-indigo-500/5';
+  if (pct < 10) return 'row-critical';
+  if (pct < 20) return 'row-risk';
+  return '';
 }
 
-// ── KPI card ───────────────────────────────────────────────────
-function KpiCard({ title, value, sub, accent = 'indigo', icon: Icon }: {
-  title: string; value: string | number; sub?: string;
-  accent?: 'indigo' | 'emerald' | 'amber' | 'rose'; icon?: React.ElementType;
-}) {
-  const a = {
-    indigo:  { border: 'border-indigo-500/30', bg: 'from-indigo-500/15 to-indigo-500/5',   icon: 'text-indigo-400',  ring: 'bg-indigo-500/10'  },
-    emerald: { border: 'border-emerald-500/30', bg: 'from-emerald-500/15 to-emerald-500/5', icon: 'text-emerald-400', ring: 'bg-emerald-500/10' },
-    amber:   { border: 'border-amber-500/30',  bg: 'from-amber-500/15 to-amber-500/5',     icon: 'text-amber-400',   ring: 'bg-amber-500/10'   },
-    rose:    { border: 'border-rose-500/30',   bg: 'from-rose-500/15 to-rose-500/5',       icon: 'text-rose-400',    ring: 'bg-rose-500/10'    },
-  }[accent];
-  return (
-    <div className={`relative overflow-hidden rounded-2xl border ${a.border} bg-gradient-to-br ${a.bg} p-5`}>
-      <div className="flex items-start justify-between mb-3">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">{title}</p>
-        {Icon && <span className={`p-1.5 rounded-lg ${a.ring}`}><Icon className={`h-3.5 w-3.5 ${a.icon}`} /></span>}
-      </div>
-      <p className="text-2xl font-black text-white tracking-tight">{value}</p>
-      {sub && <p className="text-xs text-gray-500 mt-1">{sub}</p>}
-      <div className={`absolute -right-3 -bottom-3 h-14 w-14 rounded-full ${a.ring} blur-xl`} />
-    </div>
-  );
-}
-
-// ── Skeleton ───────────────────────────────────────────────────
-function Skeleton() {
-  return (
-    <div className="space-y-3 p-6 animate-pulse">
-      {[...Array(8)].map((_, i) => (
-        <div key={i} className="h-10 rounded-xl bg-gray-800/60" style={{ opacity: 1 - i * 0.1 }} />
-      ))}
-    </div>
-  );
-}
-
-// ── Card wrapper ───────────────────────────────────────────────
-function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`rounded-2xl border border-gray-700/50 bg-gray-900/80 backdrop-blur-sm ${className}`}>
-      {children}
-    </div>
-  );
-}
-
-// ── Table header ───────────────────────────────────────────────
-function TH({ children, align = 'left' }: { children: React.ReactNode; align?: 'left' | 'right' | 'center' }) {
-  return (
-    <th className={`px-4 py-3 text-${align} text-xs font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap`}>
-      {children}
-    </th>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════
-export default function VcsBalancePage() {
+export default function VoiceCreditLimitPage() {
   const [data, setData]       = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch]   = React.useState('');
@@ -133,10 +184,7 @@ export default function VcsBalancePage() {
     setLoading(true);
     vcsBalanceApi
       .getData()
-      .then(r => {
-        setData(r.data);
-        setLastLoaded(new Date());
-      })
+      .then(r => { setData(r.data); setLastLoaded(new Date()); })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -148,206 +196,198 @@ export default function VcsBalancePage() {
     if (!search.trim()) return data.rows;
     const q = search.toLowerCase();
     return data.rows.filter((r: any) =>
-      (r.company_name ?? '').toLowerCase().includes(q)
+      (r.company_name ?? '').toLowerCase().includes(q) ||
+      (r.account_manager ?? '').toLowerCase().includes(q)
     );
   }, [data, search]);
 
   const s = data?.summary;
 
   return (
-    <div className="min-h-screen bg-[#080d14] text-gray-100 p-4 md:p-6 space-y-5">
+    <>
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      <div className="zr w-full" style={{ margin: '-24px', padding: '28px 28px 50px', minHeight: 'calc(100vh - 56px)' }}>
 
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-emerald-500/20 ring-1 ring-emerald-500/30">
-            <CreditCard className="h-5 w-5 text-emerald-400" />
-          </div>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', marginBottom: 22 }}>
           <div>
-            <h1 className="text-xl font-black tracking-tight text-white">Client Balances</h1>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--turquoise)', marginBottom: 4 }}>
+              Credit Overview
+            </div>
+            <h1 style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 800, fontSize: 27, letterSpacing: '-.3px', color: 'var(--ink)', lineHeight: 1.1 }}>
+              Voice Credit Limit
+            </h1>
             {lastLoaded && (
-              <p className="text-xs text-gray-600 flex items-center gap-1 mt-0.5">
-                <Wifi className="h-3 w-3" /> Live from VCS · loaded {lastLoaded.toLocaleTimeString()}
+              <p style={{ color: 'var(--mu)', fontSize: 12, marginTop: 4 }}>
+                Live from VCS · loaded {lastLoaded.toLocaleTimeString()}
               </p>
             )}
           </div>
-        </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 border border-gray-700/60 text-gray-300 text-sm hover:bg-gray-700 transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
-      </div>
-
-      {/* Critical alert banner */}
-      {s?.clientsCritical > 0 && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30">
-          <AlertTriangle className="h-4 w-4 text-red-400 flex-shrink-0" />
-          <p className="text-sm text-red-300">
-            <span className="font-bold">{s.clientsCritical} client{s.clientsCritical > 1 ? 's' : ''}</span> at critical credit level — less than 10% remaining.
-          </p>
-        </div>
-      )}
-
-      {/* KPI cards */}
-      {s && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <KpiCard
-            title="Total Clients"
-            value={s.totalClients}
-            sub="active with credit"
-            accent="indigo"
-            icon={Users}
-          />
-          <KpiCard
-            title="Total Credit Limit"
-            value={fmtRev(s.totalCreditLimit)}
-            sub={`Used: ${fmtRev(s.totalUsed)}`}
-            accent="emerald"
-            icon={CreditCard}
-          />
-          <KpiCard
-            title="Clients at Risk"
-            value={s.clientsAtRisk}
-            sub="< 20% remaining"
-            accent={s.clientsAtRisk > 0 ? 'amber' : 'emerald'}
-            icon={AlertTriangle}
-          />
-          <KpiCard
-            title="Critical"
-            value={s.clientsCritical}
-            sub="< 10% remaining"
-            accent={s.clientsCritical > 0 ? 'rose' : 'emerald'}
-            icon={TrendingDown}
-          />
-        </div>
-      )}
-
-      {/* Search + table */}
-      <Card className="overflow-hidden shadow-xl">
-        {/* Table header bar */}
-        <div className="px-5 py-4 border-b border-gray-700/50 flex items-center justify-between gap-4">
-          <div>
-            <h3 className="text-sm font-semibold text-white">Credit Monitor</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Sorted by remaining balance — lowest first</p>
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Search company..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="h-9 pl-9 pr-4 rounded-xl border border-gray-700/60 bg-gray-800/80 text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all w-52"
-            />
-          </div>
-        </div>
-
-        {loading ? (
-          <Skeleton />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-700/50 bg-gray-800/30">
-                  <TH>Company</TH>
-                  <TH align="right">Credit Limit</TH>
-                  <TH align="right">Used</TH>
-                  <TH align="right">Remaining</TH>
-                  <TH align="right">Remaining %</TH>
-                  <TH align="right">Yesterday</TH>
-                  <TH align="right">3-Day Avg</TH>
-                  <TH align="center">Days Left</TH>
-                  <TH>Currency</TH>
-                  <TH>Payment Term</TH>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800/50">
-                {rows.length === 0 && (
-                  <tr>
-                    <td colSpan={10} className="px-4 py-12 text-center text-gray-600 text-sm">
-                      {search ? 'No matching clients' : 'No data'}
-                    </td>
-                  </tr>
-                )}
-                {rows.map((r: any) => (
-                  <tr
-                    key={r.clients_id}
-                    className={`transition-colors ${rowBg(r.remaining_balance_pct)}`}
-                  >
-                    {/* Company */}
-                    <td className="px-4 py-3">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-100">{r.company_name}</p>
-                        {r.c_email_billing && (
-                          <p className="text-xs text-gray-600 truncate max-w-[200px]">{r.c_email_billing}</p>
-                        )}
-                      </div>
-                    </td>
-                    {/* Credit Limit */}
-                    <td className="px-4 py-3 text-right text-sm tabular-nums text-gray-300">
-                      {fmtRev(r.credit_limit)}
-                    </td>
-                    {/* Used */}
-                    <td className="px-4 py-3 text-right text-sm tabular-nums text-gray-400">
-                      {fmtRev(r.used)}
-                    </td>
-                    {/* Remaining */}
-                    <td className={`px-4 py-3 text-right text-sm tabular-nums font-semibold ${
-                      r.remaining_balance < 0 ? 'text-red-400' :
-                      r.remaining_balance_pct < 20 ? 'text-amber-300' : 'text-emerald-400'
-                    }`}>
-                      {fmtRev(r.remaining_balance)}
-                    </td>
-                    {/* Remaining % with inline bar */}
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end">
-                        <RemainingBadge pct={r.remaining_balance_pct} />
-                      </div>
-                    </td>
-                    {/* Yesterday */}
-                    <td className="px-4 py-3 text-right text-sm tabular-nums text-gray-300">
-                      {r.yesterday_amount != null ? fmtRev(r.yesterday_amount) : <span className="text-gray-600">—</span>}
-                    </td>
-                    {/* 3-Day Avg */}
-                    <td className="px-4 py-3 text-right text-sm tabular-nums text-gray-300">
-                      {r.avg_amount_last_3_days != null ? fmtRev(r.avg_amount_last_3_days) : <span className="text-gray-600">—</span>}
-                    </td>
-                    {/* Days Until Zero */}
-                    <DaysCell days={r.days_until_zero} />
-                    {/* Currency */}
-                    <td className="px-4 py-3 text-sm text-gray-500">{r.currency_name ?? '—'}</td>
-                    {/* Payment Term */}
-                    <td className="px-4 py-3 text-sm text-gray-500">{r.payment_term ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Footer with legend */}
-        {!loading && rows.length > 0 && (
-          <div className="px-5 py-3 border-t border-gray-800/50 flex flex-wrap items-center gap-5">
-            <span className="text-xs text-gray-600">Colour key:</span>
-            {[
-              { color: 'bg-red-500/30', label: '< 10% — Critical' },
-              { color: 'bg-amber-500/30', label: '10–20% — At risk' },
-              { color: 'bg-yellow-500/30', label: '20–50% — Watch' },
-              { color: 'bg-emerald-500/30', label: '> 50% — Healthy' },
-            ].map(item => (
-              <div key={item.label} className="flex items-center gap-1.5 text-xs text-gray-500">
-                <span className={`h-2.5 w-2.5 rounded-sm ${item.color}`} />
-                {item.label}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {lastLoaded && (
+              <div className="zdcard">
+                <div className="dlbl">Last refreshed</div>
+                <div className="dval"><span className="zpulse" /><span>{lastLoaded.toLocaleTimeString()}</span></div>
               </div>
-            ))}
-            <span className="ml-auto text-xs text-gray-600">{rows.length} clients shown</span>
+            )}
+            <button className="zbt" onClick={load} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ display: 'inline-flex', width: 14, height: 14 }}>{IC.refresh}</span>
+              {loading ? 'Loading…' : 'Refresh'}
+            </button>
+          </div>
+        </div>
+
+        {/* Critical alert banner */}
+        {s?.clientsCritical > 0 && (
+          <div className="zalert">
+            <span style={{ color: 'var(--alizarin)', display: 'flex' }}>{IC.alert}</span>
+            <p>
+              <strong>{s.clientsCritical} client{s.clientsCritical > 1 ? 's' : ''}</strong> at critical credit level — less than 10% remaining.
+            </p>
           </div>
         )}
-      </Card>
-    </div>
+
+        {/* KPI cards */}
+        {s && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 18 }}>
+            <Kpi color="kb" label="Total Clients"      icon={IC.users}    value={String(s.totalClients)}    sub="active with credit" />
+            <Kpi color="kt" label="Total Credit Limit" icon={IC.credit}   value={fmtRev(s.totalCreditLimit)} sub={`Used: ${fmtRev(s.totalUsed)}`} />
+            <Kpi color="kc" label="Clients at Risk"    icon={IC.alert}    value={String(s.clientsAtRisk)}   sub="< 20% remaining" />
+            <Kpi color="kr" label="Critical"           icon={IC.critical} value={String(s.clientsCritical)} sub="< 10% remaining" />
+          </div>
+        )}
+
+        {/* Table panel */}
+        <div className="zpnl">
+          <div className="zph" style={{ flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <h2>Credit Monitor</h2>
+              <span className="ztag" style={{ display: 'block', marginTop: 3 }}>Sorted by remaining balance — lowest first</span>
+            </div>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: 'var(--mu)', pointerEvents: 'none', display: 'flex' }}>{IC.search}</span>
+              <input
+                type="text"
+                placeholder="Search company or manager…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="zdi"
+                style={{ paddingLeft: 32, width: 230 }}
+              />
+            </div>
+          </div>
+
+          {loading ? <Skel /> : (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="zt">
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>Company</th>
+                    <th className="tl">Account Manager</th>
+                    <th>Credit Limit</th>
+                    <th>Used</th>
+                    <th>Remaining</th>
+                    <th>Remaining %</th>
+                    <th>Yesterday</th>
+                    <th>3-Day Avg</th>
+                    <th>Days Left</th>
+                    <th style={{ textAlign: 'left' }}>Currency</th>
+                    <th style={{ textAlign: 'left' }}>Payment Term</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 && (
+                    <tr>
+                      <td colSpan={11} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--mu)', fontSize: 14 }}>
+                        {search ? 'No matching clients' : 'No data'}
+                      </td>
+                    </tr>
+                  )}
+                  {rows.map((r: any) => (
+                    <tr key={r.clients_id} className={rowClass(r.remaining_balance_pct)}>
+                      {/* Company */}
+                      <td>
+                        <div>
+                          <span style={{ fontWeight: 700 }}>{r.company_name}</span>
+                          {r.c_email_billing && (
+                            <div style={{ fontSize: 11.5, color: 'var(--mu)', fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 400, marginTop: 2 }}>
+                              {r.c_email_billing}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      {/* Account Manager */}
+                      <td className="tl" style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 500, color: 'var(--inks)' }}>
+                        {r.account_manager ?? <span style={{ color: 'var(--mu)' }}>—</span>}
+                      </td>
+                      {/* Credit Limit */}
+                      <td>{fmtRev(r.credit_limit)}</td>
+                      {/* Used */}
+                      <td style={{ color: 'var(--inks)' }}>{fmtRev(r.used)}</td>
+                      {/* Remaining */}
+                      <td style={{
+                        color: r.remaining_balance < 0 ? 'var(--neg)' :
+                               r.remaining_balance_pct != null && r.remaining_balance_pct < 20 ? '#e67e22' :
+                               'var(--pos)',
+                        fontWeight: 600,
+                      }}>
+                        {fmtRev(r.remaining_balance)}
+                      </td>
+                      {/* Remaining % */}
+                      <td>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                          <RemainingBadge pct={r.remaining_balance_pct} />
+                        </div>
+                      </td>
+                      {/* Yesterday */}
+                      <td>{r.yesterday_amount != null ? fmtRev(r.yesterday_amount) : <span style={{ color: 'var(--mu)' }}>—</span>}</td>
+                      {/* 3-Day Avg */}
+                      <td>{r.avg_amount_last_3_days != null ? fmtRev(r.avg_amount_last_3_days) : <span style={{ color: 'var(--mu)' }}>—</span>}</td>
+                      {/* Days Until Zero */}
+                      <DaysCell days={r.days_until_zero} />
+                      {/* Currency */}
+                      <td className="tl" style={{ fontFamily: "'Hanken Grotesk',sans-serif", color: 'var(--inks)', fontWeight: 400 }}>{r.currency_name ?? '—'}</td>
+                      {/* Payment Term */}
+                      <td className="tl" style={{ fontFamily: "'Hanken Grotesk',sans-serif", color: 'var(--mu)', fontWeight: 400 }}>{r.payment_term ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                {rows.length > 0 && s && (
+                  <tfoot>
+                    <tr>
+                      <td colSpan={2}>Total ({rows.length} clients)</td>
+                      <td>{fmtRev(s.totalCreditLimit)}</td>
+                      <td>{fmtRev(s.totalUsed)}</td>
+                      <td>{fmtRev(s.totalRemaining)}</td>
+                      <td colSpan={6} />
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          )}
+
+          {/* Legend */}
+          {!loading && rows.length > 0 && (
+            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--ln)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
+              <span style={{ fontSize: 11.5, color: 'var(--mu)', fontWeight: 700 }}>Colour key:</span>
+              {[
+                { color: 'rgba(231,76,60,.35)',  label: '< 10% — Critical' },
+                { color: 'rgba(230,126,34,.3)',  label: '10–20% — At risk' },
+                { color: 'rgba(241,196,15,.35)', label: '20–50% — Watch' },
+                { color: 'rgba(46,204,113,.35)', label: '> 50% — Healthy' },
+              ].map(item => (
+                <div key={item.label} className="zleg-row">
+                  <span className="zleg-dot" style={{ background: item.color }} />
+                  {item.label}
+                </div>
+              ))}
+              <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--mu)' }}>{rows.length} clients shown</span>
+            </div>
+          )}
+        </div>
+
+      </div>
+    </>
   );
 }

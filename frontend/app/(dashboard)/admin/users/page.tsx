@@ -41,7 +41,7 @@ function useAdminUsers() {
 
 const AVAILABLE_REPORTS = [
   { id: 'zamani', name: 'Zamani Traffic' },
-  { id: 'vcs-balance', name: 'Client Balances' },
+  { id: 'vcs-balance', name: 'Voice Credit Limit' },
 ];
 
 interface UserFormData {

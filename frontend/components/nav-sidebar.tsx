@@ -241,7 +241,7 @@ export function NavSidebar() {
                   )}
                 >
                   <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>Client Balances</span>
+                  <span>Voice Credit Limit</span>
                 </Link>
               )}
             </div>

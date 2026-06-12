@@ -17,11 +17,13 @@ SELECT
   c.c_email_billing,
   c.c_email_rates,
   c2.name                                                                     AS currency_name,
-  pt.name                                                                     AS payment_term
+  pt.name                                                                     AS payment_term,
+  m.c_name                                                                    AS account_manager
 FROM public.clients c
 JOIN public.clients_balances cb ON cb.clients_id = c.id
 JOIN public.currencies       c2 ON c2.id = c.currencies_id
 LEFT JOIN public.payment_terms pt ON pt.id = c.payment_terms_id
+LEFT JOIN public.clients       m  ON m.id = c.manager_id
 WHERE c.credit > 15 AND c.status = 'active'
 ORDER BY c.c_company
 `;
@@ -117,6 +119,7 @@ export class VcsBalanceService {
       return {
         clients_id:            Number(r.clients_id),
         company_name:          r.company_name,
+        account_manager:       r.account_manager ?? null,
         credit_limit:          creditLimit,
         current_balance:       currentBalance,
         used:                  Math.round((creditLimit - remainingBalance) * 100) / 100,
