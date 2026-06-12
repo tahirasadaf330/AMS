@@ -14,8 +14,7 @@ apt-get update -qq
 apt-get install -y python3 python3-pip
 
 echo "==> Installing common Python libraries..."
-export PIP_BREAK_SYSTEM_PACKAGES=1
-pip3 install --upgrade pip
+rm -f /usr/lib/python3.11/EXTERNALLY-MANAGED
 pip3 install numpy pandas scipy matplotlib requests psycopg2-binary sqlalchemy openpyxl python-dateutil pytz
 
 echo "==> Pulling latest code..."
