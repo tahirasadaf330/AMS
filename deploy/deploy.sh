@@ -9,6 +9,10 @@ export NVM_DIR="/root/.nvm"
 source "$NVM_DIR/nvm.sh"
 nvm use 20.19.2
 
+echo "==> Pulling latest code..."
+cd "$APP_DIR"
+git pull origin main
+
 echo "==> Ensuring Python 3 is installed..."
 apt-get update -qq
 apt-get install -y python3 python3-pip
@@ -16,10 +20,6 @@ apt-get install -y python3 python3-pip
 echo "==> Installing common Python libraries..."
 rm -f /usr/lib/python3.11/EXTERNALLY-MANAGED
 pip3 install numpy pandas scipy matplotlib requests psycopg2-binary sqlalchemy openpyxl python-dateutil pytz
-
-echo "==> Pulling latest code..."
-cd "$APP_DIR"
-git pull origin main
 
 echo "==> Installing backend dependencies..."
 cd "$APP_DIR/backend"
