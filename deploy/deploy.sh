@@ -13,6 +13,20 @@ echo "==> Ensuring Python 3 is installed..."
 apt-get update -qq
 apt-get install -y python3 python3-pip
 
+echo "==> Installing common Python libraries..."
+pip3 install --upgrade pip
+pip3 install \
+  numpy \
+  pandas \
+  scipy \
+  matplotlib \
+  requests \
+  psycopg2-binary \
+  sqlalchemy \
+  openpyxl \
+  python-dateutil \
+  pytz
+
 echo "==> Pulling latest code..."
 cd "$APP_DIR"
 git pull origin main
