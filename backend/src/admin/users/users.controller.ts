@@ -73,6 +73,24 @@ export class AdminUsersController {
     return result;
   }
 
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteUser(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Req() req: Request,
+  ) {
+    await this.usersService.deleteUser(id, user.sub);
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.socket.remoteAddress || '';
+    this.auditService.log({
+      userId: user.sub,
+      action: 'admin:user_delete',
+      resource: id,
+      detail: {},
+      ipAddress,
+    });
+  }
+
   @Post(':id/deactivate')
   @HttpCode(HttpStatus.OK)
   async deactivate(

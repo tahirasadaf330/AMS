@@ -36,6 +36,7 @@ import { AuditLogModule } from './admin/audit/audit-log.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { SystemModule } from './system/system.module';
 import { ZamaniReportModule } from './reports/zamani/zamani-report.module';
+import { VcsBalanceModule } from './reports/vcs-balance/vcs-balance.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -98,6 +99,7 @@ import { ZamaniReportModule } from './reports/zamani/zamani-report.module';
     WebsocketModule,
     SystemModule,
     ZamaniReportModule,
+    VcsBalanceModule,
   ],
 })
 export class AppModule {}

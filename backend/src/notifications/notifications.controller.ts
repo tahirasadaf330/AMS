@@ -25,6 +25,7 @@ export class NotificationsController {
 
   @Get()
   async findAll(
+    @CurrentUser() user: JwtUser,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('channel') channel?: string,
@@ -43,6 +44,8 @@ export class NotificationsController {
       status,
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 50,
+      userId: user.sub,
+      userRole: user.role,
     };
     return this.notificationsService.findAll(query);
   }

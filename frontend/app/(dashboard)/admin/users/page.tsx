@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Edit2, UserX, ShieldCheck } from 'lucide-react';
+import { Plus, Edit2, UserX, ShieldCheck, Trash2, Lock } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -74,6 +74,8 @@ export default function AdminUsersPage() {
   const [editingUser, setEditingUser] = React.useState<AdminUser | null>(null);
   const [formData, setFormData] = React.useState<UserFormData>(defaultFormData);
   const [deactivateTarget, setDeactivateTarget] = React.useState<AdminUser | null>(null);
+  const [deleteTarget, setDeleteTarget]         = React.useState<AdminUser | null>(null);
+  const [deleteConfirm, setDeleteConfirm]       = React.useState('');
   const [drawerUser, setDrawerUser] = React.useState<AdminUser | null>(null);
   const [sessions, setSessions] = React.useState<UserSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = React.useState(false);
@@ -128,6 +130,17 @@ export default function AdminUsersPage() {
       setDeactivateTarget(null);
     },
     onError: () => addToast({ title: 'Failed to deactivate user', variant: 'destructive' }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => adminUsersApi.delete(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      addToast({ title: 'User permanently deleted', variant: 'success' });
+      setDeleteTarget(null);
+      setDeleteConfirm('');
+    },
+    onError: () => addToast({ title: 'Failed to delete user', variant: 'destructive' }),
   });
 
   const deleteSessionMutation = useMutation({
@@ -299,29 +312,45 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-center gap-1">
-                      <Button variant="ghost" size="icon-sm" onClick={() => openEdit(user)} title="Edit">
-                        <Edit2 className="h-3.5 w-3.5 text-blue-400" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => openAccessDrawer(user)}
-                        title="Manage Access"
-                        className={user.role === 'admin' ? 'invisible' : ''}
-                        tabIndex={user.role === 'admin' ? -1 : 0}
-                      >
-                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => setDeactivateTarget(user)}
-                        title="Deactivate"
-                        className={!user.is_active ? 'invisible' : ''}
-                        tabIndex={!user.is_active ? -1 : 0}
-                      >
-                        <UserX className="h-3.5 w-3.5 text-red-400" />
-                      </Button>
+                      {user.is_protected ? (
+                        <span title="System admin — protected" className="flex items-center justify-center h-7 w-7">
+                          <Lock className="h-3.5 w-3.5 text-gray-400 dark:text-gray-500" />
+                        </span>
+                      ) : (
+                        <>
+                          <Button variant="ghost" size="icon-sm" onClick={() => openEdit(user)} title="Edit">
+                            <Edit2 className="h-3.5 w-3.5 text-blue-400" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => openAccessDrawer(user)}
+                            title="Manage Access"
+                            className={user.role === 'admin' ? 'invisible' : ''}
+                            tabIndex={user.role === 'admin' ? -1 : 0}
+                          >
+                            <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => setDeactivateTarget(user)}
+                            title="Deactivate"
+                            className={!user.is_active ? 'invisible' : ''}
+                            tabIndex={!user.is_active ? -1 : 0}
+                          >
+                            <UserX className="h-3.5 w-3.5 text-red-400" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => { setDeleteTarget(user); setDeleteConfirm(''); }}
+                            title="Delete permanently"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -356,12 +385,19 @@ export default function AdminUsersPage() {
             )}
             <div className="space-y-1.5">
               <Label>Role</Label>
-              <Select value={formData.role} onChange={(e) => setFormData((p) => ({ ...p, role: e.target.value }))}>
-                <option value="viewer">Viewer</option>
-                <option value="editor">Editor</option>
-                <option value="full_rights">Full Rights</option>
-                <option value="admin">Admin</option>
-              </Select>
+              {editingUser?.is_protected ? (
+                <div className="flex items-center gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-500 dark:text-gray-400">
+                  <Lock className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>Admin — system admin role cannot be changed</span>
+                </div>
+              ) : (
+                <Select value={formData.role} onChange={(e) => setFormData((p) => ({ ...p, role: e.target.value }))}>
+                  <option value="viewer">Viewer</option>
+                  <option value="editor">Editor</option>
+                  <option value="full_rights">Full Rights</option>
+                  <option value="admin">Admin</option>
+                </Select>
+              )}
             </div>
             {formData.role !== 'admin' && (
               <div className="space-y-1.5">
@@ -441,6 +477,41 @@ export default function AdminUsersPage() {
             >
               Deactivate
             </Button>
+          </div>
+        </DialogBody>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <Dialog open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setDeleteConfirm(''); }} className="max-w-sm">
+        <DialogHeader title="Delete User Permanently" onClose={() => { setDeleteTarget(null); setDeleteConfirm(''); }} />
+        <DialogBody>
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30">
+              <Trash2 className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-red-700 dark:text-red-300">
+                This will permanently delete <span className="font-bold">{deleteTarget?.name}</span> and all their data. This action cannot be undone.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Type <span className="font-mono font-bold text-gray-800 dark:text-gray-200">{deleteTarget?.name}</span> to confirm</Label>
+              <Input
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                placeholder={deleteTarget?.name}
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button variant="ghost" onClick={() => { setDeleteTarget(null); setDeleteConfirm(''); }}>Cancel</Button>
+              <Button
+                variant="destructive"
+                onClick={() => deleteTarget && void deleteMutation.mutateAsync(deleteTarget.id)}
+                isLoading={deleteMutation.isPending}
+                disabled={deleteConfirm !== deleteTarget?.name}
+              >
+                Delete Permanently
+              </Button>
+            </div>
           </div>
         </DialogBody>
       </Dialog>

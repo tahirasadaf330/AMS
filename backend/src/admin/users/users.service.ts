@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   ConflictException,
   OnModuleInit,
 } from '@nestjs/common';
@@ -72,6 +73,24 @@ export class AdminUsersService implements OnModuleInit {
       `);
     } catch (err) {
       this.logger.error('Failed to ensure user_report_access table', err);
+    }
+
+    try {
+      await this.dataSource.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_protected BOOLEAN DEFAULT FALSE`,
+      );
+      // Mark the original system admin (oldest admin with no creator) as protected
+      await this.dataSource.query(`
+        UPDATE users SET is_protected = TRUE
+        WHERE id = (
+          SELECT id FROM users
+          WHERE role = 'admin' AND created_by IS NULL
+          ORDER BY created_at ASC
+          LIMIT 1
+        )
+      `);
+    } catch (err) {
+      this.logger.error('Failed to initialise is_protected column', err);
     }
   }
 
@@ -202,6 +221,10 @@ export class AdminUsersService implements OnModuleInit {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`User ${id} not found`);
 
+    if (user.isProtected && dto.role !== undefined && dto.role !== user.role) {
+      throw new ForbiddenException('Cannot change the role of the system admin account');
+    }
+
     if (dto.email && dto.email.toLowerCase() !== user.email) {
       const existing = await this.userRepo.findOne({ where: { email: dto.email.toLowerCase() } });
       if (existing) throw new ConflictException('Email already in use');
@@ -252,6 +275,32 @@ export class AdminUsersService implements OnModuleInit {
       this.logger.error('Error updating user', err);
       throw err;
     }
+  }
+
+  async deleteUser(id: string, requestingUserId: string): Promise<void> {
+    if (id === requestingUserId) {
+      throw new BadRequestException('You cannot delete your own account');
+    }
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException(`User ${id} not found`);
+
+    if (user.isProtected) {
+      throw new ForbiddenException('Cannot delete the system admin account');
+    }
+
+    // Null out FK columns that have no ON DELETE CASCADE/SET NULL
+    await Promise.all([
+      this.dataSource.query(`UPDATE audit_log          SET user_id    = NULL WHERE user_id    = $1`, [id]),
+      this.dataSource.query(`UPDATE settings           SET updated_by = NULL WHERE updated_by = $1`, [id]),
+      this.dataSource.query(`UPDATE datasets           SET created_by = NULL WHERE created_by = $1`, [id]),
+      this.dataSource.query(`UPDATE conditions         SET created_by = NULL WHERE created_by = $1`, [id]),
+      this.dataSource.query(`UPDATE users              SET created_by = NULL WHERE created_by = $1`, [id]),
+      this.dataSource.query(`UPDATE user_dataset_access SET granted_by = NULL WHERE granted_by = $1`, [id]),
+      this.dataSource.query(`UPDATE user_report_access  SET granted_by = NULL WHERE granted_by = $1`, [id]),
+    ]);
+
+    await this.userRepo.delete(id);
+    this.logger.log(`User ${id} (${user.email}) permanently deleted`);
   }
 
   async deactivate(id: string): Promise<void> {

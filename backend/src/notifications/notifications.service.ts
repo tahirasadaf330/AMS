@@ -30,6 +30,8 @@ export interface NotificationQuery {
   status?: string;
   page?: number;
   limit?: number;
+  userId?: string;
+  userRole?: string;
 }
 
 @Injectable()
@@ -226,6 +228,12 @@ export class NotificationsService {
     if (query.status) qb.andWhere('nl.status = :status', { status: query.status });
     if (query.dataset) qb.andWhere('nl.datasetId = :dataset', { dataset: query.dataset });
     if (query.condition) qb.andWhere('nl.conditionId = :condition', { condition: query.condition });
+    if (query.userId && query.userRole !== 'admin') {
+      qb.andWhere(
+        `nl.datasetId IN (SELECT dataset_id FROM user_dataset_access WHERE user_id = :userId)`,
+        { userId: query.userId },
+      );
+    }
   }
 
   private mapLog(log: NotificationLog) {

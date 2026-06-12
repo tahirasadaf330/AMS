@@ -217,6 +217,8 @@ export const adminUsersApi = {
 
   deactivate: (id: string) => api.post(`/admin/users/${id}/deactivate`),
 
+  delete: (id: string) => api.delete(`/admin/users/${id}`),
+
   getSessions: (id: string) => api.get<UserSession[]>(`/admin/users/${id}/sessions`),
 
   deleteSession: (userId: string, sessionId: string) =>
@@ -312,6 +314,11 @@ export const zamaniApi = {
   getProjections: (params: Record<string, string>) => api.get('/reports/zamani/projections', { params }),
   upsertTarget: (data: { year: number; month: number; messages_target: number; revenue_target: number }) =>
     api.post('/reports/zamani/targets', data),
+};
+
+// ── VCS BALANCE REPORT ────────────────────────────────────────
+export const vcsBalanceApi = {
+  getData: () => api.get('/reports/vcs-balance/data'),
 };
 
 // ── SYSTEM ────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ export interface User {
   name: string;
   role: UserRole;
   is_active: boolean;
+  is_protected?: boolean;
   dataset_access: string[];
   report_access: string[];
   must_change_password?: boolean;

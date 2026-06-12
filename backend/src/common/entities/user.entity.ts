@@ -49,6 +49,9 @@ export class User {
   @JoinColumn({ name: 'created_by' })
   createdByUser: User | null;
 
+  @Column({ name: 'is_protected', type: 'boolean', default: false })
+  isProtected: boolean;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }
