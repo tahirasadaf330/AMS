@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Edit2, Trash2, Eye, Play, Code2, Database } from 'lucide-react';
+import { Plus, Edit2, Trash2, Eye, Play, Code2, Database, Terminal } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,6 +9,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { Dialog, DialogHeader, DialogBody } from '@/components/ui/dialog';
 import { StatusBadge } from '@/components/status-badge';
 import { ConditionBuilder } from '@/components/condition-builder';
+import { PythonAlertDialog } from '@/components/python-alert-dialog';
 import { ConditionPreviewPanel } from '@/components/condition-preview-panel';
 import { SkeletonTable } from '@/components/ui/skeleton';
 import {
@@ -39,6 +40,7 @@ export default function ConditionsPage() {
   const canCreate = useAuthStore((s) => s.canAccess('create_condition'));
 
   const [showForm, setShowForm] = React.useState(false);
+  const [showPythonForm, setShowPythonForm] = React.useState(false);
   const [editingCondition, setEditingCondition] = React.useState<Condition | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<Condition | null>(null);
   const [previewTarget, setPreviewTarget] = React.useState<Condition | null>(null);
@@ -46,6 +48,11 @@ export default function ConditionsPage() {
   const handleCreate = async (data: Omit<Condition, 'id' | 'created_at' | 'updated_at'>) => {
     await createCondition.mutateAsync(data);
     setShowForm(false);
+  };
+
+  const handleCreatePython = async (data: Omit<Condition, 'id' | 'created_at' | 'updated_at'>) => {
+    await createCondition.mutateAsync(data);
+    setShowPythonForm(false);
   };
 
   const handleUpdate = async (data: Omit<Condition, 'id' | 'created_at' | 'updated_at'>) => {
@@ -74,10 +81,16 @@ export default function ConditionsPage() {
         description="Alert conditions that trigger notifications when matched"
         actions={
           canCreate ? (
-            <Button size="sm" onClick={() => setShowForm(true)}>
-              <Plus className="h-4 w-4" />
-              New Alert
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setShowPythonForm(true)}>
+                <Terminal className="h-4 w-4" />
+                Python Alert
+              </Button>
+              <Button size="sm" onClick={() => setShowForm(true)}>
+                <Plus className="h-4 w-4" />
+                New Alert
+              </Button>
+            </div>
           ) : undefined
         }
       />
@@ -238,9 +251,9 @@ export default function ConditionsPage() {
         </DialogBody>
       </Dialog>
 
-      {/* Edit form dialog */}
+      {/* Edit form dialog — dataset alerts */}
       <Dialog
-        open={!!editingCondition}
+        open={!!editingCondition && editingCondition.type !== 'python'}
         onClose={() => setEditingCondition(null)}
         className="max-w-2xl"
       >
@@ -249,7 +262,7 @@ export default function ConditionsPage() {
           onClose={() => setEditingCondition(null)}
         />
         <DialogBody>
-          {editingCondition && (
+          {editingCondition && editingCondition.type !== 'python' && (
             <ConditionBuilder
               key={editingCondition.id}
               datasets={datasets ?? []}
@@ -268,6 +281,26 @@ export default function ConditionsPage() {
           )}
         </DialogBody>
       </Dialog>
+
+      {/* Python Alert — create */}
+      <PythonAlertDialog
+        open={showPythonForm}
+        onClose={() => setShowPythonForm(false)}
+        onSubmit={handleCreatePython}
+        isSubmitting={createCondition.isPending}
+      />
+
+      {/* Python Alert — edit */}
+      {editingCondition?.type === 'python' && (
+        <PythonAlertDialog
+          key={editingCondition.id}
+          open={true}
+          onClose={() => setEditingCondition(null)}
+          onSubmit={handleUpdate}
+          isSubmitting={updateCondition.isPending}
+          initialValues={editingCondition}
+        />
+      )}
 
       {/* Preview dialog */}
       <Dialog
