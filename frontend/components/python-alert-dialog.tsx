@@ -79,7 +79,7 @@ export function PythonAlertDialog({ open, onClose, onSubmit, isSubmitting, initi
             <div className="rounded-lg border border-emerald-800/50 bg-gray-900/60 p-3 text-xs text-gray-400 space-y-1">
               <p className="font-medium text-emerald-400">Script contract</p>
               <p>Print a JSON object as the last line of stdout:</p>
-              <pre className="mt-1 text-gray-300 bg-gray-800 rounded p-2 overflow-x-auto">{`import json\n\n# your logic here...\nprint(json.dumps({\n    "triggered": True,        # required\n    "message":  "5 alerts",   # optional\n    "rows":     [{"k": "v"}]  # optional\n}))`}</pre>
+              <pre className="mt-1 text-gray-300 bg-gray-800 rounded p-2 overflow-x-auto">{`import json, os\n\n# Jerasoft DB credentials are injected automatically:\n# os.environ['JERASOFT_HOST'], ['JERASOFT_PORT'],\n# ['JERASOFT_DB'], ['JERASOFT_USER'], ['JERASOFT_PASS']\n\nprint(json.dumps({\n    "triggered": True,        # required\n    "message":  "5 alerts",   # optional\n    "rows":     [{"k": "v"}]  # optional\n}))`}</pre>
               <p><code className="text-gray-300">triggered: true</code> → notification sent &nbsp;|&nbsp; <code className="text-gray-300">false</code> → skipped &nbsp;|&nbsp; error → failed. Timeout: 30 s.</p>
             </div>
             <textarea

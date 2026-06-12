@@ -10,11 +10,13 @@ import { UserDatasetAccess } from '../common/entities/user-dataset-access.entity
 import { NotificationLog } from '../common/entities/notification-log.entity';
 import { Dataset } from '../common/entities/dataset.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { SettingsModule } from '../admin/settings/settings.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Condition, UserDatasetAccess, NotificationLog, Dataset]),
     forwardRef(() => NotificationsModule),
+    SettingsModule,
   ],
   controllers: [ConditionsController],
   providers: [ConditionsService, ConditionEvaluatorService, ConditionSchedulerService, PythonExecutorService],
