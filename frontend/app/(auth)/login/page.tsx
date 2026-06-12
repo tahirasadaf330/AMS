@@ -8,11 +8,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
+import { useQueryClient } from '@tanstack/react-query';
 import type { AxiosError } from 'axios';
 
 export default function LoginPage() {
   const router = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);
+  const queryClient = useQueryClient();
 
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -32,6 +34,8 @@ export default function LoginPage() {
 
     try {
       const { data } = await authApi.login(email, password);
+      // Clear stale query cache from any previous session before setting new auth
+      queryClient.clear();
       setAuth(
         {
           id: data.user.id,

@@ -15,6 +15,7 @@ import { User } from '../common/entities/user.entity';
 import { Session } from '../common/entities/session.entity';
 import { PasswordHistory } from '../common/entities/password-history.entity';
 import { UserDatasetAccess } from '../common/entities/user-dataset-access.entity';
+import { Dataset } from '../common/entities/dataset.entity';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
@@ -41,6 +42,8 @@ export class AuthService {
     private passwordHistoryRepo: Repository<PasswordHistory>,
     @InjectRepository(UserDatasetAccess)
     private datasetAccessRepo: Repository<UserDatasetAccess>,
+    @InjectRepository(Dataset)
+    private datasetRepo: Repository<Dataset>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
@@ -112,9 +115,15 @@ export class AuthService {
       }),
     );
 
-    // Fetch dataset access IDs for this user
-    const datasetAccess = await this.datasetAccessRepo.find({ where: { userId: user.id } });
-    const datasetAccessIds = datasetAccess.map((a) => a.datasetId);
+    // Admin users have access to all active datasets; others use their explicit grants
+    let datasetAccessIds: string[];
+    if (user.role === 'admin') {
+      const allDatasets = await this.datasetRepo.find({ select: ['id'], where: { isActive: true } });
+      datasetAccessIds = allDatasets.map((d) => d.id);
+    } else {
+      const datasetAccess = await this.datasetAccessRepo.find({ where: { userId: user.id } });
+      datasetAccessIds = datasetAccess.map((a) => a.datasetId);
+    }
 
     return {
       token: accessToken,

@@ -13,11 +13,12 @@ import { User } from '../common/entities/user.entity';
 import { Session } from '../common/entities/session.entity';
 import { PasswordHistory } from '../common/entities/password-history.entity';
 import { UserDatasetAccess } from '../common/entities/user-dataset-access.entity';
+import { Dataset } from '../common/entities/dataset.entity';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Session, PasswordHistory, UserDatasetAccess]),
+    TypeOrmModule.forFeature([User, Session, PasswordHistory, UserDatasetAccess, Dataset]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
