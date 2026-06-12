@@ -180,7 +180,14 @@ export class SettingsService {
   }
 
   private getPythonCmd(): string {
-    return process.platform === 'win32' ? 'python' : 'python3';
+    if (process.platform === 'win32') return 'python';
+    const venvPython = '/opt/ams-venv/bin/python3';
+    try {
+      require('fs').accessSync(venvPython);
+      return venvPython;
+    } catch {
+      return 'python3';
+    }
   }
 
   private validatePackageSpec(spec: string): boolean {
@@ -214,7 +221,7 @@ export class SettingsService {
     try {
       const { stdout, stderr } = await execFileAsync(
         py,
-        ['-m', 'pip', 'install', '--break-system-packages', packageSpec],
+        ['-m', 'pip', 'install', packageSpec],
         { timeout: 120_000 },
       );
       return { success: true, output: (stdout + '\n' + stderr).trim() };
@@ -232,7 +239,7 @@ export class SettingsService {
     try {
       const { stdout, stderr } = await execFileAsync(
         py,
-        ['-m', 'pip', 'uninstall', '--break-system-packages', '-y', name],
+        ['-m', 'pip', 'uninstall', '-y', name],
         { timeout: 60_000 },
       );
       return { success: true, output: (stdout + '\n' + stderr).trim() };

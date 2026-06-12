@@ -15,11 +15,12 @@ git pull origin main
 
 echo "==> Ensuring Python 3 is installed..."
 apt-get update -qq
-apt-get install -y python3 python3-pip
+apt-get install -y python3 python3-venv python3-dev
 
-echo "==> Installing common Python libraries..."
-rm -f /usr/lib/python3.11/EXTERNALLY-MANAGED
-pip3 install numpy pandas scipy matplotlib requests psycopg2-binary sqlalchemy openpyxl python-dateutil pytz
+echo "==> Setting up Python virtual environment..."
+python3 -m venv /opt/ams-venv
+/opt/ams-venv/bin/pip install --upgrade pip
+/opt/ams-venv/bin/pip install numpy pandas scipy matplotlib requests psycopg2-binary sqlalchemy openpyxl python-dateutil pytz
 
 echo "==> Installing backend dependencies..."
 cd "$APP_DIR/backend"
