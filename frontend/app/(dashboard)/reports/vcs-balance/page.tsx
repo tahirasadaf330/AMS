@@ -429,9 +429,10 @@ export default function VoiceCreditLimitPage() {
               <table style={{ borderCollapse: 'collapse', fontSize: 12.5, minWidth: '100%' }}>
                 <thead>
                   <tr>
-                    <TH left  w={160} colKey="company_name"    sort={srt}>Company Name</TH>
-                    <TH left  w={130} colKey="account_manager" sort={srt}>Account Manager</TH>
-                    <TH left  w={110} colKey="payment_term"    sort={srt}>Payment Term</TH>
+                    <TH left  w={160} colKey="company_name"           sort={srt}>Company Name</TH>
+                    <TH left  w={75}  colKey="carrier"                sort={srt}>Carrier</TH>
+                    <TH left  w={130} colKey="account_manager"        sort={srt}>Account Manager</TH>
+                    <TH left  w={110} colKey="payment_term"           sort={srt}>Payment Term</TH>
                     <TH       w={110} colKey="credit_limit"           sort={srt}>Credit Limit</TH>
                     <TH       w={120} colKey="current_balance"        sort={srt}>Current Balance</TH>
                     <TH       w={110} colKey="remaining_balance"      sort={srt}>Remaining CL</TH>
@@ -440,8 +441,7 @@ export default function VoiceCreditLimitPage() {
                     <TH       w={120} colKey="yesterday_amount"       sort={srt}>Yesterday Usage</TH>
                     <TH       w={110} colKey="days_until_zero"        sort={srt}>Days to Reach CL</TH>
                     <TH       w={120} colKey="cl_in_next_3_days"      sort={srt}>CL in Next 3 Days</TH>
-                    <TH left  w={80}  colKey="currency_name"          sort={srt}>Currency</TH>
-                    <TH left  w={75}  colKey="carrier"               sort={srt}>Carrier</TH>
+                    <TH left  w={80}  colKey="currency_name"    sort={srt}>Currency</TH>
                   </tr>
                 </thead>
                 <tbody>
@@ -464,6 +464,15 @@ export default function VoiceCreditLimitPage() {
                           <div style={{ fontWeight: 700, color: 'var(--ink)', fontFamily: "'Hanken Grotesk',sans-serif", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.company_name}>
                             {r.company_name}
                           </div>
+                        </TD>
+                        <TD left>
+                          {r.carrier === 'Hayo' || r.carrier === 'CN' ? (
+                            <span style={{
+                              display: 'inline-block', borderRadius: 4, padding: '1px 7px', fontSize: 11, fontWeight: 700,
+                              background: r.carrier === 'Hayo' ? 'rgba(26,188,156,.15)' : 'rgba(52,152,219,.15)',
+                              color:      r.carrier === 'Hayo' ? 'var(--turquoise)'      : 'var(--river)',
+                            }}>{r.carrier}</span>
+                          ) : null}
                         </TD>
                         <TD left style={{ color: 'var(--inks)', fontFamily: "'Hanken Grotesk',sans-serif", maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           <span title={r.account_manager ?? ''}>{r.account_manager ?? '—'}</span>
@@ -490,15 +499,6 @@ export default function VoiceCreditLimitPage() {
                           {r.cl_in_next_3_days != null ? fmtCur(r.cl_in_next_3_days, r.currency_name) : <span style={{ color: 'var(--mu)' }}>—</span>}
                         </TD>
                         <TD left style={{ color: 'var(--inks)', fontFamily: "'Hanken Grotesk',sans-serif" }}>{r.currency_name ?? '—'}</TD>
-                        <TD left>
-                          {r.carrier === 'Hayo' || r.carrier === 'CN' ? (
-                            <span style={{
-                              display: 'inline-block', borderRadius: 4, padding: '1px 7px', fontSize: 11, fontWeight: 700,
-                              background: r.carrier === 'Hayo' ? 'rgba(26,188,156,.15)' : 'rgba(52,152,219,.15)',
-                              color:      r.carrier === 'Hayo' ? 'var(--turquoise)'      : 'var(--river)',
-                            }}>{r.carrier}</span>
-                          ) : null}
-                        </TD>
                       </tr>
                     );
                   })}
