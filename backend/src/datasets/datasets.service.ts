@@ -117,10 +117,8 @@ export class DatasetsService {
           : dataset.scheduleEndDate,
       });
 
-      // SQL changed → drop old stage table so next refresh rebuilds it with correct schema
-      if (sqlChanged && dataset.stageTableName && /^[a-z_][a-z0-9_]*$/i.test(dataset.stageTableName)) {
-        await this.dataSource.query(`DROP TABLE IF EXISTS "${dataset.stageTableName}"`);
-        this.logger.log(`Dropped stage table "${dataset.stageTableName}" — will be recreated on next refresh`);
+      if (sqlChanged) {
+        this.logger.log(`SQL changed for dataset "${dataset.name}" — new columns will be added on next refresh`);
       }
 
       return this.findOne(id);

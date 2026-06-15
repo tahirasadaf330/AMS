@@ -182,24 +182,63 @@ export class StageService {
     columnMetadata: Record<string, unknown> | null,
     sampleRows: Record<string, unknown>[],
   ): Promise<void> {
+    const typeMap: Record<string, string> = { numeric: 'NUMERIC', date: 'DATE', text: 'TEXT' };
+    const RESERVED = new Set(['id', 'refreshed_at']);
+
     const check = await this.dataSource.query(
       `SELECT to_regclass($1)::text AS tbl`,
       [tableName],
     );
-    if (check[0]?.tbl) return;
+
+    if (check[0]?.tbl) {
+      // Table exists — add any columns that are new in the current metadata/query
+      const meta = Array.isArray(columnMetadata)
+        ? (columnMetadata as Array<{ key: string; type: string }>)
+        : [];
+
+      const targetKeys: Array<{ key: string; type: string }> =
+        meta.length > 0
+          ? meta.filter((c) => !RESERVED.has(c.key.toLowerCase()))
+          : sampleRows.length > 0
+            ? Object.keys(sampleRows[0])
+                .filter((k) => !RESERVED.has(k))
+                .map((k) => ({ key: k, type: 'text' }))
+            : [];
+
+      if (targetKeys.length > 0) {
+        const existing = await this.dataSource.query<Array<{ column_name: string }>>(
+          `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+          [tableName],
+        );
+        const existingSet = new Set(existing.map((r) => r.column_name.toLowerCase()));
+
+        for (const col of targetKeys) {
+          if (!existingSet.has(col.key.toLowerCase())) {
+            const pgType = typeMap[col.type] ?? 'TEXT';
+            await this.dataSource.query(
+              `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS "${col.key}" ${pgType}`,
+            );
+            this.logger.log(`Added column "${col.key}" (${pgType}) to stage table ${tableName}`);
+          }
+        }
+      }
+      return;
+    }
 
     this.logger.warn(`Stage table "${tableName}" not found — auto-creating`);
 
-    const typeMap: Record<string, string> = { numeric: 'NUMERIC', date: 'DATE', text: 'TEXT' };
     const meta = Array.isArray(columnMetadata)
       ? (columnMetadata as Array<{ key: string; type: string }>)
       : [];
 
     let colDefs: string;
     if (meta.length > 0) {
-      colDefs = meta.map((c) => `"${c.key}" ${typeMap[c.type] ?? 'TEXT'}`).join(', ');
+      colDefs = meta.filter((c) => !RESERVED.has(c.key.toLowerCase()))
+        .map((c) => `"${c.key}" ${typeMap[c.type] ?? 'TEXT'}`).join(', ');
     } else if (sampleRows.length > 0) {
-      colDefs = Object.keys(sampleRows[0]).map((k) => `"${k}" TEXT`).join(', ');
+      colDefs = Object.keys(sampleRows[0])
+        .filter((k) => !RESERVED.has(k))
+        .map((k) => `"${k}" TEXT`).join(', ');
     } else {
       throw new Error(
         `Stage table "${tableName}" does not exist and cannot be auto-created without column definitions. ` +
