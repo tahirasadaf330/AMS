@@ -196,13 +196,17 @@ export class StageService {
         ? (columnMetadata as Array<{ key: string; type: string }>)
         : [];
 
+      // Prefer sampleRows (actual query output) — metadata can be stale after a SQL change
       const targetCols: Array<{ key: string; type: string }> =
-        meta.length > 0
-          ? meta.filter((c) => !RESERVED.has(c.key.toLowerCase()))
-          : sampleRows.length > 0
-            ? Object.keys(sampleRows[0])
-                .filter((k) => !RESERVED.has(k))
-                .map((k) => ({ key: k, type: 'text' }))
+        sampleRows.length > 0
+          ? Object.keys(sampleRows[0])
+              .filter((k) => !RESERVED.has(k))
+              .map((k) => {
+                const metaCol = meta.find((c) => c.key.toLowerCase() === k.toLowerCase());
+                return { key: k, type: metaCol?.type ?? 'text' };
+              })
+          : meta.length > 0
+            ? meta.filter((c) => !RESERVED.has(c.key.toLowerCase()))
             : [];
 
       if (targetCols.length > 0) {

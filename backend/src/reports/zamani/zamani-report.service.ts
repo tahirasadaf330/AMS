@@ -261,9 +261,14 @@ export class ZamaniReportService implements OnModuleInit {
   private async ensureDatasetRecord(datasourceId: string): Promise<void> {
     const existing = await this.datasetRepo.findOne({ where: { stageTableName: STAGE } });
     if (existing) {
-      if (existing.sqlQuery !== SEED_SQL) {
-        await this.datasetRepo.update(existing.id, { sqlQuery: SEED_SQL });
-        this.logger.log('Updated Zamani Traffic dataset SQL (UNION → UNION ALL to match Power BI)');
+      const sqlChanged = existing.sqlQuery !== SEED_SQL;
+      const metaChanged = JSON.stringify(existing.columnMetadata) !== JSON.stringify(SEED_COLUMNS);
+      if (sqlChanged || metaChanged) {
+        await this.datasetRepo.update(existing.id, {
+          sqlQuery: SEED_SQL,
+          columnMetadata: SEED_COLUMNS as any,
+        });
+        this.logger.log('Updated Zamani Traffic dataset SQL and column metadata');
       }
       return;
     }
