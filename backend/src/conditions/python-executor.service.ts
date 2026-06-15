@@ -14,7 +14,7 @@ export interface PythonExecutionResult {
 @Injectable()
 export class PythonExecutorService {
   private readonly logger = new Logger(PythonExecutorService.name);
-  private readonly TIMEOUT_MS = 30_000;
+  private readonly TIMEOUT_MS = 300_000; // 5 minutes — MTD loops can be slow
 
   constructor(private readonly settingsService: SettingsService) {}
 
