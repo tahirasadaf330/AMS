@@ -304,6 +304,19 @@ export class ZamaniReportService implements OnModuleInit {
       await this.dataSource.query(
         `ALTER TABLE ${STAGE} ADD COLUMN IF NOT EXISTS cost NUMERIC`,
       );
+      // receiveddate may have been created as TEXT (MSSQL DATE came back as ISO string).
+      // Convert to DATE so EXTRACT() and date comparisons work correctly.
+      await this.dataSource.query(`
+        DO $$
+        BEGIN
+          IF (SELECT data_type FROM information_schema.columns
+              WHERE table_name = '${STAGE}' AND column_name = 'receiveddate') = 'text' THEN
+            ALTER TABLE ${STAGE}
+              ALTER COLUMN receiveddate TYPE DATE
+              USING receiveddate::timestamptz::date;
+          END IF;
+        END$$
+      `);
       return;
     }
 

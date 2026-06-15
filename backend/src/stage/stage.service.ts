@@ -323,8 +323,19 @@ export class StageService {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '_')
         .replace(/^_+|_+$/g, '');
-      // MSSQL Bit columns come back as JS booleans — convert to 0/1 for PostgreSQL NUMERIC
-      result[safeKey] = typeof val === 'boolean' ? (val ? 1 : 0) : val;
+      // MSSQL Bit columns → 0/1 for PostgreSQL NUMERIC
+      if (typeof val === 'boolean') {
+        result[safeKey] = val ? 1 : 0;
+      // MSSQL DATE columns come back as JS Date objects or ISO timestamp strings
+      // (e.g. 2026-06-14T00:00:00.000+00:00) — strip to YYYY-MM-DD so PostgreSQL
+      // DATE/TEXT comparisons work correctly
+      } else if (val instanceof Date) {
+        result[safeKey] = val.toISOString().slice(0, 10);
+      } else if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T00:00:00/.test(val)) {
+        result[safeKey] = val.slice(0, 10);
+      } else {
+        result[safeKey] = val;
+      }
     }
     return result;
   }
