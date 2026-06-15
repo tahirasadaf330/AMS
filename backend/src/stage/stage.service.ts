@@ -191,12 +191,12 @@ export class StageService {
     );
 
     if (check[0]?.tbl) {
-      // Table exists — add any columns that are new in the current metadata/query
+      // Table exists — sync schema to match the current query output
       const meta = Array.isArray(columnMetadata)
         ? (columnMetadata as Array<{ key: string; type: string }>)
         : [];
 
-      const targetKeys: Array<{ key: string; type: string }> =
+      const targetCols: Array<{ key: string; type: string }> =
         meta.length > 0
           ? meta.filter((c) => !RESERVED.has(c.key.toLowerCase()))
           : sampleRows.length > 0
@@ -205,20 +205,33 @@ export class StageService {
                 .map((k) => ({ key: k, type: 'text' }))
             : [];
 
-      if (targetKeys.length > 0) {
+      if (targetCols.length > 0) {
         const existing = await this.dataSource.query<Array<{ column_name: string }>>(
           `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
           [tableName],
         );
         const existingSet = new Set(existing.map((r) => r.column_name.toLowerCase()));
+        const targetSet = new Set(targetCols.map((c) => c.key.toLowerCase()));
 
-        for (const col of targetKeys) {
+        // Add columns present in new query but missing from table
+        for (const col of targetCols) {
           if (!existingSet.has(col.key.toLowerCase())) {
             const pgType = typeMap[col.type] ?? 'TEXT';
             await this.dataSource.query(
               `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS "${col.key}" ${pgType}`,
             );
-            this.logger.log(`Added column "${col.key}" (${pgType}) to stage table ${tableName}`);
+            this.logger.log(`Stage table ${tableName}: added column "${col.key}" (${pgType})`);
+          }
+        }
+
+        // Drop columns removed from the query (skip reserved AMS columns)
+        for (const col of existing) {
+          const name = col.column_name.toLowerCase();
+          if (!RESERVED.has(name) && !targetSet.has(name)) {
+            await this.dataSource.query(
+              `ALTER TABLE ${tableName} DROP COLUMN IF EXISTS "${col.column_name}"`,
+            );
+            this.logger.log(`Stage table ${tableName}: dropped obsolete column "${col.column_name}"`);
           }
         }
       }
