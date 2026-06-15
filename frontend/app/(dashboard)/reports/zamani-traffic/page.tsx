@@ -102,9 +102,14 @@ const CSS = `
 /* ── table ────────────────────────────── */
 .zt{width:100%;border-collapse:collapse;font-size:13.5px}
 .zt thead th{text-align:right;font-weight:700;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
-  color:var(--mu);padding:0 16px 11px;border-bottom:2px solid var(--lns);cursor:pointer;user-select:none;white-space:nowrap}
+  color:var(--mu);padding:10px 16px 10px;border-bottom:2px solid var(--lns);cursor:pointer;user-select:none;white-space:nowrap}
 .zt thead th:first-child{text-align:left}
 .zt thead th.zs{color:var(--turquoise)}
+
+.tbl-scroll::-webkit-scrollbar{height:10px;width:10px}
+.tbl-scroll::-webkit-scrollbar-track{background:var(--sf2);border-radius:6px}
+.tbl-scroll::-webkit-scrollbar-thumb{background:var(--lns);border-radius:6px}
+.tbl-scroll::-webkit-scrollbar-thumb:hover{background:var(--mu)}
 .zt tbody td{padding:11px 16px;border-bottom:1px solid var(--ln);text-align:right;
   font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;color:var(--inks);white-space:nowrap}
 .zt tbody td:first-child{text-align:left;font-family:'Hanken Grotesk',sans-serif;font-weight:600;color:var(--ink)}
@@ -129,7 +134,7 @@ const CSS = `
 .znew{font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px;background:rgba(26,188,156,.16);color:var(--green-sea)}
 
 /* ── legend ───────────────────────────── */
-.zleg{display:flex;flex-direction:column;gap:7px;font-size:12.5px;overflow-y:auto;max-height:220px}
+.zleg{display:flex;flex-direction:column;gap:7px;font-size:12.5px}
 .zleg .li{display:flex;align-items:center;gap:8px;color:var(--inks)}
 .zleg .li b{margin-left:auto;font-family:'JetBrains Mono',monospace;color:var(--ink);font-weight:600;font-size:12px}
 .zleg .sw{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
@@ -229,11 +234,11 @@ function CmpPie({ rows, revKey }: { rows: any[]; revKey: string }) {
   if (!data.length) return <div style={{ padding: 20, color: 'var(--mu)', fontSize: 13 }}>No data.</div>;
 
   return (
-    <div className="zpb" style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
-      <div style={{ flex: '0 0 180px' }}>
-        <ResponsiveContainer width={180} height={180}>
+    <div className="zpb" style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div style={{ flex: '0 0 220px' }}>
+        <ResponsiveContainer width={220} height={220}>
           <PieChart>
-            <Pie data={data} dataKey="value" innerRadius={48} outerRadius={80} paddingAngle={2} startAngle={90} endAngle={-270} strokeWidth={0}>
+            <Pie data={data} dataKey="value" innerRadius={58} outerRadius={95} paddingAngle={2} startAngle={90} endAngle={-270} strokeWidth={0}>
               {data.map((e: any, i: number) => <Cell key={i} fill={e.fill} />)}
             </Pie>
             <Tooltip {...TIP} formatter={(v: any, _: any, p: any) => [`${fR(v)} (${p.payload.pct.toFixed(1)}%)`, 'Revenue']} />
@@ -545,7 +550,7 @@ const TABS: { id: Tab; l: string }[] = [
                 {!ySorted.length ? (
                   <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No data for selected filters.</div>
                 ) : (
-                  <div style={{ overflowX: 'auto' }}>
+                  <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
                     <table className="zt">
                       <thead><tr>
                         {ySort.th('name', 'Customer Connection')}
@@ -783,7 +788,7 @@ const TABS: { id: Tab; l: string }[] = [
                   {!cData?.rows?.length ? (
                     <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>Select two dates above to compare.</div>
                   ) : (
-                    <div style={{ overflowX: 'auto' }}>
+                    <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
                       <table className="zt">
                         <thead><tr>
                           <th style={{ textAlign: 'left' }}>Customer</th>
@@ -1005,7 +1010,7 @@ const TABS: { id: Tab; l: string }[] = [
                 {!mSorted.length ? (
                   <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No data for this period.</div>
                 ) : (
-                  <div style={{ overflowX: 'auto' }}>
+                  <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
                     <table className="zt">
                       <thead><tr>
                         {mSort.th('name', 'Customer Connection')}
@@ -1153,7 +1158,7 @@ const TABS: { id: Tab; l: string }[] = [
                 {!pData?.per_customer?.length ? (
                   <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No projection data available.</div>
                 ) : (
-                  <div style={{ overflowX: 'auto' }}>
+                  <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
                     <table className="zt">
                       <thead><tr>
                         <th style={{ textAlign: 'left' }}>Customer</th>
@@ -1278,7 +1283,7 @@ const TABS: { id: Tab; l: string }[] = [
                     ))}
                   </div>
 
-                  <div style={{ overflowX: 'auto' }}>
+                  <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
                     <table className="zt">
                       <thead>
                         <tr>

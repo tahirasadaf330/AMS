@@ -86,6 +86,11 @@ const CSS = `
 .zleg-row{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--inks)}
 .zleg-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
 
+.tbl-scroll::-webkit-scrollbar{height:10px;width:10px}
+.tbl-scroll::-webkit-scrollbar-track{background:var(--sf2);border-radius:6px}
+.tbl-scroll::-webkit-scrollbar-thumb{background:var(--lns);border-radius:6px}
+.tbl-scroll::-webkit-scrollbar-thumb:hover{background:var(--mu)}
+
 .row-critical{background:rgba(231,76,60,.06)!important}
 .row-risk{background:rgba(230,126,34,.05)!important}
 .row-critical:hover{background:rgba(231,76,60,.11)!important}
@@ -124,6 +129,37 @@ function Skel() {
   );
 }
 
+// Common Jerasoft currency name → ISO 4217 code map
+const CURRENCY_MAP: Record<string, string> = {
+  'us dollar': 'USD', 'euro': 'EUR', 'british pound': 'GBP', 'pound sterling': 'GBP',
+  'australian dollar': 'AUD', 'canadian dollar': 'CAD', 'swiss franc': 'CHF',
+  'japanese yen': 'JPY', 'chinese yuan': 'CNY', 'hong kong dollar': 'HKD',
+  'singapore dollar': 'SGD', 'swedish krona': 'SEK', 'norwegian krone': 'NOK',
+  'danish krone': 'DKK', 'new zealand dollar': 'NZD', 'south african rand': 'ZAR',
+  'uae dirham': 'AED', 'saudi riyal': 'SAR', 'turkish lira': 'TRY',
+  'russian ruble': 'RUB', 'indian rupee': 'INR', 'brazilian real': 'BRL',
+  'mexican peso': 'MXN', 'polish zloty': 'PLN', 'czech koruna': 'CZK',
+};
+
+const resolveCode = (name?: string): string | null => {
+  if (!name) return null;
+  // Try as-is (might already be ISO code like "USD")
+  if (/^[A-Z]{3}$/.test(name)) return name;
+  return CURRENCY_MAP[name.toLowerCase()] ?? null;
+};
+
+const fmtCur = (n: any, currency?: string): string => {
+  if (n == null) return '—';
+  const num = Number(n);
+  const code = resolveCode(currency);
+  if (code) {
+    try {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: code, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+    } catch { /* unknown code – fall through */ }
+  }
+  return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
 const fmtRev = (n: any) =>
   n != null ? `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
 const fmtPct = (n: any) => n != null ? `${Number(n).toFixed(1)}%` : '—';
@@ -147,26 +183,6 @@ function RemainingBadge({ pct }: { pct: number | null }) {
   );
 }
 
-function DaysCell({ days }: { days: number | null }) {
-  if (days == null) return <td style={{ textAlign: 'center', color: 'var(--mu)' }}>—</td>;
-
-  const color =
-    days <= 0  ? '#e74c3c' :
-    days <= 2  ? '#e74c3c' :
-    days <= 7  ? '#e67e22' :
-    days <= 30 ? '#d4ac0d' :
-                 '#27ae60';
-
-  const weight = days <= 7 ? 700 : 600;
-  const label = days <= 0 ? 'NOW' : `${days}d`;
-
-  return (
-    <td style={{ textAlign: 'center', fontFamily: "'JetBrains Mono',monospace", fontVariantNumeric: 'tabular-nums', color, fontWeight: weight }}>
-      {label}
-    </td>
-  );
-}
-
 function rowClass(pct: number | null): string {
   if (pct == null) return '';
   if (pct < 10) return 'row-critical';
@@ -174,215 +190,355 @@ function rowClass(pct: number | null): string {
   return '';
 }
 
+const TH = ({ children, left, w, colKey, sort }: {
+  children: React.ReactNode; left?: boolean; w?: number;
+  colKey?: string; sort?: SortState;
+}) => {
+  const isActive = !!colKey && sort?.key === colKey;
+  return (
+    <th
+      onClick={colKey ? () => sort?.set(colKey) : undefined}
+      style={{
+        textAlign: left ? 'left' : 'right',
+        position: 'sticky', top: 0,
+        background: 'var(--sf)',
+        zIndex: 1,
+        padding: '10px 10px 10px',
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: '.04em',
+        textTransform: 'uppercase',
+        color: isActive ? 'var(--turquoise)' : 'var(--mu)',
+        whiteSpace: 'nowrap',
+        borderBottom: isActive ? '2px solid var(--turquoise)' : '2px solid var(--lns)',
+        cursor: colKey ? 'pointer' : 'default',
+        userSelect: 'none',
+        ...(w ? { width: w, minWidth: w } : {}),
+      }}
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+        {children}
+        {colKey && (
+          <span style={{ opacity: isActive ? 1 : 0.3, fontSize: 9, lineHeight: 1 }}>
+            {isActive ? (sort?.dir === 'asc' ? '▲' : '▼') : '⇅'}
+          </span>
+        )}
+      </span>
+    </th>
+  );
+};
+
+const TD = ({ children, left, style }: { children: React.ReactNode; left?: boolean; style?: React.CSSProperties }) => (
+  <td style={{ textAlign: left ? 'left' : 'right', padding: '9px 10px', whiteSpace: 'nowrap', borderBottom: '1px solid var(--ln)', ...style }}>
+    {children}
+  </td>
+);
+
+type SortDir = 'asc' | 'desc';
+interface SortState { key: string | null; dir: SortDir; set: (k: string) => void }
+
 export default function VoiceCreditLimitPage() {
   const [data, setData]       = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
-  const [search, setSearch]   = React.useState('');
-  const [lastLoaded, setLastLoaded] = React.useState<Date | null>(null);
+  const [error, setError]     = React.useState<string | null>(null);
+  const [search, setSearch]       = React.useState('');
+  const [filterCarrier, setFilterCarrier]   = React.useState('');
+  const [filterManager, setFilterManager]   = React.useState('');
+  const [sort, setSort]       = React.useState<{ key: string | null; dir: SortDir }>({ key: 'remaining_balance_pct', dir: 'asc' });
+
+  const handleSort = React.useCallback((key: string) => {
+    setSort(prev => {
+      if (prev.key !== key) return { key, dir: 'asc' };
+      if (prev.dir === 'asc')  return { key, dir: 'desc' };
+      return { key: null, dir: 'asc' };
+    });
+  }, []);
 
   const load = React.useCallback(() => {
     setLoading(true);
+    setError(null);
     vcsBalanceApi
       .getData()
-      .then(r => { setData(r.data); setLastLoaded(new Date()); })
-      .catch(console.error)
+      .then(r => { setData(r.data); })
+      .catch((err: any) => {
+        const msg = err?.response?.data?.message ?? err?.message ?? 'Failed to load data';
+        setError(msg);
+      })
       .finally(() => setLoading(false));
   }, []);
 
   React.useEffect(() => { load(); }, [load]);
 
+  const managerOptions: string[] = React.useMemo(() => {
+    if (!data?.rows) return [];
+    const set = new Set<string>();
+    for (const r of data.rows) { if (r.account_manager) set.add(r.account_manager); }
+    return Array.from(set).sort();
+  }, [data]);
+
   const rows: any[] = React.useMemo(() => {
     if (!data?.rows) return [];
-    if (!search.trim()) return data.rows;
-    const q = search.toLowerCase();
-    return data.rows.filter((r: any) =>
-      (r.company_name ?? '').toLowerCase().includes(q) ||
-      (r.account_manager ?? '').toLowerCase().includes(q)
-    );
-  }, [data, search]);
+    let filtered: any[] = data.rows;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      filtered = filtered.filter((r: any) => (r.company_name ?? '').toLowerCase().includes(q));
+    }
+    if (filterCarrier) filtered = filtered.filter((r: any) => r.carrier === filterCarrier);
+    if (filterManager) filtered = filtered.filter((r: any) => r.account_manager === filterManager);
+    if (!sort.key) return filtered;
+    const { key, dir } = sort;
+    return [...filtered].sort((a, b) => {
+      const av = a[key];
+      const bv = b[key];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      const cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv));
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }, [data, search, filterCarrier, filterManager, sort]);
 
   const s = data?.summary;
+  const lastRefreshed: string | null = data?.lastRefreshed ?? null;
+  const srt: SortState = { key: sort.key, dir: sort.dir, set: handleSort };
+
+  const totalClients    = s?.totalClients    ?? 0;
+  const totalCreditLim  = s?.totalCreditLimit ?? 0;
+  const totalRemaining  = s?.totalRemaining   ?? 0;
+  const clientsAtRisk   = s?.clientsAtRisk    ?? 0;
+  const clientsCritical = s?.clientsCritical  ?? 0;
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <div className="zr w-full" style={{ margin: '-24px', padding: '28px 28px 50px', minHeight: 'calc(100vh - 56px)' }}>
+      <div className="zr w-full" style={{
+        margin: '-24px',
+        padding: '20px 24px 0',
+        height: 'calc(100vh - 56px)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}>
 
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', marginBottom: 22 }}>
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 14, flexShrink: 0 }}>
           <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--turquoise)', marginBottom: 4 }}>
-              Credit Overview
-            </div>
-            <h1 style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 800, fontSize: 27, letterSpacing: '-.3px', color: 'var(--ink)', lineHeight: 1.1 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--turquoise)', marginBottom: 2 }}>Credit Overview</div>
+            <h1 style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 800, fontSize: 22, letterSpacing: '-.3px', color: 'var(--ink)', lineHeight: 1.1 }}>
               Voice Credit Limit
             </h1>
-            {lastLoaded && (
-              <p style={{ color: 'var(--mu)', fontSize: 12, marginTop: 4 }}>
-                Live from VCS · loaded {lastLoaded.toLocaleTimeString()}
+            {lastRefreshed && (
+              <p style={{ color: 'var(--mu)', fontSize: 11, marginTop: 2 }}>
+                Stage data · refreshed {new Date(lastRefreshed).toLocaleString()}
               </p>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            {lastLoaded && (
-              <div className="zdcard">
-                <div className="dlbl">Last refreshed</div>
-                <div className="dval"><span className="zpulse" /><span>{lastLoaded.toLocaleTimeString()}</span></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {lastRefreshed && (
+              <div className="zdcard" style={{ padding: '6px 12px' }}>
+                <div className="dlbl">Stage refreshed</div>
+                <div className="dval" style={{ fontSize: 14 }}><span className="zpulse" /><span>{new Date(lastRefreshed).toLocaleTimeString()}</span></div>
               </div>
             )}
-            <button className="zbt" onClick={load} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <span style={{ display: 'inline-flex', width: 14, height: 14 }}>{IC.refresh}</span>
+            <button className="zbt" onClick={load} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px' }}>
+              <span style={{ display: 'inline-flex', width: 13, height: 13 }}>{IC.refresh}</span>
               {loading ? 'Loading…' : 'Refresh'}
             </button>
           </div>
         </div>
 
-        {/* Critical alert banner */}
-        {s?.clientsCritical > 0 && (
-          <div className="zalert">
+        {/* Error banner */}
+        {error && (
+          <div className="zalert" style={{ flexShrink: 0, marginBottom: 12 }}>
             <span style={{ color: 'var(--alizarin)', display: 'flex' }}>{IC.alert}</span>
-            <p>
-              <strong>{s.clientsCritical} client{s.clientsCritical > 1 ? 's' : ''}</strong> at critical credit level — less than 10% remaining.
-            </p>
+            <p>Could not load data: {error}</p>
           </div>
         )}
 
-        {/* KPI cards */}
-        {s && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 18 }}>
-            <Kpi color="kb" label="Total Clients"      icon={IC.users}    value={String(s.totalClients)}    sub="active with credit" />
-            <Kpi color="kt" label="Total Credit Limit" icon={IC.credit}   value={fmtRev(s.totalCreditLimit)} sub={`Used: ${fmtRev(s.totalUsed)}`} />
-            <Kpi color="kc" label="Clients at Risk"    icon={IC.alert}    value={String(s.clientsAtRisk)}   sub="< 20% remaining" />
-            <Kpi color="kr" label="Critical"           icon={IC.critical} value={String(s.clientsCritical)} sub="< 10% remaining" />
+        {/* Critical alert */}
+        {clientsCritical > 0 && (
+          <div className="zalert" style={{ flexShrink: 0, marginBottom: 12 }}>
+            <span style={{ color: 'var(--alizarin)', display: 'flex' }}>{IC.alert}</span>
+            <p><strong>{clientsCritical} client{clientsCritical > 1 ? 's' : ''}</strong> at critical credit level — less than 10% remaining.</p>
           </div>
         )}
+
 
         {/* Table panel */}
-        <div className="zpnl">
-          <div className="zph" style={{ flexWrap: 'wrap', gap: 10 }}>
+        <div className="zpnl" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', marginBottom: 14 }}>
+          {/* Panel header */}
+          <div className="zph" style={{ flexWrap: 'wrap', gap: 10, flexShrink: 0, padding: '12px 16px 10px' }}>
             <div>
-              <h2>Credit Monitor</h2>
-              <span className="ztag" style={{ display: 'block', marginTop: 3 }}>Sorted by remaining balance — lowest first</span>
+              <h2 style={{ fontSize: 13 }}>Voice Credit Limit Data</h2>
+              <span className="ztag" style={{ display: 'block', marginTop: 2 }}>
+                {sort.key
+                  ? `Sorted by ${sort.key.replace(/_/g, ' ')} ${sort.dir === 'asc' ? '↑' : '↓'}`
+                  : 'Click a column header to sort'} · {rows.length} clients
+              </span>
             </div>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: 'var(--mu)', pointerEvents: 'none', display: 'flex' }}>{IC.search}</span>
-              <input
-                type="text"
-                placeholder="Search company or manager…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {/* Carrier filter */}
+              <select
+                value={filterCarrier}
+                onChange={e => setFilterCarrier(e.target.value)}
                 className="zdi"
-                style={{ paddingLeft: 32, width: 230 }}
-              />
+                style={{ width: 110, fontSize: 13, padding: '7px 10px' }}
+              >
+                <option value="">All Carriers</option>
+                <option value="Hayo">Hayo</option>
+                <option value="CN">CN</option>
+                <option value="Other">Other</option>
+              </select>
+              {/* Account Manager filter */}
+              <select
+                value={filterManager}
+                onChange={e => setFilterManager(e.target.value)}
+                className="zdi"
+                style={{ width: 160, fontSize: 13, padding: '7px 10px' }}
+              >
+                <option value="">All Managers</option>
+                {managerOptions.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+              {/* Company name search */}
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: 'var(--mu)', pointerEvents: 'none', display: 'flex' }}>{IC.search}</span>
+                <input
+                  type="text"
+                  placeholder="Search company…"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="zdi"
+                  style={{ width: 180, fontSize: 13, padding: '7px 10px 7px 28px' }}
+                />
+              </div>
+              {/* Clear filters */}
+              {(filterCarrier || filterManager || search) && (
+                <button
+                  onClick={() => { setFilterCarrier(''); setFilterManager(''); setSearch(''); }}
+                  style={{ fontSize: 12, color: 'var(--mu)', background: 'none', border: '1px solid var(--lns)', borderRadius: 6, padding: '6px 10px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  Clear filters
+                </button>
+              )}
             </div>
           </div>
 
-          {loading ? <Skel /> : (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="zt">
+          {/* Table scroll area */}
+          <div className="tbl-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+            {loading ? <Skel /> : (
+              <table style={{ borderCollapse: 'collapse', fontSize: 12.5, minWidth: '100%' }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: 'left' }}>Company</th>
-                    <th className="tl">Account Manager</th>
-                    <th>Credit Limit</th>
-                    <th>Used</th>
-                    <th>Remaining</th>
-                    <th>Remaining %</th>
-                    <th>Yesterday</th>
-                    <th>3-Day Avg</th>
-                    <th>Days Left</th>
-                    <th style={{ textAlign: 'left' }}>Currency</th>
-                    <th style={{ textAlign: 'left' }}>Payment Term</th>
+                    <TH left  w={160} colKey="company_name"    sort={srt}>Company Name</TH>
+                    <TH left  w={130} colKey="account_manager" sort={srt}>Account Manager</TH>
+                    <TH left  w={110} colKey="payment_term"    sort={srt}>Payment Term</TH>
+                    <TH       w={110} colKey="credit_limit"           sort={srt}>Credit Limit</TH>
+                    <TH       w={120} colKey="current_balance"        sort={srt}>Current Balance</TH>
+                    <TH       w={110} colKey="remaining_balance"      sort={srt}>Remaining CL</TH>
+                    <TH       w={110} colKey="remaining_balance_pct"  sort={srt}>Remaining CL %</TH>
+                    <TH       w={140} colKey="avg_amount_last_3_days" sort={srt}>Avg Daily Usage (3d)</TH>
+                    <TH       w={120} colKey="yesterday_amount"       sort={srt}>Yesterday Usage</TH>
+                    <TH       w={110} colKey="days_until_zero"        sort={srt}>Days to Reach CL</TH>
+                    <TH       w={120} colKey="cl_in_next_3_days"      sort={srt}>CL in Next 3 Days</TH>
+                    <TH left  w={80}  colKey="currency_name"          sort={srt}>Currency</TH>
+                    <TH left  w={75}  colKey="carrier"               sort={srt}>Carrier</TH>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length === 0 && (
                     <tr>
-                      <td colSpan={11} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--mu)', fontSize: 14 }}>
-                        {search ? 'No matching clients' : 'No data'}
+                      <td colSpan={13} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--mu)', fontSize: 13 }}>
+                        {error ? 'Load failed — see error above' : search ? 'No matching clients' : 'No data — refresh the dataset first'}
                       </td>
                     </tr>
                   )}
-                  {rows.map((r: any) => (
-                    <tr key={r.clients_id} className={rowClass(r.remaining_balance_pct)}>
-                      {/* Company */}
-                      <td>
-                        <div>
-                          <span style={{ fontWeight: 700 }}>{r.company_name}</span>
-                          {r.c_email_billing && (
-                            <div style={{ fontSize: 11.5, color: 'var(--mu)', fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 400, marginTop: 2 }}>
-                              {r.c_email_billing}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      {/* Account Manager */}
-                      <td className="tl" style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 500, color: 'var(--inks)' }}>
-                        {r.account_manager ?? <span style={{ color: 'var(--mu)' }}>—</span>}
-                      </td>
-                      {/* Credit Limit */}
-                      <td>{fmtRev(r.credit_limit)}</td>
-                      {/* Used */}
-                      <td style={{ color: 'var(--inks)' }}>{fmtRev(r.used)}</td>
-                      {/* Remaining */}
-                      <td style={{
-                        color: r.remaining_balance < 0 ? 'var(--neg)' :
-                               r.remaining_balance_pct != null && r.remaining_balance_pct < 20 ? '#e67e22' :
-                               'var(--pos)',
-                        fontWeight: 600,
-                      }}>
-                        {fmtRev(r.remaining_balance)}
-                      </td>
-                      {/* Remaining % */}
-                      <td>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                          <RemainingBadge pct={r.remaining_balance_pct} />
-                        </div>
-                      </td>
-                      {/* Yesterday */}
-                      <td>{r.yesterday_amount != null ? fmtRev(r.yesterday_amount) : <span style={{ color: 'var(--mu)' }}>—</span>}</td>
-                      {/* 3-Day Avg */}
-                      <td>{r.avg_amount_last_3_days != null ? fmtRev(r.avg_amount_last_3_days) : <span style={{ color: 'var(--mu)' }}>—</span>}</td>
-                      {/* Days Until Zero */}
-                      <DaysCell days={r.days_until_zero} />
-                      {/* Currency */}
-                      <td className="tl" style={{ fontFamily: "'Hanken Grotesk',sans-serif", color: 'var(--inks)', fontWeight: 400 }}>{r.currency_name ?? '—'}</td>
-                      {/* Payment Term */}
-                      <td className="tl" style={{ fontFamily: "'Hanken Grotesk',sans-serif", color: 'var(--mu)', fontWeight: 400 }}>{r.payment_term ?? '—'}</td>
-                    </tr>
-                  ))}
+                  {rows.map((r: any) => {
+                    const pct      = r.remaining_balance_pct;
+                    const rowCls   = pct != null && pct < 10 ? 'row-critical' : pct != null && pct < 20 ? 'row-risk' : '';
+                    const remColor = r.remaining_balance < 0 ? 'var(--neg)' : pct != null && pct < 20 ? '#e67e22' : 'var(--pos)';
+                    const days     = r.days_until_zero;
+                    const daysColor = days == null ? 'var(--mu)' : days <= 2 ? '#e74c3c' : days <= 7 ? '#e67e22' : days <= 30 ? '#d4ac0d' : '#27ae60';
+                    return (
+                      <tr key={r.clients_id} className={rowCls}>
+                        <TD left style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <div style={{ fontWeight: 700, color: 'var(--ink)', fontFamily: "'Hanken Grotesk',sans-serif", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.company_name}>
+                            {r.company_name}
+                          </div>
+                        </TD>
+                        <TD left style={{ color: 'var(--inks)', fontFamily: "'Hanken Grotesk',sans-serif", maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <span title={r.account_manager ?? ''}>{r.account_manager ?? '—'}</span>
+                        </TD>
+                        <TD left style={{ color: 'var(--inks)', fontFamily: "'Hanken Grotesk',sans-serif" }}>{r.payment_term ?? '—'}</TD>
+                        <TD style={{ fontFamily: "'JetBrains Mono',monospace", fontVariantNumeric: 'tabular-nums', color: 'var(--inks)' }}>{fmtCur(r.credit_limit, r.currency_name)}</TD>
+                        <TD style={{ fontFamily: "'JetBrains Mono',monospace", fontVariantNumeric: 'tabular-nums', color: 'var(--inks)' }}>{fmtCur(r.current_balance, r.currency_name)}</TD>
+                        <TD style={{ fontFamily: "'JetBrains Mono',monospace", fontVariantNumeric: 'tabular-nums', color: remColor, fontWeight: 600 }}>{fmtCur(r.remaining_balance, r.currency_name)}</TD>
+                        <TD>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <RemainingBadge pct={pct} />
+                          </div>
+                        </TD>
+                        <TD style={{ fontFamily: "'JetBrains Mono',monospace", fontVariantNumeric: 'tabular-nums', color: 'var(--inks)' }}>
+                          {r.avg_amount_last_3_days != null ? fmtCur(r.avg_amount_last_3_days, r.currency_name) : <span style={{ color: 'var(--mu)' }}>—</span>}
+                        </TD>
+                        <TD style={{ fontFamily: "'JetBrains Mono',monospace", fontVariantNumeric: 'tabular-nums', color: 'var(--inks)' }}>
+                          {r.yesterday_amount != null ? fmtCur(r.yesterday_amount, r.currency_name) : <span style={{ color: 'var(--mu)' }}>—</span>}
+                        </TD>
+                        <TD style={{ fontFamily: "'JetBrains Mono',monospace", fontVariantNumeric: 'tabular-nums', color: daysColor, fontWeight: days != null && days <= 7 ? 700 : 400 }}>
+                          {days == null ? <span style={{ color: 'var(--mu)' }}>—</span> : days <= 0 ? 'NOW' : `${days}d`}
+                        </TD>
+                        <TD style={{ fontFamily: "'JetBrains Mono',monospace", fontVariantNumeric: 'tabular-nums', color: r.cl_in_next_3_days != null && r.cl_in_next_3_days < 0 ? 'var(--neg)' : 'var(--inks)' }}>
+                          {r.cl_in_next_3_days != null ? fmtCur(r.cl_in_next_3_days, r.currency_name) : <span style={{ color: 'var(--mu)' }}>—</span>}
+                        </TD>
+                        <TD left style={{ color: 'var(--inks)', fontFamily: "'Hanken Grotesk',sans-serif" }}>{r.currency_name ?? '—'}</TD>
+                        <TD left>
+                          {r.carrier === 'Hayo' || r.carrier === 'CN' ? (
+                            <span style={{
+                              display: 'inline-block', borderRadius: 4, padding: '1px 7px', fontSize: 11, fontWeight: 700,
+                              background: r.carrier === 'Hayo' ? 'rgba(26,188,156,.15)' : 'rgba(52,152,219,.15)',
+                              color:      r.carrier === 'Hayo' ? 'var(--turquoise)'      : 'var(--river)',
+                            }}>{r.carrier}</span>
+                          ) : null}
+                        </TD>
+                      </tr>
+                    );
+                  })}
                 </tbody>
-                {rows.length > 0 && s && (
+                {rows.length > 0 && (
                   <tfoot>
                     <tr>
-                      <td colSpan={2}>Total ({rows.length} clients)</td>
-                      <td>{fmtRev(s.totalCreditLimit)}</td>
-                      <td>{fmtRev(s.totalUsed)}</td>
-                      <td>{fmtRev(s.totalRemaining)}</td>
-                      <td colSpan={6} />
+                      <td colSpan={4} style={{ padding: '10px 10px', fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--lns)', background: 'var(--sf2)' }}>
+                        Total ({rows.length} clients)
+                      </td>
+                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--lns)', background: 'var(--sf2)' }}>
+                        {fmtRev(totalCreditLim)}
+                      </td>
+                      <td style={{ padding: '10px 10px', borderTop: '2px solid var(--lns)', background: 'var(--sf2)' }} />
+                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--lns)', background: 'var(--sf2)' }}>
+                        {fmtRev(totalRemaining)}
+                      </td>
+                      <td colSpan={6} style={{ padding: '10px 10px', borderTop: '2px solid var(--lns)', background: 'var(--sf2)' }} />
                     </tr>
                   </tfoot>
                 )}
               </table>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Legend */}
           {!loading && rows.length > 0 && (
-            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--ln)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
-              <span style={{ fontSize: 11.5, color: 'var(--mu)', fontWeight: 700 }}>Colour key:</span>
+            <div style={{ padding: '8px 16px', borderTop: '1px solid var(--ln)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: 'var(--mu)', fontWeight: 700 }}>Colour key:</span>
               {[
-                { color: 'rgba(231,76,60,.35)',  label: '< 10% — Critical' },
-                { color: 'rgba(230,126,34,.3)',  label: '10–20% — At risk' },
-                { color: 'rgba(241,196,15,.35)', label: '20–50% — Watch' },
-                { color: 'rgba(46,204,113,.35)', label: '> 50% — Healthy' },
+                { color: 'rgba(231,76,60,.35)',  label: '< 10% Critical' },
+                { color: 'rgba(230,126,34,.3)',  label: '10–20% At risk' },
+                { color: 'rgba(241,196,15,.35)', label: '20–50% Watch' },
+                { color: 'rgba(46,204,113,.35)', label: '> 50% Healthy' },
               ].map(item => (
-                <div key={item.label} className="zleg-row">
+                <div key={item.label} className="zleg-row" style={{ fontSize: 11 }}>
                   <span className="zleg-dot" style={{ background: item.color }} />
                   {item.label}
                 </div>
               ))}
-              <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--mu)' }}>{rows.length} clients shown</span>
             </div>
           )}
         </div>
