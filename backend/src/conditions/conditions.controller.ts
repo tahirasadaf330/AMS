@@ -124,7 +124,10 @@ export class ConditionsController {
     @CurrentUser() user: JwtUser,
     @Req() req: Request,
   ) {
-    await this.conditionsService.triggerNow(id);
+    // Fire-and-forget — long-running scripts (e.g. Python MTD loops) exceed
+    // proxy timeouts if we await here. Return immediately; execution continues
+    // in the background and emits a WebSocket event when done.
+    this.conditionsService.triggerNow(id).catch(() => undefined);
     const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.socket.remoteAddress || '';
     this.auditService.log({
       userId: user.sub,
