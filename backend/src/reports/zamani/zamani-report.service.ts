@@ -13,9 +13,10 @@ const DATASET_NAME          = 'Zamani Traffic';
 
 const SEED_SQL = `\
 WITH AllSourceEdr AS (
-    -- ── SMPP live ───────────────────────────────────────────────────────────
-    SELECT e.ReceivedDateTime                   AS ReceivedDateTime,
-           e.PartsDetected                      AS PartsDetected,
+    -- ── SMPP live ────────────────────────────────────────────────────────────
+    SELECT e.ReceivedDateTime,
+           e.PartsDetected,
+           mt.PartsSent,
            mt.CustomerConnectionId,
            mt.MtVendorConnectionId,
            mt.MccMnc,
@@ -28,9 +29,10 @@ WITH AllSourceEdr AS (
         ON mt.EdrSourceId = e.EdrSmppServerId AND mt.MessageSourceId = 1
     WHERE e.ReceivedDateTime >= '2026-01-01 00:00:00'
     UNION ALL
-    -- ── SMPP archive ────────────────────────────────────────────────────────
+    -- ── SMPP archive ─────────────────────────────────────────────────────────
     SELECT ae.ReceivedDateTime,
            ae.PartsDetected,
+           amt.PartsSent,
            amt.CustomerConnectionId,
            amt.MtVendorConnectionId,
            amt.MccMnc,
@@ -43,9 +45,10 @@ WITH AllSourceEdr AS (
         ON amt.EdrSourceId = ae.ArchiveEdrSmppServerId AND amt.MessageSourceId = 1
     WHERE ae.ReceivedDateTime >= '2026-01-01 00:00:00'
     UNION ALL
-    -- ── API live ────────────────────────────────────────────────────────────
+    -- ── API live ─────────────────────────────────────────────────────────────
     SELECT e.ReceivedDateTime,
            1                                    AS PartsDetected,
+           mt.PartsSent,
            mt.CustomerConnectionId,
            mt.MtVendorConnectionId,
            mt.MccMnc,
@@ -58,9 +61,10 @@ WITH AllSourceEdr AS (
         ON mt.EdrSourceId = e.EdrApiId AND mt.MessageSourceId = 2
     WHERE e.ReceivedDateTime >= '2026-01-01 00:00:00'
     UNION ALL
-    -- ── API archive ─────────────────────────────────────────────────────────
+    -- ── API archive ──────────────────────────────────────────────────────────
     SELECT ae.ReceivedDateTime,
            1,
+           amt.PartsSent,
            amt.CustomerConnectionId,
            amt.MtVendorConnectionId,
            amt.MccMnc,
@@ -73,9 +77,10 @@ WITH AllSourceEdr AS (
         ON amt.EdrSourceId = ae.ArchiveEdrApiId AND amt.MessageSourceId = 2
     WHERE ae.ReceivedDateTime >= '2026-01-01 00:00:00'
     UNION ALL
-    -- ── Campaign live ────────────────────────────────────────────────────────
+    -- ── Campaign live ─────────────────────────────────────────────────────────
     SELECT emd.ReceivedDateTime,
            1,
+           mt.PartsSent,
            mt.CustomerConnectionId,
            mt.MtVendorConnectionId,
            mt.MccMnc,
@@ -88,9 +93,10 @@ WITH AllSourceEdr AS (
         ON mt.EdrSourceId = emd.EdrSmsCampaignMessageDataId AND mt.MessageSourceId = 3
     WHERE emd.ReceivedDateTime >= '2026-01-01 00:00:00'
     UNION ALL
-    -- ── Campaign archive ─────────────────────────────────────────────────────
+    -- ── Campaign archive ──────────────────────────────────────────────────────
     SELECT aemd.ReceivedDateTime,
            1,
+           amt.PartsSent,
            amt.CustomerConnectionId,
            amt.MtVendorConnectionId,
            amt.MccMnc,
@@ -105,17 +111,18 @@ WITH AllSourceEdr AS (
 ),
 DLR_CTE AS (
     SELECT
-        CAST(mt.ReceivedDateTime AS DATE)                                       AS ReceivedDate,
+        CAST(mt.ReceivedDateTime AS DATE)                                                   AS ReceivedDate,
         mt.TerminatedSenderId,
-        cc.Name                                                                 AS CustomerConnection,
-        CONCAT(u.FirstName, ' ', u.LastName)                                   AS AccountManager,
-        c.CountryName                                                           AS Country,
-        mmd.OperatorName                                                        AS Operator,
-        mvc.Name                                                                AS VendorConnection,
-        SUM(ISNULL(mt.PartsDetected, 1))                                        AS NumbersOfMessages,
-        ROUND(SUM(mt.CustomerCost), 5)                                          AS Revenue,
-        SUM(CASE WHEN ds.DlrStatus = 'Delivered' THEN 1 ELSE 0 END)            AS DeliveredMessages,
-        ROUND(SUM(mt.CustomerCost - mt.MtVendorCost), 5)                       AS NegativeMargin
+        cc.Name                                                                             AS CustomerConnection,
+        CONCAT(u.FirstName, ' ', u.LastName)                                               AS AccountManager,
+        c.CountryName                                                                       AS Country,
+        mmd.OperatorName                                                                    AS Operator,
+        mvc.Name                                                                            AS VendorConnection,
+        SUM(ISNULL(mt.PartsDetected, 1))                                                    AS NumbersOfMessages,
+        ROUND(SUM(mt.CustomerCost), 5)                                                      AS Revenue,
+        SUM(CASE WHEN ds.DlrStatus = 'Delivered' THEN ISNULL(mt.PartsSent, 0) ELSE 0 END) AS DeliveredMessages,
+        ROUND(SUM(mt.CustomerCost - mt.MtVendorCost), 5)                                   AS NegativeMargin,
+        ROUND(SUM(mt.MtVendorCost), 5)                                                      AS Cost
     FROM AllSourceEdr mt
     LEFT JOIN SMSCPhoenix.dbo.CustomerConnections cc
         ON cc.CustomerConnectionId  = mt.CustomerConnectionId
@@ -164,6 +171,7 @@ const SEED_COLUMNS = [
   { key: 'revenue',            label: 'Revenue',          type: 'numeric' },
   { key: 'deliveredmessages',  label: 'DLR SMS',          type: 'numeric' },
   { key: 'negativemargin',     label: 'Margin',           type: 'numeric' },
+  { key: 'cost',               label: 'Cost',             type: 'numeric' },
   { key: 'dlrpercentage',      label: 'DLR %',            type: 'numeric' },
 ];
 
@@ -284,9 +292,12 @@ export class ZamaniReportService implements OnModuleInit {
       [STAGE],
     );
     if (row?.tbl) {
-      // Table exists — ensure id column present (may be missing on older deployments)
+      // Ensure columns present that may be missing on older deployments
       await this.dataSource.query(
         `ALTER TABLE ${STAGE} ADD COLUMN IF NOT EXISTS id BIGSERIAL`,
+      );
+      await this.dataSource.query(
+        `ALTER TABLE ${STAGE} ADD COLUMN IF NOT EXISTS cost NUMERIC`,
       );
       return;
     }
@@ -399,7 +410,7 @@ export class ZamaniReportService implements OnModuleInit {
            SUM(numbersofmessages)::bigint                                              AS messages,
            SUM(deliveredmessages)::bigint                                              AS dlr_sms,
            ROUND(SUM(revenue)::numeric, 4)                                             AS revenue,
-           ROUND(SUM(revenue - negativemargin)::numeric, 4)                            AS cost,
+           ROUND(SUM(cost)::numeric, 4)                                                AS cost,
            ROUND(SUM(negativemargin)::numeric, 4)                                      AS margin,
            ROUND(SUM(deliveredmessages)::numeric * 100.0 / NULLIF(SUM(numbersofmessages), 0), 1) AS dlr_pct
          FROM ${STAGE}
@@ -657,7 +668,7 @@ export class ZamaniReportService implements OnModuleInit {
            SUM(numbersofmessages)::bigint                                              AS messages,
            SUM(deliveredmessages)::bigint                                              AS dlr_sms,
            ROUND(SUM(revenue)::numeric, 4)                                             AS revenue,
-           ROUND(SUM(revenue - negativemargin)::numeric, 4)                            AS cost,
+           ROUND(SUM(cost)::numeric, 4)                                                AS cost,
            ROUND(SUM(negativemargin)::numeric, 4)                                      AS margin,
            ROUND(SUM(deliveredmessages)::numeric * 100.0 / NULLIF(SUM(numbersofmessages), 0), 1) AS dlr_pct
          FROM ${STAGE}
