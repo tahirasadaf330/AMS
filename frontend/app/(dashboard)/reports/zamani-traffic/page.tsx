@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { zamaniApi } from '@/lib/api';
 import { GaugeChart } from '@/components/charts/gauge-chart';
+import { useDatasetSocket } from '@/hooks/useDatasetSocket';
 
 const PAL = ['#3498db','#1abc9c','#9b59b6','#e67e22','#e74c3c','#f1c40f','#2ecc71','#16a085','#8e44ad','#d35400','#34495e','#2980b9','#27ae60','#c0392b','#f39c12','#7f8c8d'];
 const MNF = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -293,6 +294,8 @@ export default function ZamaniTrafficPage() {
   const [customers, setCustomers]     = React.useState<string[]>([]);
   const [latestDate, setLatestDate]   = React.useState('');
   const [lastRefresh, setLastRefresh] = React.useState<string | null>(null);
+  const [datasetId, setDatasetId]     = React.useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = React.useState(0);
 
   /* yesterday */
   const [yDate, setYDate] = React.useState(yd);
@@ -369,9 +372,12 @@ export default function ZamaniTrafficPage() {
       setCustomers(f.customers ?? []);
       setLatestDate(f.latestDate ?? '');
       setLastRefresh(f.lastRefreshed ?? null);
+      setDatasetId(f.datasetId ?? null);
       if (f.latestDate) setCNew(f.latestDate);
     }).catch(console.error);
   }, []);
+
+  useDatasetSocket(datasetId, React.useCallback(() => setRefreshTick(t => t + 1), []));
 
   React.useEffect(() => {
     if (tab !== 'yesterday' || !yDate) return;
@@ -379,7 +385,7 @@ export default function ZamaniTrafficPage() {
     const p: Record<string, string> = { date: yDate };
     if (yCust) p.customer = yCust;
     zamaniApi.getYesterday(p).then(r => setYData(r.data)).catch(console.error).finally(() => setYLoad(false));
-  }, [tab, yDate, yCust]);
+  }, [tab, yDate, yCust, refreshTick]);
 
   React.useEffect(() => {
     if (tab !== 'comparison') return;
@@ -397,7 +403,7 @@ export default function ZamaniTrafficPage() {
       setCLoad(true);
       zamaniApi.getComparison({ old_start: cOldStart, old_end: cOldEnd, new_start: cNewStart, new_end: cNewEnd }).then(r => setCData(r.data)).catch(console.error).finally(() => setCLoad(false));
     }
-  }, [tab, cMode, cOld, cNew, cOldMonth, cNewMonth, cOldStart, cOldEnd, cNewStart, cNewEnd]);
+  }, [tab, cMode, cOld, cNew, cOldMonth, cNewMonth, cOldStart, cOldEnd, cNewStart, cNewEnd, refreshTick]);
 
   React.useEffect(() => {
     if (tab !== 'mtd') return;
@@ -405,19 +411,19 @@ export default function ZamaniTrafficPage() {
     const p: Record<string, string> = { start_date: mStart, end_date: mEnd };
     if (mCust) p.customer = mCust;
     zamaniApi.getMtd(p).then(r => setMData(r.data)).catch(console.error).finally(() => setMLoad(false));
-  }, [tab, mStart, mEnd, mCust]);
+  }, [tab, mStart, mEnd, mCust, refreshTick]);
 
   React.useEffect(() => {
-    if (tab !== 'cost-revenue' || crData) return;
+    if (tab !== 'cost-revenue') return;
     setCrLoad(true);
     zamaniApi.getCostVsRevenue().then(r => setCrData(r.data)).catch(console.error).finally(() => setCrLoad(false));
-  }, [tab, crData]);
+  }, [tab, refreshTick]);
 
   React.useEffect(() => {
     if (tab !== 'projections') return;
     setPLoad(true);
     zamaniApi.getProjections({ year: String(pYear), month: String(pMonth) }).then(r => setPData(r.data)).catch(console.error).finally(() => setPLoad(false));
-  }, [tab, pYear, pMonth]);
+  }, [tab, pYear, pMonth, refreshTick]);
 
   /* ── derived data ─────────────────────────────────────── */
   const yRows = React.useMemo(() => aggByCustomer(yData?.rows ?? []), [yData]);

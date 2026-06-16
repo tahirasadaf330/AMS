@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { vcsBalanceApi } from '@/lib/api';
+import { useDatasetSocket } from '@/hooks/useDatasetSocket';
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -238,9 +239,10 @@ type SortDir = 'asc' | 'desc';
 interface SortState { key: string | null; dir: SortDir; set: (k: string) => void }
 
 export default function VoiceCreditLimitPage() {
-  const [data, setData]       = React.useState<any>(null);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError]     = React.useState<string | null>(null);
+  const [data, setData]           = React.useState<any>(null);
+  const [datasetId, setDatasetId] = React.useState<string | null>(null);
+  const [loading, setLoading]     = React.useState(true);
+  const [error, setError]         = React.useState<string | null>(null);
   const [search, setSearch]       = React.useState('');
   const [filterCarrier, setFilterCarrier]   = React.useState('');
   const [filterManager, setFilterManager]   = React.useState('');
@@ -259,7 +261,7 @@ export default function VoiceCreditLimitPage() {
     setError(null);
     vcsBalanceApi
       .getData()
-      .then(r => { setData(r.data); })
+      .then(r => { setData(r.data); setDatasetId(r.data?.datasetId ?? null); })
       .catch((err: any) => {
         const msg = err?.response?.data?.message ?? err?.message ?? 'Failed to load data';
         setError(msg);
@@ -268,6 +270,7 @@ export default function VoiceCreditLimitPage() {
   }, []);
 
   React.useEffect(() => { load(); }, [load]);
+  useDatasetSocket(datasetId, load);
 
   const managerOptions: string[] = React.useMemo(() => {
     if (!data?.rows) return [];

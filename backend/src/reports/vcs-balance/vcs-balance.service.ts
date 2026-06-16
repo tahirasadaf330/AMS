@@ -96,6 +96,7 @@ const SEED_COLUMNS = [
 @Injectable()
 export class VcsBalanceService implements OnModuleInit {
   private readonly logger = new Logger(VcsBalanceService.name);
+  private _datasetId: string | null = null;
 
   constructor(
     @InjectDataSource()
@@ -117,6 +118,7 @@ export class VcsBalanceService implements OnModuleInit {
     const existing = await this.datasetRepo.findOne({ where: { stageTableName: STAGE } });
 
     if (existing) {
+      this._datasetId = existing.id;
       const sqlChanged  = existing.sqlQuery !== SEED_SQL;
       const metaChanged = JSON.stringify(existing.columnMetadata) !== JSON.stringify(SEED_COLUMNS);
       if (sqlChanged || metaChanged) {
@@ -130,7 +132,7 @@ export class VcsBalanceService implements OnModuleInit {
     }
 
     this.logger.log('Seeding Voice Credit Limit dataset…');
-    await this.datasetRepo.save(
+    const saved = await this.datasetRepo.save(
       this.datasetRepo.create({
         name:           DATASET_NAME,
         description:    'Active VCS client credit balances with 3-day average daily usage from Jerasoft.',
@@ -144,6 +146,7 @@ export class VcsBalanceService implements OnModuleInit {
         createdBy:      null,
       }),
     );
+    this._datasetId = saved.id;
     this.logger.log('Voice Credit Limit dataset record created');
   }
 
@@ -239,6 +242,7 @@ export class VcsBalanceService implements OnModuleInit {
     );
 
     return {
+      datasetId: this._datasetId,
       rows,
       lastRefreshed: refreshRow?.last_refreshed ?? null,
       summary: {

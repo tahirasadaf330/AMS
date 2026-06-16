@@ -187,6 +187,7 @@ export interface ZamaniTotals {
 @Injectable()
 export class ZamaniReportService implements OnModuleInit {
   private readonly logger = new Logger(ZamaniReportService.name);
+  private _datasetId: string | null = null;
 
   constructor(
     @InjectDataSource()
@@ -261,6 +262,7 @@ export class ZamaniReportService implements OnModuleInit {
   private async ensureDatasetRecord(datasourceId: string): Promise<void> {
     const existing = await this.datasetRepo.findOne({ where: { stageTableName: STAGE } });
     if (existing) {
+      this._datasetId = existing.id;
       const sqlChanged = existing.sqlQuery !== SEED_SQL;
       const metaChanged = JSON.stringify(existing.columnMetadata) !== JSON.stringify(SEED_COLUMNS);
       if (sqlChanged || metaChanged) {
@@ -274,7 +276,7 @@ export class ZamaniReportService implements OnModuleInit {
     }
 
     this.logger.log('Seeding Zamani Traffic dataset…');
-    await this.datasetRepo.save(
+    const saved = await this.datasetRepo.save(
       this.datasetRepo.create({
         name:           DATASET_NAME,
         description:    'Daily SMS traffic from SMSCPhoenix — messages, revenue, DLR by customer and destination.',
@@ -288,6 +290,7 @@ export class ZamaniReportService implements OnModuleInit {
         createdBy:      null,
       }),
     );
+    this._datasetId = saved.id;
     this.logger.log('Zamani Traffic dataset record created');
   }
 
@@ -389,6 +392,7 @@ export class ZamaniReportService implements OnModuleInit {
     ]);
 
     return {
+      datasetId:        this._datasetId,
       customers:        customers.map((r: any) => r.v),
       senderIds:        senderIds.map((r: any) => r.v),
       operators:        operators.map((r: any) => r.v),
