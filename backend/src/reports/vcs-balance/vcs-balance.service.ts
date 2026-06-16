@@ -38,7 +38,12 @@ client_stats AS (
 )
 SELECT
   c.id                                                                           AS clients_id,
-  le.name                                                                        AS carrier,
+  CASE
+    WHEN le.name ILIKE '%hayo%'         THEN 'Hayo'
+    WHEN le.name ILIKE '%call network%'
+      OR le.name ILIKE '%callnetwork%'  THEN 'CN'
+    ELSE le.name
+  END                                                                            AS carrier,
   c.c_company                                                                    AS company_name,
   u.fullname                                                                     AS account_manager,
   c.credit                                                                       AS credit_limit,

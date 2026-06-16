@@ -142,6 +142,14 @@ const CURRENCY_MAP: Record<string, string> = {
   'mexican peso': 'MXN', 'polish zloty': 'PLN', 'czech koruna': 'CZK',
 };
 
+const shortCarrier = (name: string | null | undefined): string | null => {
+  if (!name) return null;
+  const l = name.toLowerCase();
+  if (l.includes('hayo')) return 'Hayo';
+  if (l.includes('call') || l.includes('cn')) return 'CN';
+  return name;
+};
+
 const resolveCode = (name?: string): string | null => {
   if (!name) return null;
   // Try as-is (might already be ISO code like "USD")
@@ -282,7 +290,7 @@ export default function VoiceCreditLimitPage() {
   const carrierOptions: string[] = React.useMemo(() => {
     if (!data?.rows) return [];
     const set = new Set<string>();
-    for (const r of data.rows) { if (r.carrier) set.add(r.carrier); }
+    for (const r of data.rows) { const c = shortCarrier(r.carrier); if (c) set.add(c); }
     return Array.from(set).sort();
   }, [data]);
 
@@ -293,7 +301,7 @@ export default function VoiceCreditLimitPage() {
       const q = search.toLowerCase();
       filtered = filtered.filter((r: any) => (r.company_name ?? '').toLowerCase().includes(q));
     }
-    if (filterCarrier) filtered = filtered.filter((r: any) => r.carrier === filterCarrier);
+    if (filterCarrier) filtered = filtered.filter((r: any) => shortCarrier(r.carrier) === filterCarrier);
     if (filterManager) filtered = filtered.filter((r: any) => r.account_manager === filterManager);
     if (!sort.key) return filtered;
     const { key, dir } = sort;
@@ -463,13 +471,13 @@ export default function VoiceCreditLimitPage() {
                           </div>
                         </TD>
                         <TD left>
-                          {r.carrier ? (
+                          {(() => { const c = shortCarrier(r.carrier); return c ? (
                             <span style={{
                               display: 'inline-block', borderRadius: 4, padding: '1px 7px', fontSize: 11, fontWeight: 700,
-                              background: r.carrier === 'Hayo' ? 'rgba(26,188,156,.15)' : r.carrier === 'CN' ? 'rgba(52,152,219,.15)' : 'rgba(149,165,166,.15)',
-                              color:      r.carrier === 'Hayo' ? 'var(--turquoise)'      : r.carrier === 'CN' ? 'var(--river)'          : 'var(--inks)',
-                            }}>{r.carrier}</span>
-                          ) : null}
+                              background: c === 'Hayo' ? 'rgba(26,188,156,.15)' : c === 'CN' ? 'rgba(52,152,219,.15)' : 'rgba(149,165,166,.15)',
+                              color:      c === 'Hayo' ? 'var(--turquoise)'      : c === 'CN' ? 'var(--river)'          : 'var(--inks)',
+                            }}>{c}</span>
+                          ) : null; })()}
                         </TD>
                         <TD left style={{ color: 'var(--inks)', fontFamily: "'Hanken Grotesk',sans-serif", maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           <span title={r.account_manager ?? ''}>{r.account_manager ?? '—'}</span>
