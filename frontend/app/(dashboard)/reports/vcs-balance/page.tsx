@@ -279,6 +279,13 @@ export default function VoiceCreditLimitPage() {
     return Array.from(set).sort();
   }, [data]);
 
+  const carrierOptions: string[] = React.useMemo(() => {
+    if (!data?.rows) return [];
+    const set = new Set<string>();
+    for (const r of data.rows) { if (r.carrier) set.add(r.carrier); }
+    return Array.from(set).sort();
+  }, [data]);
+
   const rows: any[] = React.useMemo(() => {
     if (!data?.rows) return [];
     let filtered: any[] = data.rows;
@@ -377,9 +384,7 @@ export default function VoiceCreditLimitPage() {
                 style={{ width: 110, fontSize: 13, padding: '7px 10px' }}
               >
                 <option value="">All Carriers</option>
-                <option value="Hayo">Hayo</option>
-                <option value="CN">CN</option>
-                <option value="Other">Other</option>
+                {carrierOptions.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               {/* Account Manager filter */}
               <select
@@ -458,11 +463,11 @@ export default function VoiceCreditLimitPage() {
                           </div>
                         </TD>
                         <TD left>
-                          {r.carrier === 'Hayo' || r.carrier === 'CN' ? (
+                          {r.carrier ? (
                             <span style={{
                               display: 'inline-block', borderRadius: 4, padding: '1px 7px', fontSize: 11, fontWeight: 700,
-                              background: r.carrier === 'Hayo' ? 'rgba(26,188,156,.15)' : 'rgba(52,152,219,.15)',
-                              color:      r.carrier === 'Hayo' ? 'var(--turquoise)'      : 'var(--river)',
+                              background: r.carrier === 'Hayo' ? 'rgba(26,188,156,.15)' : r.carrier === 'CN' ? 'rgba(52,152,219,.15)' : 'rgba(149,165,166,.15)',
+                              color:      r.carrier === 'Hayo' ? 'var(--turquoise)'      : r.carrier === 'CN' ? 'var(--river)'          : 'var(--inks)',
                             }}>{r.carrier}</span>
                           ) : null}
                         </TD>
