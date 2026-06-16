@@ -65,7 +65,7 @@ export function GaugeChart({ actual, target, projected, formatValue }: GaugeChar
 
       {/* Centre text */}
       <text x={cx} y={cy - 50} textAnchor="middle" fill="#8B94A8" fontSize={12}>Achieved</text>
-      <text x={cx} y={cy - 4}  textAnchor="middle" fill="#FFFFFF" fontSize={46} fontWeight="700">{fmt(actual)}</text>
+      <text x={cx} y={cy - 4}  textAnchor="middle" fill="var(--ink)" fontSize={46} fontWeight="700">{fmt(actual)}</text>
       <text x={cx} y={cy + 18} textAnchor="middle" fill="#8B94A8" fontSize={12.5}>{subText}</text>
 
       {/* Edge labels */}
@@ -75,21 +75,21 @@ export function GaugeChart({ actual, target, projected, formatValue }: GaugeChar
       {/* Legend */}
       <circle cx={52}  cy={legendY} r={5} fill="#2BD4A6" />
       <text x={64}  y={textOffY} fill="#8B94A8" fontSize={12.5}>
-        Achieved <tspan fill="#F5F7FA" fontWeight="500">{fmt(actual)}</tspan>
+        Achieved <tspan fill="var(--ink)" fontWeight="500">{fmt(actual)}</tspan>
       </text>
 
       {projPct != null && (
         <>
           <circle cx={200} cy={legendY} r={5} fill="#F6B23C" />
           <text x={212} y={textOffY} fill="#8B94A8" fontSize={12.5}>
-            Projected <tspan fill="#F5F7FA" fontWeight="500">{fmt(projected!)}</tspan>
+            Projected <tspan fill="var(--ink)" fontWeight="500">{fmt(projected!)}</tspan>
           </text>
         </>
       )}
 
       <circle cx={360} cy={legendY} r={5} fill="#46527D" />
       <text x={372} y={textOffY} fill="#8B94A8" fontSize={12.5}>
-        Target <tspan fill="#F5F7FA" fontWeight="500">{fmt(target)}</tspan>
+        Target <tspan fill="var(--ink)" fontWeight="500">{fmt(target)}</tspan>
       </text>
     </svg>
   );

@@ -56,6 +56,18 @@ export class DatasetsService {
     }
   }
 
+  async findAllForUser(userId: string, userRole: string): Promise<Dataset[]> {
+    if (userRole === 'admin') return this.findAll();
+    const accesses = await this.accessRepo.find({ where: { userId } });
+    const ids = accesses.map((a) => a.datasetId);
+    if (ids.length === 0) return [];
+    return this.datasetRepo
+      .createQueryBuilder('d')
+      .where('d.id IN (:...ids)', { ids })
+      .orderBy('d.name', 'ASC')
+      .getMany();
+  }
+
   async findOne(id: string): Promise<Dataset> {
     const dataset = await this.datasetRepo.findOne({ where: { id } });
     if (!dataset) throw new NotFoundException(`Dataset ${id} not found`);

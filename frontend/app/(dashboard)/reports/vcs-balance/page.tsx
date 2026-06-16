@@ -327,24 +327,13 @@ export default function VoiceCreditLimitPage() {
             <h1 style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 800, fontSize: 22, letterSpacing: '-.3px', color: 'var(--ink)', lineHeight: 1.1 }}>
               Voice Credit Limit
             </h1>
-            {lastRefreshed && (
-              <p style={{ color: 'var(--mu)', fontSize: 11, marginTop: 2 }}>
-                Stage data · refreshed {new Date(lastRefreshed).toLocaleString()}
-              </p>
-            )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {lastRefreshed && (
-              <div className="zdcard" style={{ padding: '6px 12px' }}>
-                <div className="dlbl">Stage refreshed</div>
-                <div className="dval" style={{ fontSize: 14 }}><span className="zpulse" /><span>{new Date(lastRefreshed).toLocaleTimeString()}</span></div>
-              </div>
-            )}
-            <button className="zbt" onClick={load} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px' }}>
-              <span style={{ display: 'inline-flex', width: 13, height: 13 }}>{IC.refresh}</span>
-              {loading ? 'Loading…' : 'Refresh'}
-            </button>
-          </div>
+          {lastRefreshed && (
+            <div className="zdcard" style={{ padding: '6px 14px' }}>
+              <div className="dlbl">Last Updated</div>
+              <div className="dval" style={{ fontSize: 14 }}><span className="zpulse" /><span>{new Date(lastRefreshed).toLocaleString()}</span></div>
+            </div>
+          )}
         </div>
 
         {/* Error banner */}

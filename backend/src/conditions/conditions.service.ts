@@ -59,8 +59,8 @@ export class ConditionsService {
         .createQueryBuilder('c')
         .leftJoinAndSelect('c.dataset', 'dataset');
 
-      // Non-admin/full_rights users see only conditions for their accessible datasets, plus all Python conditions
-      if (userRole !== 'admin' && userRole !== 'full_rights') {
+      // Only admins see all conditions; everyone else sees only conditions for their accessible datasets + Python conditions
+      if (userRole !== 'admin') {
         const accessibleDatasets = await this.accessRepo.find({ where: { userId } });
         const datasetIds = accessibleDatasets.map((a) => a.datasetId);
         if (datasetIds.length === 0) {

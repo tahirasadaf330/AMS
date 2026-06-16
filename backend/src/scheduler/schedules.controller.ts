@@ -30,9 +30,9 @@ export class SchedulesController {
   ) {}
 
   @Get()
-  async getAll() {
+  async getAll(@CurrentUser() user: JwtUser) {
     const [datasets, lastRefreshMap] = await Promise.all([
-      this.datasetsService.findAll(),
+      this.datasetsService.findAllForUser(user.sub, user.role),
       this.datasetsService.getLastRefreshMap(),
     ]);
     return datasets.map((d) => {
