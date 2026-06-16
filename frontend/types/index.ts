@@ -145,6 +145,7 @@ export interface Condition {
   trigger_cron?: string | null;
   is_active: boolean;
   created_by?: string;
+  created_by_user?: { id: string; fullname: string } | null;
   last_triggered_at: string | null;
   created_at: string;
   updated_at: string;

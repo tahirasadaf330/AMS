@@ -78,7 +78,7 @@ export class ConditionsController {
   }
 
   @Delete(':id')
-  @Roles('full_rights')
+  @Roles('editor')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') id: string,

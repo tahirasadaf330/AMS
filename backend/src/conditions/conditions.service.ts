@@ -57,7 +57,8 @@ export class ConditionsService {
     try {
       const qb = this.conditionRepo
         .createQueryBuilder('c')
-        .leftJoinAndSelect('c.dataset', 'dataset');
+        .leftJoinAndSelect('c.dataset', 'dataset')
+        .leftJoinAndSelect('c.createdByUser', 'creator');
 
       // Only admins see all conditions; everyone else sees only conditions for their accessible datasets + Python conditions
       if (userRole !== 'admin') {
@@ -154,10 +155,10 @@ export class ConditionsService {
   }
 
   async remove(id: string, userId: string, userRole: UserRole): Promise<void> {
-    await this.findOne(id);
+    const condition = await this.findOne(id);
 
-    if (userRole === 'editor') {
-      throw new ForbiddenException('Insufficient permissions to delete conditions');
+    if (userRole !== 'admin' && condition.createdBy !== userId) {
+      throw new ForbiddenException('You can only delete your own conditions');
     }
 
     try {

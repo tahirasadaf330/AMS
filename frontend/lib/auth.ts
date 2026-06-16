@@ -54,7 +54,7 @@ const PERMISSION_ROLE_MAP: Record<string, UserRole> = {
   export: 'viewer',
   create_condition: 'editor',
   edit_condition: 'editor',
-  delete_condition: 'full_rights',
+  delete_condition: 'editor',
   manage_schedule: 'full_rights',
   trigger_refresh: 'full_rights',
   retry_notification: 'full_rights',

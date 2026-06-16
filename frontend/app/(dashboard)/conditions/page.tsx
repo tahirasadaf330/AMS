@@ -38,6 +38,8 @@ export default function ConditionsPage() {
   const triggerNow = useTriggerNow();
   const canDelete = useAuthStore((s) => s.canAccess('delete_condition'));
   const canCreate = useAuthStore((s) => s.canAccess('create_condition'));
+  const userId = useAuthStore((s) => s.user?.id);
+  const userRole = useAuthStore((s) => s.user?.role);
 
   const [showForm, setShowForm] = React.useState(false);
   const [showPythonForm, setShowPythonForm] = React.useState(false);
@@ -110,13 +112,14 @@ export default function ConditionsPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Trigger</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Triggered</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Active</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created By</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody>
               {(conditions ?? []).length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-gray-500 text-sm">
+                  <td colSpan={9} className="px-4 py-12 text-center text-gray-500 text-sm">
                     No conditions yet.{canCreate && ' Click "New Alert" to create one.'}
                   </td>
                 </tr>
@@ -178,6 +181,9 @@ export default function ConditionsPage() {
                         disabled={!canCreate}
                       />
                     </td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
+                      {condition.created_by_user?.fullname ?? '—'}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1">
                         <Button
@@ -209,7 +215,7 @@ export default function ConditionsPage() {
                             <Edit2 className="h-3.5 w-3.5 text-blue-400" />
                           </Button>
                         )}
-                        {canDelete && (
+                        {canDelete && (userRole === 'admin' || condition.created_by === userId) && (
                           <Button
                             variant="ghost"
                             size="icon-sm"
