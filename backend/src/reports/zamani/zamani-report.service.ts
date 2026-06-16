@@ -378,7 +378,7 @@ export class ZamaniReportService implements OnModuleInit {
 
   async getFilters() {
     if (!(await this.stageExists())) {
-      return { customers: [], senderIds: [], operators: [], accountManagers: [], vendorConnections: [], latestDate: null, lastRefreshed: null };
+      return { datasetId: this._datasetId, customers: [], senderIds: [], operators: [], accountManagers: [], vendorConnections: [], latestDate: null, lastRefreshed: null };
     }
 
     const [customers, senderIds, operators, accountManagers, vendorConnections, [latest], [refresh]] = await Promise.all([

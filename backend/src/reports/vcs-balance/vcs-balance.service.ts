@@ -201,7 +201,7 @@ export class VcsBalanceService implements OnModuleInit {
     });
 
     this.logger.log(`VCS getData: ${stageRows.length} rows from ${STAGE}`);
-    if (stageRows.length === 0) return { rows: [], summary: this.emptySummary() };
+    if (stageRows.length === 0) return { datasetId: this._datasetId, rows: [], summary: this.emptySummary() };
 
     const rows = stageRows.map((r: any) => {
       const creditLimit      = Number(r.credit_limit      ?? 0);
