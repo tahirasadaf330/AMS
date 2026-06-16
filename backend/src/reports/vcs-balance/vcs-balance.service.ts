@@ -38,17 +38,9 @@ client_stats AS (
 )
 SELECT
   c.id                                                                           AS clients_id,
+  le.name                                                                        AS carrier,
   c.c_company                                                                    AS company_name,
   u.fullname                                                                     AS account_manager,
-  CASE
-    WHEN c.c_email_tech    ILIKE '%@hayo.net'         OR
-         c.c_email_billing ILIKE '%@hayo.net'         OR
-         c.c_email_rates   ILIKE '%@hayo.net'         THEN 'Hayo'
-    WHEN c.c_email_tech    ILIKE '%@callnetworks.com' OR
-         c.c_email_billing ILIKE '%@callnetworks.com' OR
-         c.c_email_rates   ILIKE '%@callnetworks.com' THEN 'CN'
-    ELSE 'Other'
-  END                                                                            AS carrier,
   c.credit                                                                       AS credit_limit,
   ROUND(COALESCE(cb.balance, 0)::numeric, 2)                                     AS current_balance,
   ROUND((c.credit + COALESCE(cb.balance, 0))::numeric, 2)                        AS remaining_balance,
@@ -67,6 +59,7 @@ SELECT
 FROM public.clients           c
 JOIN  public.clients_balances cb ON cb.clients_id = c.id
 JOIN  public.currencies       c2 ON c2.id = c.currencies_id
+LEFT JOIN public.legal_entities   le ON le.companies_id = c.companies_id
 LEFT JOIN public.payment_terms    pt ON pt.id  = c.payment_terms_id
 LEFT JOIN system.auth_users        u ON u.id   = c.owner_users_id
 LEFT JOIN client_stats            cs ON cs.clients_id = c.id
