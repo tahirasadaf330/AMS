@@ -13,6 +13,7 @@ export interface AuditLogQuery {
   limit?: number;
 }
 
+// Service for managing audit logs, including fetching and exporting logs.
 @Injectable()
 export class AuditLogService {
   private readonly logger = new Logger(AuditLogService.name);
