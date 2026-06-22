@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Response } from 'express';
 import { AuditLog } from '../../common/entities/audit-log.entity';
 
+// Interface for query parameters when fetching audit logs.
 export interface AuditLogQuery {
   user?: string;
   action?: string;
