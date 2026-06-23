@@ -252,7 +252,7 @@ export function NavSidebar() {
                     'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
                     isActive('/reports/sms-credit-limit')
                       ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
-                      : 'text-gray-500 dark:text-gray:400'
+                      : 'text-gray-500 dark:text-gray-400'
                   )}
                 >
                   <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
