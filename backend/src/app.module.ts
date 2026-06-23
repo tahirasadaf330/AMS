@@ -37,6 +37,7 @@ import { WebsocketModule } from './websocket/websocket.module';
 import { SystemModule } from './system/system.module';
 import { ZamaniReportModule } from './reports/zamani/zamani-report.module';
 import { VcsBalanceModule } from './reports/vcs-balance/vcs-balance.module';
+import { SmsCreditLimitModule } from './reports/sms-credit-limit/sms-credit-limit.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -100,6 +101,7 @@ import { VcsBalanceModule } from './reports/vcs-balance/vcs-balance.module';
     SystemModule,
     ZamaniReportModule,
     VcsBalanceModule,
+    SmsCreditLimitModule,
   ],
 })
 export class AppModule {}

@@ -340,6 +340,11 @@ export const vcsBalanceApi = {
   getData: () => api.get('/reports/vcs-balance/data'),
 };
 
+// ── SMS CREDIT LIMIT REPORT ───────────────────────────────────
+export const smsCreditLimitApi = {
+  getData: () => api.get('/reports/sms-credit-limit/data'),
+};
+
 // ── SYSTEM ────────────────────────────────────────────────────
 export const systemApi = {
   health: () =>
