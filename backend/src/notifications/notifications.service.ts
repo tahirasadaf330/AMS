@@ -121,6 +121,7 @@ export class NotificationsService {
         condition,
         datasetName,
         matchedRows,
+        selectedColumns: channels.email?.columns,
         webhookUrl: channels.teams.webhook_url,
         severity: channels.teams.severity || 'info',
       }).catch((err) => this.logger.error('Teams dispatch unhandled error', err));
@@ -206,6 +207,7 @@ export class NotificationsService {
     condition: Condition;
     datasetName: string;
     matchedRows: Record<string, unknown>[];
+    selectedColumns?: string[];
     webhookUrl?: string;
     severity: 'critical' | 'warning' | 'info';
   }): Promise<void> {
@@ -230,6 +232,7 @@ export class NotificationsService {
         matchedCount: params.matchedRows.length,
         severity: params.severity,
         timestamp: new Date().toISOString(),
+        selectedColumns: params.selectedColumns,
       });
 
       await this.notifLogRepo.update(saved.id, { status: 'sent' });

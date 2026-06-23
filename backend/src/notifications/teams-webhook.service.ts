@@ -27,18 +27,23 @@ export class TeamsWebhookService {
     matchedCount: number;
     severity?: Severity;
     timestamp?: string;
+    selectedColumns?: string[];
   }): Promise<void> {
     const webhookUrl = params.webhookUrl || this.defaultWebhookUrl;
     if (!webhookUrl) {
       throw new Error('No Teams webhook URL configured');
     }
 
+    const INTERNAL = new Set(['id', 'refreshed_at']);
     const ts = params.timestamp || new Date().toISOString();
     const severity: Severity = params.severity || 'info';
     const colorKey = SEVERITY_COLORS[severity];
     const displayRows = params.matchedRows.slice(0, 10);
     const extraRows = params.matchedCount - 10;
-    const columns = displayRows.length > 0 ? Object.keys(displayRows[0]) : [];
+    const allColumns = displayRows.length > 0 ? Object.keys(displayRows[0]) : [];
+    const columns = params.selectedColumns?.length
+      ? allColumns.filter((c) => (params.selectedColumns as string[]).includes(c))
+      : allColumns.filter((c) => !INTERNAL.has(c));
 
     const bodyItems: unknown[] = [
       {
@@ -73,14 +78,11 @@ export class TeamsWebhookService {
         });
       } else {
         // ColumnSet-based table — fully supported across all Teams webhook versions
-        const maxCols = Math.min(columns.length, 5);
-        const visibleCols = columns.slice(0, maxCols);
-
         // Header row
         bodyItems.push({
           type: 'ColumnSet',
           separator: true,
-          columns: visibleCols.map((col, i) => ({
+          columns: columns.map((col, i) => ({
             type: 'Column',
             width: i === 0 ? 2 : 1,
             items: [{ type: 'TextBlock', text: col.replace(/_/g, ' '), weight: 'bolder', size: 'small', wrap: false }],
@@ -91,21 +93,11 @@ export class TeamsWebhookService {
         for (const row of displayRows) {
           bodyItems.push({
             type: 'ColumnSet',
-            columns: visibleCols.map((col, i) => ({
+            columns: columns.map((col, i) => ({
               type: 'Column',
               width: i === 0 ? 2 : 1,
               items: [{ type: 'TextBlock', text: this.formatValue(row[col]), size: 'small', wrap: false, color: this.getColor(row[col]) }],
             })),
-          });
-        }
-
-        if (columns.length > maxCols) {
-          bodyItems.push({
-            type: 'TextBlock',
-            text: `(${columns.length - maxCols} more columns not shown — full data sent to email)`,
-            isSubtle: true,
-            size: 'small',
-            wrap: true,
           });
         }
       }
