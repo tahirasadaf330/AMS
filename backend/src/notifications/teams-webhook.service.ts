@@ -63,43 +63,17 @@ export class TeamsWebhookService {
     ];
 
     if (displayRows.length > 0 && columns.length > 0) {
-      // Use FactSet for small column counts, table for larger
-      if (columns.length <= 3) {
-        const facts = displayRows.map((row) => ({
-          title: String(row[columns[0]] ?? ''),
-          value: columns
-            .slice(1)
-            .map((c) => `${c}: ${this.formatValue(row[c])}`)
-            .join(' | '),
-        }));
+      // One FactSet per row — renders cleanly in Teams regardless of column count
+      for (let i = 0; i < displayRows.length; i++) {
+        const row = displayRows[i];
         bodyItems.push({
           type: 'FactSet',
-          facts,
-        });
-      } else {
-        // ColumnSet-based table — fully supported across all Teams webhook versions
-        // Header row
-        bodyItems.push({
-          type: 'ColumnSet',
-          separator: true,
-          columns: columns.map((col, i) => ({
-            type: 'Column',
-            width: i === 0 ? 2 : 1,
-            items: [{ type: 'TextBlock', text: col.replace(/_/g, ' '), weight: 'bolder', size: 'small', wrap: false }],
+          separator: i > 0,
+          facts: columns.map((col) => ({
+            title: col.replace(/_/g, ' '),
+            value: this.formatValue(row[col]),
           })),
         });
-
-        // Data rows
-        for (const row of displayRows) {
-          bodyItems.push({
-            type: 'ColumnSet',
-            columns: columns.map((col, i) => ({
-              type: 'Column',
-              width: i === 0 ? 2 : 1,
-              items: [{ type: 'TextBlock', text: this.formatValue(row[col]), size: 'small', wrap: false, color: this.getColor(row[col]) }],
-            })),
-          });
-        }
       }
     }
 
