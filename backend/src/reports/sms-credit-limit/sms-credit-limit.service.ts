@@ -8,24 +8,40 @@ const STAGE        = 'stage_sms_credit_limit';
 const DATASET_NAME = 'SMS Credit Limit';
 
 const SEED_SQL = `
-WITH daily_usage AS (
+WITH max_date_cte AS (
+  SELECT CAST(MAX(DlrDateTime) AS DATE) AS max_dt
+  FROM SMSCEdr.dbo.MtEdr
+),
+available_days AS (
+  SELECT COUNT(DISTINCT CAST(e.DlrDateTime AS DATE)) AS day_count
+  FROM SMSCEdr.dbo.MtEdr e
+  CROSS JOIN max_date_cte
+  WHERE CAST(e.DlrDateTime AS DATE) >= DATEADD(DAY, -6, max_date_cte.max_dt)
+    AND CAST(e.DlrDateTime AS DATE) <= max_date_cte.max_dt
+),
+daily_usage AS (
   SELECT
     cc.CompanyId,
     CAST(e.DlrDateTime AS DATE)   AS day,
     SUM(e.CustomerCost)           AS daily_cost
   FROM SMSCEdr.dbo.MtEdr e
+  CROSS JOIN max_date_cte
   JOIN SMSCPhoenix.dbo.CustomerConnections cc ON cc.CustomerConnectionId = e.CustomerConnectionId
-  WHERE e.DlrDateTime >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE))
-    AND e.DlrDateTime <  CAST(GETDATE() AS DATE)
+  WHERE CAST(e.DlrDateTime AS DATE) >= DATEADD(DAY, -6, max_date_cte.max_dt)
+    AND CAST(e.DlrDateTime AS DATE) <= max_date_cte.max_dt
   GROUP BY cc.CompanyId, CAST(e.DlrDateTime AS DATE)
 ),
 client_stats AS (
   SELECT
-    CompanyId,
-    SUM(CASE WHEN day = CAST(DATEADD(DAY,-1,GETDATE()) AS DATE) THEN daily_cost ELSE 0 END) AS yesterday_usage,
-    ROUND(SUM(daily_cost) / 7.0, 2)                                                         AS avg_daily_usage_7d
-  FROM daily_usage
-  GROUP BY CompanyId
+    du.CompanyId,
+    SUM(CASE WHEN du.day = CAST(DATEADD(DAY,-1,GETDATE()) AS DATE) THEN du.daily_cost ELSE 0 END) AS yesterday_usage,
+    CASE WHEN ad.day_count > 0
+      THEN ROUND(SUM(du.daily_cost) / CAST(ad.day_count AS FLOAT), 2)
+      ELSE 0
+    END                                                                                            AS avg_daily_usage_7d
+  FROM daily_usage du
+  CROSS JOIN available_days ad
+  GROUP BY du.CompanyId, ad.day_count
 )
 SELECT
   c.Name                                                                          AS company_name,
