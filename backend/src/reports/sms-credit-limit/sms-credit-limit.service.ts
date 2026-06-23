@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Dataset } from '../../common/entities/dataset.entity';
+import { ExternalDataSource } from '../../common/entities/data-source.entity';
 
 const STAGE        = 'stage_sms_credit_limit';
 const DATASET_NAME = 'SMS Credit Limit';
@@ -86,6 +87,8 @@ export class SmsCreditLimitService implements OnModuleInit {
     private readonly dataSource: DataSource,
     @InjectRepository(Dataset)
     private readonly datasetRepo: Repository<Dataset>,
+    @InjectRepository(ExternalDataSource)
+    private readonly dsRepo: Repository<ExternalDataSource>,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -114,13 +117,19 @@ export class SmsCreditLimitService implements OnModuleInit {
       return;
     }
 
+    const asmsc = await this.dsRepo.findOne({ where: { name: 'ASMSC' } });
+    if (!asmsc) {
+      this.logger.warn('ASMSC datasource not found — SMS Credit Limit dataset not seeded');
+      return;
+    }
+
     this.logger.log('Seeding SMS Credit Limit dataset…');
     const saved = await this.datasetRepo.save(
       this.datasetRepo.create({
         name:           DATASET_NAME,
         description:    'Active SMS client credit balances with 7-day average daily usage from ASMSC.',
         sourceDb:       'mssql',
-        dataSourceId:   '3c04e78b-4b91-4d24-b51b-9744ab7cc699',
+        dataSourceId:   asmsc.id,
         sqlQuery:       SEED_SQL,
         stageTableName: STAGE,
         columnMetadata: SEED_COLUMNS as any,
