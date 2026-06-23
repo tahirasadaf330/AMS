@@ -23,7 +23,7 @@ client_stats AS (
   SELECT
     CompanyId,
     SUM(CASE WHEN day = CAST(DATEADD(DAY,-1,GETDATE()) AS DATE) THEN daily_cost ELSE 0 END) AS yesterday_usage,
-    ROUND(AVG(daily_cost), 2)                                                                AS avg_daily_usage_7d
+    ROUND(SUM(daily_cost) / 7.0, 2)                                                         AS avg_daily_usage_7d
   FROM daily_usage
   GROUP BY CompanyId
 )
@@ -31,7 +31,7 @@ SELECT
   c.Name                                                                          AS company_name,
   CONCAT(u.FirstName, ' ', u.LastName)                                           AS account_manager,
   cb.CreditLimit                                                                  AS credit_limit,
-  ROUND(CAST((cb.CreditLimit + cb.Balance) AS FLOAT), 2)                         AS client_balance,
+  ROUND(CAST((cb.CreditLimit - cb.Balance) AS FLOAT), 2)                         AS client_balance,
   ROUND(CAST(cb.Balance AS FLOAT), 2)                                             AS client_usage,
   ROUND(CAST((cb.CreditLimit + cb.Balance + cb.NettingBalance) AS FLOAT), 2)     AS remaining_net_cl,
   CASE
