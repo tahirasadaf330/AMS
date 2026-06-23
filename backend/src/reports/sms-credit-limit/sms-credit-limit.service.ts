@@ -31,8 +31,8 @@ SELECT
   c.Name                                                                          AS company_name,
   CONCAT(u.FirstName, ' ', u.LastName)                                           AS account_manager,
   cb.CreditLimit                                                                  AS credit_limit,
-  ROUND(CAST((cb.CreditLimit + cb.Balance) AS FLOAT), 2)                         AS client_usage,
-  ROUND(CAST(cb.Balance AS FLOAT), 2)                                             AS client_balance,
+  ROUND(CAST((cb.CreditLimit + cb.Balance) AS FLOAT), 2)                         AS client_balance,
+  ROUND(CAST(cb.Balance AS FLOAT), 2)                                             AS client_usage,
   ROUND(CAST((cb.CreditLimit + cb.Balance + cb.NettingBalance) AS FLOAT), 2)     AS remaining_net_cl,
   CASE
     WHEN cb.CreditLimit > 0
