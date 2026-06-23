@@ -72,39 +72,42 @@ export class TeamsWebhookService {
           facts,
         });
       } else {
-        // Build a Table (Adaptive Card v1.5)
-        const headerRow = {
-          type: 'TableRow',
-          cells: columns.map((col) => ({
-            type: 'TableCell',
-            items: [{ type: 'TextBlock', text: col, weight: 'bolder', wrap: true, size: 'small' }],
-          })),
-          style: 'emphasis',
-        };
+        // ColumnSet-based table — fully supported across all Teams webhook versions
+        const maxCols = Math.min(columns.length, 5);
+        const visibleCols = columns.slice(0, maxCols);
 
-        const dataTableRows = displayRows.map((row) => ({
-          type: 'TableRow',
-          cells: columns.map((col) => ({
-            type: 'TableCell',
-            items: [
-              {
-                type: 'TextBlock',
-                text: this.formatValue(row[col]),
-                wrap: true,
-                size: 'small',
-                color: this.getColor(row[col]),
-              },
-            ],
-          })),
-        }));
-
+        // Header row
         bodyItems.push({
-          type: 'Table',
-          columns: columns.map(() => ({ width: 1 })),
-          rows: [headerRow, ...dataTableRows],
-          firstRowAsHeaders: false,
-          showGridLines: true,
+          type: 'ColumnSet',
+          separator: true,
+          columns: visibleCols.map((col, i) => ({
+            type: 'Column',
+            width: i === 0 ? 2 : 1,
+            items: [{ type: 'TextBlock', text: col.replace(/_/g, ' '), weight: 'bolder', size: 'small', wrap: false }],
+          })),
         });
+
+        // Data rows
+        for (const row of displayRows) {
+          bodyItems.push({
+            type: 'ColumnSet',
+            columns: visibleCols.map((col, i) => ({
+              type: 'Column',
+              width: i === 0 ? 2 : 1,
+              items: [{ type: 'TextBlock', text: this.formatValue(row[col]), size: 'small', wrap: false, color: this.getColor(row[col]) }],
+            })),
+          });
+        }
+
+        if (columns.length > maxCols) {
+          bodyItems.push({
+            type: 'TextBlock',
+            text: `(${columns.length - maxCols} more columns not shown — full data sent to email)`,
+            isSubtle: true,
+            size: 'small',
+            wrap: true,
+          });
+        }
       }
     }
 
