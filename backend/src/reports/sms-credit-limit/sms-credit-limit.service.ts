@@ -120,7 +120,7 @@ export class SmsCreditLimitService implements OnModuleInit {
         name:           DATASET_NAME,
         description:    'Active SMS client credit balances with 7-day average daily usage from ASMSC.',
         sourceDb:       'mssql',
-        dataSourceId:   '838f463a-a3aa-4fe3-8ad8-67dcc850dc2e',
+        dataSourceId:   '3c04e78b-4b91-4d24-b51b-9744ab7cc699',
         sqlQuery:       SEED_SQL,
         stageTableName: STAGE,
         columnMetadata: SEED_COLUMNS as any,
