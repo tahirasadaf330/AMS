@@ -986,22 +986,30 @@ export class ZamaniReportService implements OnModuleInit {
     }
   }
 
+  private safeNum(val: any, fallback = 0): number {
+    const n = Number(val ?? fallback);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
   private async getCumulativeRevenue(upToDate: string): Promise<number> {
     if (!(await this.stageExists())) return 0;
     const [row] = await this.dataSource.query(
-      `SELECT ROUND(COALESCE(SUM(revenue), 0)::numeric, 2) AS total
+      `SELECT ROUND(
+         COALESCE(SUM(revenue) FILTER (WHERE revenue IS NOT NULL AND revenue::text != 'NaN'), 0)::numeric,
+         2
+       ) AS total
        FROM ${STAGE}
        WHERE receiveddate::date <= $1::date`,
       [upToDate],
     );
-    return Number(row?.total ?? 0);
+    return this.safeNum(row?.total);
   }
 
   private async getTrailingDailyAvg(endDate: string, days: number): Promise<number | null> {
     if (!(await this.stageExists())) return null;
     const [row] = await this.dataSource.query(
       `SELECT ROUND(
-         COALESCE(SUM(revenue), 0)::numeric /
+         COALESCE(SUM(revenue) FILTER (WHERE revenue IS NOT NULL AND revenue::text != 'NaN'), 0)::numeric /
          GREATEST(COUNT(DISTINCT receiveddate::date), 1),
          2
        ) AS avg
@@ -1010,7 +1018,9 @@ export class ZamaniReportService implements OnModuleInit {
          AND receiveddate::date <= $1::date`,
       [endDate, days],
     );
-    return row?.avg != null ? Number(row.avg) : null;
+    if (row?.avg == null) return null;
+    const n = Number(row.avg);
+    return Number.isFinite(n) ? n : null;
   }
 
   private async runWeekForDate(weekEnding: Date, trailingDays: number): Promise<void> {

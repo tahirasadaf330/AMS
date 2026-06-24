@@ -1370,13 +1370,13 @@ const TABS: { id: Tab; l: string }[] = [
                           {/* KPI strip */}
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 12, padding: '16px 18px' }}>
                             {[
-                              { label: 'Total Investment',     value: fD(546_000),                                                                        color: '#64748b' },
-                              { label: 'Recovered to Date',    value: irData ? fD(irData.kpi.recoveredToDate) : '—',                                      color: '#60a5fa' },
-                              { label: '% Recovered',          value: irData ? `${Number(irData.kpi.pctRecovered).toFixed(1)}%` : '—',                    color: '#34d399' },
-                              { label: 'Remaining to Recover', value: irData ? fD(irData.kpi.remainingToRecover) : '—',                                   color: '#f87171' },
-                              { label: 'Trailing Daily Avg',   value: irData?.kpi?.trailingDailyAvg != null ? fD(irData.kpi.trailingDailyAvg) : '—',     color: '#a78bfa' },
-                              { label: 'Est. Days to Recover', value: irData?.kpi?.daysToRecover != null ? String(irData.kpi.daysToRecover) : 'N/A',     color: '#fb923c' },
-                              { label: 'Projected Recovery',   value: irData?.kpi?.projectedDate ? fDate(irData.kpi.projectedDate) : 'N/A',               color: '#fbbf24' },
+                              { label: 'Total Investment',     value: fD(546_000),                                                                                                         color: '#64748b' },
+                              { label: 'Recovered to Date',    value: irData?.kpi?.recoveredToDate   != null ? fD(Number(irData.kpi.recoveredToDate))    : '—',                           color: '#60a5fa' },
+                              { label: '% Recovered',          value: irData?.kpi?.pctRecovered      != null ? `${Number(irData.kpi.pctRecovered).toFixed(1)}%` : '—',                    color: '#34d399' },
+                              { label: 'Remaining to Recover', value: irData?.kpi?.remainingToRecover != null ? fD(Number(irData.kpi.remainingToRecover)) : '—',                          color: '#f87171' },
+                              { label: 'Trailing Daily Avg',   value: irData?.kpi?.trailingDailyAvg  != null ? fD(Number(irData.kpi.trailingDailyAvg))  : '—',                           color: '#a78bfa' },
+                              { label: 'Est. Days to Recover', value: irData?.kpi?.daysToRecover     != null ? String(irData.kpi.daysToRecover)         : 'N/A',                         color: '#fb923c' },
+                              { label: 'Projected Recovery',   value: irData?.kpi?.projectedDate          ? fDate(irData.kpi.projectedDate)              : 'N/A',                         color: '#fbbf24' },
                             ].map(c => (
                               <div key={c.label} className="zdcard" style={{ flex: '1 1 140px' }}>
                                 <div className="dlbl">{c.label}</div>
@@ -1386,7 +1386,7 @@ const TABS: { id: Tab; l: string }[] = [
                           </div>
 
                           {/* Period snapshot table */}
-                          {irData && (
+                          {irData?.thisWeek && (
                             <div style={{ padding: '0 18px 20px' }}>
                               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--mu)', marginBottom: 10 }}>
                                 Period Snapshot
