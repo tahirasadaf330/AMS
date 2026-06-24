@@ -3,8 +3,8 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Dataset } from '../../common/entities/dataset.entity';
 
-const STAGE        = 'stage_prepayment_cl';
-const DATASET_NAME = 'Pre-Payment CL';
+const STAGE        = 'stage_prepayment_jerasoft';
+const DATASET_NAME = 'Pre-Payment Limit';
 
 @Injectable()
 export class PrepaymentClService implements OnModuleInit {
