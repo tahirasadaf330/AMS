@@ -102,7 +102,7 @@ export function NavSidebar() {
               <Clock className="h-5 w-5" />
             </Link>
           )}
-          {(hasReportAccess('zamani') || hasReportAccess('vcs-balance') || hasReportAccess('sms-credit-limit')) && (
+          {(hasReportAccess('zamani') || hasReportAccess('vcs-balance') || hasReportAccess('sms-credit-limit') || hasReportAccess('prepayment-cl')) && (
             <Link href={hasReportAccess('zamani') ? '/reports/zamani-traffic' : hasReportAccess('vcs-balance') ? '/reports/vcs-balance' : '/reports/sms-credit-limit'} className={cn('p-2 rounded-lg hover:bg-gray-700', isActive('/reports') ? 'text-blue-400' : 'text-gray-400')} title="Reports">
               <BarChart2 className="h-5 w-5" />
             </Link>
@@ -257,6 +257,21 @@ export function NavSidebar() {
                 >
                   <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
                   <span>SMS Credit Limit</span>
+                </Link>
+              )}
+              {hasReportAccess('prepayment-cl') && (
+                <Link
+                  href="/reports/prepayment-cl"
+                  className={cn(
+                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
+                    'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
+                    isActive('/reports/prepayment-cl')
+                      ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
+                      : 'text-gray-500 dark:text-gray-400'
+                  )}
+                >
+                  <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>Pre-Payment CL</span>
                 </Link>
               )}
             </div>

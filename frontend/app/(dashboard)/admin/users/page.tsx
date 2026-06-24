@@ -43,6 +43,7 @@ const AVAILABLE_REPORTS = [
   { id: 'zamani', name: 'Zamani Traffic' },
   { id: 'vcs-balance', name: 'Voice Credit Limit' },
   { id: 'sms-credit-limit', name: 'SMS Credit Limit' },
+  { id: 'prepayment-cl', name: 'Pre-Payment CL' },
 ];
 
 interface UserFormData {

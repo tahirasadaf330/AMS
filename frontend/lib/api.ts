@@ -345,6 +345,11 @@ export const smsCreditLimitApi = {
   getData: () => api.get('/reports/sms-credit-limit/data'),
 };
 
+// ── PRE-PAYMENT CL REPORT ─────────────────────────────────────
+export const prepaymentClApi = {
+  getData: () => api.get('/reports/prepayment-cl/data'),
+};
+
 // ── SYSTEM ────────────────────────────────────────────────────
 export const systemApi = {
   health: () =>

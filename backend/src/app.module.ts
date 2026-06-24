@@ -38,6 +38,7 @@ import { SystemModule } from './system/system.module';
 import { ZamaniReportModule } from './reports/zamani/zamani-report.module';
 import { VcsBalanceModule } from './reports/vcs-balance/vcs-balance.module';
 import { SmsCreditLimitModule } from './reports/sms-credit-limit/sms-credit-limit.module';
+import { PrepaymentClModule } from './reports/prepayment-cl/prepayment-cl.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -102,6 +103,7 @@ import { SmsCreditLimitModule } from './reports/sms-credit-limit/sms-credit-limi
     ZamaniReportModule,
     VcsBalanceModule,
     SmsCreditLimitModule,
+    PrepaymentClModule,
   ],
 })
 export class AppModule {}
