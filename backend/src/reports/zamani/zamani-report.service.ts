@@ -1111,6 +1111,24 @@ export class ZamaniReportService implements OnModuleInit {
       projectedDate = proj.toISOString().slice(0, 10);
     }
 
+    // ── "Till last Sunday" snapshot from most-recent tracking row ──
+    const [lastTracking] = await this.dataSource.query(
+      `SELECT week_ending::text, cumulative_revenue, pct_recovered, remaining
+       FROM ${INVESTMENT_TRACKING} ORDER BY week_ending DESC LIMIT 1`,
+    );
+    const lastSundayDate       = lastTracking?.week_ending?.slice(0, 10) ?? null;
+    const lastSundayCumulative = lastTracking ? Number(lastTracking.cumulative_revenue) : 0;
+    const lastSundayPct        = lastTracking ? Number(lastTracking.pct_recovered)      : 0;
+    const lastSundayRemaining  = lastTracking ? Number(lastTracking.remaining)          : TOTAL_INVESTMENT;
+    const thisWeekRevenue      = Math.round((cumulativeRevenue - lastSundayCumulative) * 100) / 100;
+
+    let weekStart: string | null = null;
+    if (lastSundayDate) {
+      const d = new Date(lastSundayDate + 'T00:00:00Z');
+      d.setUTCDate(d.getUTCDate() + 1);
+      weekStart = d.toISOString().slice(0, 10);
+    }
+
     const weeklyRows = await this.dataSource.query(
       `SELECT
          week_ending::text,
@@ -1128,6 +1146,15 @@ export class ZamaniReportService implements OnModuleInit {
     return {
       totalInvestment: TOTAL_INVESTMENT,
       trailingDays,
+      thisWeek: {
+        lastSundayDate,
+        weekStart,
+        todayDate:           today,
+        revenueThisWeek:     thisWeekRevenue,
+        lastSundayCumulative,
+        lastSundayPct,
+        lastSundayRemaining,
+      },
       kpi: {
         totalInvestment:    TOTAL_INVESTMENT,
         recoveredToDate:    cumulativeRevenue,

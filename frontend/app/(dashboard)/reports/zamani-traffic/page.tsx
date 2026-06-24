@@ -1385,6 +1385,49 @@ const TABS: { id: Tab; l: string }[] = [
                             ))}
                           </div>
 
+                          {/* Period snapshot table */}
+                          {irData && (
+                            <div style={{ padding: '0 18px 20px' }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--mu)', marginBottom: 10 }}>
+                                Period Snapshot
+                              </div>
+                              <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
+                                <table className="zt">
+                                  <thead>
+                                    <tr>
+                                      <th style={{ textAlign: 'left', minWidth: 220 }}>Period</th>
+                                      <th style={{ textAlign: 'right' }}>Revenue</th>
+                                      <th style={{ textAlign: 'right' }}>Running Total</th>
+                                      <th style={{ textAlign: 'right' }}>% Recovered</th>
+                                      <th style={{ textAlign: 'right' }}>Remaining</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    <tr>
+                                      <td style={{ fontWeight: 600 }}>
+                                        Till Last Sunday{irData.thisWeek.lastSundayDate ? ` (${fDate(irData.thisWeek.lastSundayDate)})` : ''}
+                                      </td>
+                                      <td>{fD(irData.thisWeek.lastSundayCumulative)}</td>
+                                      <td>{fD(irData.thisWeek.lastSundayCumulative)}</td>
+                                      <td style={{ color: '#fbbf24' }}>{Number(irData.thisWeek.lastSundayPct).toFixed(2)}%</td>
+                                      <td style={{ color: '#f87171' }}>{fD(irData.thisWeek.lastSundayRemaining)}</td>
+                                    </tr>
+                                    <tr style={{ background: 'rgba(26,188,156,0.07)' }}>
+                                      <td style={{ fontWeight: 600 }}>
+                                        This Week So Far
+                                        {irData.thisWeek.weekStart ? ` (${fDate(irData.thisWeek.weekStart)} – ${fDate(irData.thisWeek.todayDate)})` : ''}
+                                      </td>
+                                      <td style={{ color: '#34d399', fontWeight: 700 }}>+{fD(irData.thisWeek.revenueThisWeek)}</td>
+                                      <td style={{ fontWeight: 700 }}>{fD(irData.kpi.recoveredToDate)}</td>
+                                      <td style={{ color: '#34d399', fontWeight: 700 }}>{Number(irData.kpi.pctRecovered).toFixed(2)}%</td>
+                                      <td style={{ color: '#f87171', fontWeight: 700 }}>{fD(irData.kpi.remainingToRecover)}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
                           {/* Weekly tracking table */}
                           <div>
                             <div style={{ padding: '4px 18px 10px', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--mu)' }}>
