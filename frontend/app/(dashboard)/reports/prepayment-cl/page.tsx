@@ -261,14 +261,6 @@ export default function PrepaymentClPage() {
           )}
         </div>
 
-        {/* KPI cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 14, flexShrink: 0 }}>
-          <Kpi color="kt" label="Total Clients"     value={String(totalClients)}  icon={IC.users} />
-          <Kpi color="kb" label="Total Balance"     value={`$${Number(totalBalance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={IC.wallet} />
-          <Kpi color="kc" label="At Risk (≤ 7 days)"   value={String(clientsAtRisk)}   sub="balance runs out within 7 days" icon={IC.clock} />
-          <Kpi color="kr" label="Critical (≤ 2 days)"  value={String(clientsCritical)} sub="balance runs out within 2 days" icon={IC.alert} />
-        </div>
-
         {/* Error banner */}
         {error && (
           <div className="zalert" style={{ flexShrink: 0, marginBottom: 12 }}>
