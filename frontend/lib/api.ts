@@ -333,6 +333,8 @@ export const zamaniApi = {
     api.get<Array<{ month_label: string; year: number; month_num: number; revenue: number; cost: number }>>(
       '/reports/zamani/cost-vs-revenue',
     ),
+  getInvestmentRecovery: (trailingDays = 7) =>
+    api.get('/reports/zamani/investment-recovery', { params: { trailingDays } }),
 };
 
 // ── VCS BALANCE REPORT ────────────────────────────────────────

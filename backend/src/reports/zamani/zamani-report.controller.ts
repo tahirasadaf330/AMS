@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, UseGuards, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ReportAccessGuard } from '../../common/guards/report-access.guard';
 import { ReportAccess } from '../../common/decorators/report-access.decorator';
@@ -76,5 +76,19 @@ export class ZamaniReportController {
   @Post('targets')
   upsertTarget(@Body() dto: { year: number; month: number; messages_target: number; revenue_target: number }) {
     return this.zamaniService.upsertTarget(dto);
+  }
+
+  @Get('investment-recovery')
+  getInvestmentRecovery(
+    @Query('trailingDays', new DefaultValuePipe(7), ParseIntPipe) trailingDays: number,
+  ) {
+    return this.zamaniService.getInvestmentRecovery(trailingDays);
+  }
+
+  @Post('investment-recovery/run')
+  runWeeklyTracking(
+    @Query('trailingDays', new DefaultValuePipe(7), ParseIntPipe) trailingDays: number,
+  ) {
+    return this.zamaniService.runWeeklyTracking(trailingDays);
   }
 }

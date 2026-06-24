@@ -1,12 +1,15 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { Cron } from '@nestjs/schedule';
 import { Dataset } from '../../common/entities/dataset.entity';
 import { ExternalDataSource } from '../../common/entities/data-source.entity';
 import { CredentialsService } from '../../credentials/credentials.service';
 
-const STAGE   = 'zamani_traffic';
-const TARGETS = 'zamani_targets';
+const STAGE              = 'zamani_traffic';
+const TARGETS            = 'zamani_targets';
+const INVESTMENT_TRACKING = 'zamani_investment_tracking';
+const TOTAL_INVESTMENT    = 546_000;
 
 const ASMSC_DATASOURCE_NAME = 'ASMSC';
 const DATASET_NAME          = 'Zamani Traffic';
@@ -201,6 +204,7 @@ export class ZamaniReportService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await this.ensureTargetsTable();
+    await this.ensureInvestmentTrackingTable();
     await this.seedZamaniDataset();
   }
 
@@ -955,5 +959,194 @@ export class ZamaniReportService implements OnModuleInit {
       [dto.year, dto.month, dto.messages_target, dto.revenue_target],
     );
     return { success: true };
+  }
+
+  // ── Investment Recovery ───────────────────────────────────────
+
+  private async ensureInvestmentTrackingTable(): Promise<void> {
+    try {
+      await this.dataSource.query(`
+        CREATE TABLE IF NOT EXISTS ${INVESTMENT_TRACKING} (
+          id                   SERIAL PRIMARY KEY,
+          week_ending          DATE NOT NULL,
+          cumulative_revenue   NUMERIC(18,2) NOT NULL,
+          pct_recovered        NUMERIC(8,4)  NOT NULL,
+          remaining            NUMERIC(18,2) NOT NULL,
+          trailing_daily_avg   NUMERIC(18,2),
+          days_left            INTEGER,
+          delta_days_left      INTEGER,
+          projected_recovery   DATE,
+          trailing_window_days INTEGER NOT NULL DEFAULT 7,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT zamani_inv_week_uq UNIQUE (week_ending)
+        )
+      `);
+    } catch (err) {
+      this.logger.error('Failed to ensure investment tracking table', err);
+    }
+  }
+
+  private async getCumulativeRevenue(upToDate: string): Promise<number> {
+    if (!(await this.stageExists())) return 0;
+    const [row] = await this.dataSource.query(
+      `SELECT ROUND(COALESCE(SUM(revenue), 0)::numeric, 2) AS total
+       FROM ${STAGE}
+       WHERE receiveddate::date <= $1::date`,
+      [upToDate],
+    );
+    return Number(row?.total ?? 0);
+  }
+
+  private async getTrailingDailyAvg(endDate: string, days: number): Promise<number | null> {
+    if (!(await this.stageExists())) return null;
+    const [row] = await this.dataSource.query(
+      `SELECT ROUND(
+         COALESCE(SUM(revenue), 0)::numeric /
+         GREATEST(COUNT(DISTINCT receiveddate::date), 1),
+         2
+       ) AS avg
+       FROM ${STAGE}
+       WHERE receiveddate::date >= ($1::date - ($2::int - 1))
+         AND receiveddate::date <= $1::date`,
+      [endDate, days],
+    );
+    return row?.avg != null ? Number(row.avg) : null;
+  }
+
+  private async runWeekForDate(weekEnding: Date, trailingDays: number): Promise<void> {
+    const weekEndStr   = weekEnding.toISOString().slice(0, 10);
+    const cumRevenue   = await this.getCumulativeRevenue(weekEndStr);
+    const pctRecovered = TOTAL_INVESTMENT > 0 ? (cumRevenue / TOTAL_INVESTMENT) * 100 : 0;
+    const remaining    = TOTAL_INVESTMENT - cumRevenue;
+    const trailingAvg  = await this.getTrailingDailyAvg(weekEndStr, trailingDays);
+
+    let daysLeft: number | null = null;
+    let projectedRecovery: string | null = null;
+    if (remaining <= 0) {
+      daysLeft = 0;
+      projectedRecovery = weekEndStr;
+    } else if (trailingAvg != null && trailingAvg > 0) {
+      daysLeft = Math.ceil(remaining / trailingAvg);
+      const projDate = new Date(weekEnding);
+      projDate.setDate(projDate.getDate() + daysLeft);
+      projectedRecovery = projDate.toISOString().slice(0, 10);
+    }
+
+    const [prevRow] = await this.dataSource.query(
+      `SELECT days_left FROM ${INVESTMENT_TRACKING} WHERE week_ending < $1 ORDER BY week_ending DESC LIMIT 1`,
+      [weekEndStr],
+    );
+    const deltaDaysLeft =
+      prevRow != null && daysLeft != null && prevRow.days_left != null
+        ? daysLeft - Number(prevRow.days_left)
+        : null;
+
+    await this.dataSource.query(
+      `INSERT INTO ${INVESTMENT_TRACKING}
+         (week_ending, cumulative_revenue, pct_recovered, remaining, trailing_daily_avg, days_left, delta_days_left, projected_recovery, trailing_window_days)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::date, $9)
+       ON CONFLICT (week_ending) DO NOTHING`,
+      [weekEndStr, cumRevenue, pctRecovered, remaining, trailingAvg, daysLeft, deltaDaysLeft, projectedRecovery, trailingDays],
+    );
+  }
+
+  @Cron('0 6 * * 1')
+  async runWeeklyTracking(trailingDays = 7): Promise<void> {
+    if (!(await this.stageExists())) return;
+    await this.ensureInvestmentTrackingTable();
+
+    const today      = new Date();
+    const dayOfWeek  = today.getDay();
+    const lastSunday = new Date(today);
+    lastSunday.setDate(today.getDate() - dayOfWeek);
+    lastSunday.setHours(0, 0, 0, 0);
+
+    const [firstRow] = await this.dataSource.query(
+      `SELECT MIN(receiveddate::date)::text AS first_date FROM ${STAGE}`,
+    );
+    if (!firstRow?.first_date) return;
+
+    const firstDate        = new Date(firstRow.first_date + 'T00:00:00Z');
+    const daysUntilSunday  = (7 - firstDate.getUTCDay()) % 7;
+    const firstSunday      = new Date(firstDate);
+    firstSunday.setUTCDate(firstDate.getUTCDate() + daysUntilSunday);
+
+    const existing: { week_ending: string }[] = await this.dataSource.query(
+      `SELECT week_ending::text FROM ${INVESTMENT_TRACKING}`,
+    );
+    const existingSet = new Set(existing.map((r) => r.week_ending.slice(0, 10)));
+
+    const cursor = new Date(firstSunday);
+    while (cursor <= lastSunday) {
+      const dateStr = cursor.toISOString().slice(0, 10);
+      if (!existingSet.has(dateStr)) {
+        await this.runWeekForDate(new Date(cursor), trailingDays);
+      }
+      cursor.setDate(cursor.getDate() + 7);
+    }
+    this.logger.log(`Investment recovery tracking updated through ${lastSunday.toISOString().slice(0, 10)}`);
+  }
+
+  async getInvestmentRecovery(trailingDays = 7): Promise<any> {
+    await this.ensureInvestmentTrackingTable();
+    if (await this.stageExists()) {
+      await this.runWeeklyTracking(trailingDays);
+    }
+
+    const today            = new Date().toISOString().slice(0, 10);
+    const cumulativeRevenue = await this.getCumulativeRevenue(today);
+    const pctRecovered      = (cumulativeRevenue / TOTAL_INVESTMENT) * 100;
+    const remaining         = TOTAL_INVESTMENT - cumulativeRevenue;
+    const trailingAvg       = await this.getTrailingDailyAvg(today, trailingDays);
+
+    let daysToRecover: number | null = null;
+    let projectedDate: string | null = null;
+    if (remaining <= 0) {
+      daysToRecover = 0;
+      projectedDate = today;
+    } else if (trailingAvg != null && trailingAvg > 0) {
+      daysToRecover = Math.ceil(remaining / trailingAvg);
+      const proj = new Date();
+      proj.setDate(proj.getDate() + daysToRecover);
+      projectedDate = proj.toISOString().slice(0, 10);
+    }
+
+    const weeklyRows = await this.dataSource.query(
+      `SELECT
+         week_ending::text,
+         cumulative_revenue,
+         pct_recovered,
+         remaining,
+         trailing_daily_avg,
+         days_left,
+         delta_days_left,
+         projected_recovery::text
+       FROM ${INVESTMENT_TRACKING}
+       ORDER BY week_ending ASC`,
+    );
+
+    return {
+      totalInvestment: TOTAL_INVESTMENT,
+      trailingDays,
+      kpi: {
+        totalInvestment:    TOTAL_INVESTMENT,
+        recoveredToDate:    cumulativeRevenue,
+        pctRecovered:       Math.round(pctRecovered * 100) / 100,
+        remainingToRecover: remaining,
+        trailingDailyAvg:   trailingAvg,
+        daysToRecover,
+        projectedDate,
+      },
+      weeklyTracking: weeklyRows.map((r: any) => ({
+        weekEnding:        r.week_ending?.slice(0, 10) ?? null,
+        cumulativeRevenue: Number(r.cumulative_revenue),
+        pctRecovered:      Number(r.pct_recovered),
+        remaining:         Number(r.remaining),
+        trailingDailyAvg:  r.trailing_daily_avg != null ? Number(r.trailing_daily_avg) : null,
+        daysLeft:          r.days_left != null ? Number(r.days_left) : null,
+        deltaDaysLeft:     r.delta_days_left != null ? Number(r.delta_days_left) : null,
+        projectedRecovery: r.projected_recovery?.slice(0, 10) ?? null,
+      })),
+    };
   }
 }
