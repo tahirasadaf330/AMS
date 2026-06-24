@@ -1090,7 +1090,11 @@ export class ZamaniReportService implements OnModuleInit {
     while (cursor <= lastSunday) {
       const dateStr = cursor.toISOString().slice(0, 10);
       if (!existingSet.has(dateStr)) {
-        await this.runWeekForDate(new Date(cursor), trailingDays);
+        try {
+          await this.runWeekForDate(new Date(cursor), trailingDays);
+        } catch (err) {
+          this.logger.error(`runWeekForDate failed for ${dateStr}`, err);
+        }
       }
       cursor.setDate(cursor.getDate() + 7);
     }
@@ -1100,7 +1104,11 @@ export class ZamaniReportService implements OnModuleInit {
   async getInvestmentRecovery(trailingDays = 7): Promise<any> {
     await this.ensureInvestmentTrackingTable();
     if (await this.stageExists()) {
-      await this.runWeeklyTracking(trailingDays);
+      try {
+        await this.runWeeklyTracking(trailingDays);
+      } catch (err) {
+        this.logger.error('runWeeklyTracking failed inside getInvestmentRecovery', err);
+      }
     }
 
     const today            = new Date().toISOString().slice(0, 10);
