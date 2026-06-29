@@ -370,6 +370,8 @@ export default function ZamaniTrafficPage() {
   const [irData, setIrData]   = React.useState<any>(null);
   const [irLoad, setIrLoad]   = React.useState(false);
   const [irError, setIrError] = React.useState(false);
+  const [irPage, setIrPage]   = React.useState(0);
+  const IR_PAGE_SIZE = 10;
 
   React.useEffect(() => {
     zamaniApi.getFilters().then(r => {
@@ -429,7 +431,7 @@ export default function ZamaniTrafficPage() {
     setIrError(false);
     setIrLoad(true);
     zamaniApi.getInvestmentRecovery()
-      .then(r => setIrData(r.data))
+      .then(r => { setIrData(r.data); setIrPage(0); })
       .catch(err => { console.error(err); setIrError(true); })
       .finally(() => setIrLoad(false));
   }, [tab, refreshTick]);
@@ -1468,49 +1470,72 @@ const TABS: { id: Tab; l: string }[] = [
                       <div style={{ padding: '16px 18px 20px', color: 'var(--mu)', fontSize: 13 }}>
                         No weekly data yet — will populate on first Monday cron run.
                       </div>
-                    ) : (
-                      <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
-                        <table className="zt">
-                          <thead>
-                            <tr>
-                              <th style={{ textAlign: 'left', minWidth: 110 }}>Week Ending</th>
-                              <th style={{ textAlign: 'right' }}>Revenue of Week</th>
-                              <th style={{ textAlign: 'right' }}>Cumulative Revenue</th>
-                              <th style={{ textAlign: 'right' }}>% Recovered</th>
-                              <th style={{ textAlign: 'right' }}>Remaining</th>
-                              <th style={{ textAlign: 'right' }}>Trailing Daily Avg</th>
-                              <th style={{ textAlign: 'right' }}>Days Left</th>
-                              <th style={{ textAlign: 'right' }}>Δ Days (WoW)</th>
-                              <th style={{ textAlign: 'right' }}>Projected Recovery</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {irData.weekly_tracking.map((w: any, i: number) => {
-                              const we = new Date(w.week_ending + 'T00:00:00');
-                              const ws = new Date(we); ws.setDate(we.getDate() - 6);
-                              const weekLabel = `${fDate(ws.toISOString().slice(0, 10))} – ${fDate(w.week_ending)}`;
-                              return (
-                              <tr key={i}>
-                                <td style={{ fontWeight: 600 }}>{weekLabel}</td>
-                                <td style={{ color: '#34d399' }}>{w.weekly_revenue != null ? fD(w.weekly_revenue) : '—'}</td>
-                                <td>{fD(w.cumulative_revenue)}</td>
-                                <td style={{ color: w.pct_recovered >= 100 ? '#4ade80' : w.pct_recovered >= 50 ? '#fbbf24' : '#f87171' }}>
-                                  {Number(w.pct_recovered).toFixed(1)}%
-                                </td>
-                                <td style={{ color: '#f87171' }}>{fD(w.remaining)}</td>
-                                <td>{w.trailing_daily_avg != null ? fD(w.trailing_daily_avg) : '—'}</td>
-                                <td>{w.days_left != null ? w.days_left.toLocaleString() : 'N/A'}</td>
-                                <td style={{ color: w.delta_days_left == null ? 'var(--mu)' : w.delta_days_left < 0 ? '#4ade80' : w.delta_days_left > 0 ? '#f87171' : 'var(--inks)' }}>
-                                  {w.delta_days_left == null ? '—' : w.delta_days_left === 0 ? '0' : w.delta_days_left > 0 ? `+${w.delta_days_left}` : String(w.delta_days_left)}
-                                </td>
-                                <td>{w.projected_recovery ? fDate(w.projected_recovery) : 'N/A'}</td>
-                              </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
+                    ) : (() => {
+                      const allRows   = irData.weekly_tracking;
+                      const totalRows = allRows.length;
+                      const totalPages = Math.ceil(totalRows / IR_PAGE_SIZE);
+                      const pageRows  = allRows.slice(irPage * IR_PAGE_SIZE, (irPage + 1) * IR_PAGE_SIZE);
+                      return (
+                        <>
+                          <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
+                            <table className="zt">
+                              <thead>
+                                <tr>
+                                  <th style={{ textAlign: 'left', minWidth: 110 }}>Week Ending</th>
+                                  <th style={{ textAlign: 'right' }}>Revenue of Week</th>
+                                  <th style={{ textAlign: 'right' }}>Cumulative Revenue</th>
+                                  <th style={{ textAlign: 'right' }}>% Recovered</th>
+                                  <th style={{ textAlign: 'right' }}>Remaining</th>
+                                  <th style={{ textAlign: 'right' }}>Trailing Daily Avg</th>
+                                  <th style={{ textAlign: 'right' }}>Days Left</th>
+                                  <th style={{ textAlign: 'right' }}>Δ Days (WoW)</th>
+                                  <th style={{ textAlign: 'right' }}>Projected Recovery</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {pageRows.map((w: any, i: number) => {
+                                  const we = new Date(w.week_ending + 'T00:00:00');
+                                  const ws = new Date(we); ws.setDate(we.getDate() - 6);
+                                  const weekLabel = `${fDate(ws.toISOString().slice(0, 10))} – ${fDate(w.week_ending)}`;
+                                  return (
+                                    <tr key={i}>
+                                      <td style={{ fontWeight: 600 }}>{weekLabel}</td>
+                                      <td style={{ color: '#34d399' }}>{w.weekly_revenue != null ? fD(w.weekly_revenue) : '—'}</td>
+                                      <td>{fD(w.cumulative_revenue)}</td>
+                                      <td style={{ color: w.pct_recovered >= 100 ? '#4ade80' : w.pct_recovered >= 50 ? '#fbbf24' : '#f87171' }}>
+                                        {Number(w.pct_recovered).toFixed(1)}%
+                                      </td>
+                                      <td style={{ color: '#f87171' }}>{fD(w.remaining)}</td>
+                                      <td>{w.trailing_daily_avg != null ? fD(w.trailing_daily_avg) : '—'}</td>
+                                      <td>{w.days_left != null ? w.days_left.toLocaleString() : 'N/A'}</td>
+                                      <td style={{ color: w.delta_days_left == null ? 'var(--mu)' : w.delta_days_left < 0 ? '#4ade80' : w.delta_days_left > 0 ? '#f87171' : 'var(--inks)' }}>
+                                        {w.delta_days_left == null ? '—' : w.delta_days_left === 0 ? '0' : w.delta_days_left > 0 ? `+${w.delta_days_left}` : String(w.delta_days_left)}
+                                      </td>
+                                      <td>{w.projected_recovery ? fDate(w.projected_recovery) : 'N/A'}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                          {totalPages > 1 && (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, padding: '10px 18px 16px', fontSize: 12, color: 'var(--mu)' }}>
+                              <span>{irPage * IR_PAGE_SIZE + 1}–{Math.min((irPage + 1) * IR_PAGE_SIZE, totalRows)} of {totalRows}</span>
+                              <button
+                                onClick={() => setIrPage(p => p - 1)}
+                                disabled={irPage === 0}
+                                style={{ cursor: irPage === 0 ? 'default' : 'pointer', padding: '4px 10px', background: 'var(--card)', border: '1px solid var(--brd)', borderRadius: 5, color: irPage === 0 ? 'var(--mu)' : 'var(--inks)', fontSize: 12 }}
+                              >← Prev</button>
+                              <button
+                                onClick={() => setIrPage(p => p + 1)}
+                                disabled={irPage >= totalPages - 1}
+                                style={{ cursor: irPage >= totalPages - 1 ? 'default' : 'pointer', padding: '4px 10px', background: 'var(--card)', border: '1px solid var(--brd)', borderRadius: 5, color: irPage >= totalPages - 1 ? 'var(--mu)' : 'var(--inks)', fontSize: 12 }}
+                              >Next →</button>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </>
               )}
