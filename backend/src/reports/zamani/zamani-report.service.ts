@@ -1142,7 +1142,7 @@ export class ZamaniReportService implements OnModuleInit {
       const today = new Date().toISOString().slice(0, 10);
       this.logger.log(`[IR] today=${today}`);
 
-      // Anchor on MAX data date so KPI totals match Cost vs Revenue
+      // Use MAX data date for trailing avg (needs a date anchor)
       const [maxRow] = await this.dataSource.query(
         `SELECT COALESCE(MAX(receiveddate::date)::text, $1) AS max_date FROM ${STAGE}`,
         [today],
@@ -1150,8 +1150,12 @@ export class ZamaniReportService implements OnModuleInit {
       const maxDate: string = (maxRow?.max_date ?? today).slice(0, 10);
       this.logger.log(`[IR] maxDate=${maxDate}`);
 
-      this.logger.log('[IR] getCumulativeRevenue');
-      const cumulativeRevenue = await this.getCumulativeRevenue(maxDate);
+      // Sum ALL revenue with no date filter — matches Cost vs Revenue "Total Revenue" exactly
+      this.logger.log('[IR] getTotalRevenue');
+      const [totRow] = await this.dataSource.query(
+        `SELECT ROUND(COALESCE(SUM(revenue) FILTER (WHERE revenue IS NOT NULL AND revenue::text != 'NaN'), 0)::numeric, 2) AS total FROM ${STAGE}`,
+      );
+      const cumulativeRevenue = this.safeNum(totRow?.total);
       this.logger.log(`[IR] cumulativeRevenue=${cumulativeRevenue}`);
 
       this.logger.log('[IR] getTrailingDailyAvg');
