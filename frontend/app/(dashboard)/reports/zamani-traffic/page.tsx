@@ -287,7 +287,7 @@ const AX  = { tick: { fontSize: 10, fill: 'var(--mu)' }, axisLine: false, tickLi
 /* ═══════════════════════════════════════════════════════════
    PAGE
 ════════════════════════════════════════════════════════════ */
-type Tab = 'yesterday' | 'comparison' | 'mtd' | 'projections' | 'cost-revenue';
+type Tab = 'yesterday' | 'comparison' | 'mtd' | 'projections' | 'cost-revenue' | 'investment-recovery';
 
 export default function ZamaniTrafficPage() {
   const [tab, setTab]                 = React.useState<Tab>('yesterday');
@@ -421,6 +421,10 @@ export default function ZamaniTrafficPage() {
     if (tab !== 'cost-revenue') return;
     setCrLoad(true);
     zamaniApi.getCostVsRevenue().then(r => setCrData(r.data)).catch(console.error).finally(() => setCrLoad(false));
+  }, [tab, refreshTick]);
+
+  React.useEffect(() => {
+    if (tab !== 'investment-recovery') return;
     setIrLoad(true);
     zamaniApi.getInvestmentRecovery().then(r => setIrData(r.data)).catch(console.error).finally(() => setIrLoad(false));
   }, [tab, refreshTick]);
@@ -478,11 +482,12 @@ const MCFG: Record<Metric, { label: string; color: string; yAxis: 'left' | 'righ
 };
 
 const TABS: { id: Tab; l: string }[] = [
-    { id: 'yesterday',    l: 'Yesterday Data' },
-    { id: 'comparison',   l: 'Comparison' },
-    { id: 'mtd',          l: 'Month to Date' },
-    { id: 'projections',  l: 'Projections' },
-    { id: 'cost-revenue', l: 'Cost Vs Revenue' },
+    { id: 'yesterday',           l: 'Yesterday Data' },
+    { id: 'comparison',          l: 'Comparison' },
+    { id: 'mtd',                 l: 'Month to Date' },
+    { id: 'projections',         l: 'Projections' },
+    { id: 'cost-revenue',        l: 'Cost Vs Revenue' },
+    { id: 'investment-recovery', l: 'Investment Recovery' },
   ];
 
   return (
@@ -1360,125 +1365,129 @@ const TABS: { id: Tab; l: string }[] = [
                     </table>
                   </div>
 
-                  {/* ── Investment Recovery ──────────────────────── */}
-                  <div style={{ marginTop: 28 }}>
-                    <div className="zpnl" style={{ border: '1px solid var(--ln)' }}>
-                      <PH title="Investment Recovery" right={`€${(546_000).toLocaleString()} total · trailing ${irData?.trailingDays ?? 7}d avg`} />
+                </>
+              )}
+            </div>
+          );
+        })()}
 
-                      {irLoad ? <Skel /> : (
-                        <>
-                          {/* KPI strip */}
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 12, padding: '16px 18px' }}>
-                            {[
-                              { label: 'Total Investment',     value: fD(546_000),                                                                                                         color: '#64748b' },
-                              { label: 'Recovered to Date',    value: irData?.kpi?.recoveredToDate   != null ? fD(Number(irData.kpi.recoveredToDate))    : '—',                           color: '#60a5fa' },
-                              { label: '% Recovered',          value: irData?.kpi?.pctRecovered      != null ? `${Number(irData.kpi.pctRecovered).toFixed(1)}%` : '—',                    color: '#34d399' },
-                              { label: 'Remaining to Recover', value: irData?.kpi?.remainingToRecover != null ? fD(Number(irData.kpi.remainingToRecover)) : '—',                          color: '#f87171' },
-                              { label: 'Trailing Daily Avg',   value: irData?.kpi?.trailingDailyAvg  != null ? fD(Number(irData.kpi.trailingDailyAvg))  : '—',                           color: '#a78bfa' },
-                              { label: 'Est. Days to Recover', value: irData?.kpi?.daysToRecover     != null ? String(irData.kpi.daysToRecover)         : 'N/A',                         color: '#fb923c' },
-                              { label: 'Projected Recovery',   value: irData?.kpi?.projectedDate          ? fDate(irData.kpi.projectedDate)              : 'N/A',                         color: '#fbbf24' },
-                            ].map(c => (
-                              <div key={c.label} className="zdcard" style={{ flex: '1 1 140px' }}>
-                                <div className="dlbl">{c.label}</div>
-                                <div style={{ fontSize: 17, fontWeight: 800, color: c.color, fontVariantNumeric: 'tabular-nums', marginTop: 5 }}>{c.value}</div>
-                              </div>
-                            ))}
-                          </div>
+        {tab === 'investment-recovery' && (() => {
+          const fD = (n: number) =>
+            new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(n);
 
-                          {/* Period snapshot table */}
-                          {irData?.thisWeek && (
-                            <div style={{ padding: '0 18px 20px' }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--mu)', marginBottom: 10 }}>
-                                Period Snapshot
-                              </div>
-                              <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
-                                <table className="zt">
-                                  <thead>
-                                    <tr>
-                                      <th style={{ textAlign: 'left', minWidth: 220 }}>Period</th>
-                                      <th style={{ textAlign: 'right' }}>Revenue</th>
-                                      <th style={{ textAlign: 'right' }}>Running Total</th>
-                                      <th style={{ textAlign: 'right' }}>% Recovered</th>
-                                      <th style={{ textAlign: 'right' }}>Remaining</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    <tr>
-                                      <td style={{ fontWeight: 600 }}>
-                                        Till Last Sunday{irData.thisWeek.lastSundayDate ? ` (${fDate(irData.thisWeek.lastSundayDate)})` : ''}
-                                      </td>
-                                      <td>{fD(irData.thisWeek.lastSundayCumulative)}</td>
-                                      <td>{fD(irData.thisWeek.lastSundayCumulative)}</td>
-                                      <td style={{ color: '#fbbf24' }}>{Number(irData.thisWeek.lastSundayPct).toFixed(2)}%</td>
-                                      <td style={{ color: '#f87171' }}>{fD(irData.thisWeek.lastSundayRemaining)}</td>
-                                    </tr>
-                                    <tr style={{ background: 'rgba(26,188,156,0.07)' }}>
-                                      <td style={{ fontWeight: 600 }}>
-                                        This Week So Far
-                                        {irData.thisWeek.weekStart ? ` (${fDate(irData.thisWeek.weekStart)} – ${fDate(irData.thisWeek.todayDate)})` : ''}
-                                      </td>
-                                      <td style={{ color: '#34d399', fontWeight: 700 }}>+{fD(irData.thisWeek.revenueThisWeek)}</td>
-                                      <td style={{ fontWeight: 700 }}>{fD(irData.kpi.recoveredToDate)}</td>
-                                      <td style={{ color: '#34d399', fontWeight: 700 }}>{Number(irData.kpi.pctRecovered).toFixed(2)}%</td>
-                                      <td style={{ color: '#f87171', fontWeight: 700 }}>{fD(irData.kpi.remainingToRecover)}</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          )}
+          return (
+            <div className="zpnl">
+              <PH title="Investment Recovery" right={`€${(546_000).toLocaleString()} total · trailing ${irData?.trailingDays ?? 7}d avg`} />
 
-                          {/* Weekly tracking table */}
-                          <div>
-                            <div style={{ padding: '4px 18px 10px', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--mu)' }}>
-                              Weekly Tracking
-                            </div>
-                            {!irData?.weeklyTracking?.length ? (
-                              <div style={{ padding: '16px 18px 20px', color: 'var(--mu)', fontSize: 13 }}>
-                                No weekly data yet — will populate on first Monday cron run.
-                              </div>
-                            ) : (
-                              <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
-                                <table className="zt">
-                                  <thead>
-                                    <tr>
-                                      <th style={{ textAlign: 'left', minWidth: 110 }}>Week Ending</th>
-                                      <th style={{ textAlign: 'right' }}>Cumulative Revenue</th>
-                                      <th style={{ textAlign: 'right' }}>% Recovered</th>
-                                      <th style={{ textAlign: 'right' }}>Remaining</th>
-                                      <th style={{ textAlign: 'right' }}>Trailing Daily Avg</th>
-                                      <th style={{ textAlign: 'right' }}>Days Left</th>
-                                      <th style={{ textAlign: 'right' }}>Δ Days (WoW)</th>
-                                      <th style={{ textAlign: 'right' }}>Projected Recovery</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {irData.weeklyTracking.map((w: any, i: number) => (
-                                      <tr key={i}>
-                                        <td style={{ fontWeight: 600 }}>{fDate(w.weekEnding)}</td>
-                                        <td>{fD(w.cumulativeRevenue)}</td>
-                                        <td style={{ color: w.pctRecovered >= 100 ? '#4ade80' : w.pctRecovered >= 50 ? '#fbbf24' : '#f87171' }}>
-                                          {Number(w.pctRecovered).toFixed(1)}%
-                                        </td>
-                                        <td style={{ color: '#f87171' }}>{fD(w.remaining)}</td>
-                                        <td>{w.trailingDailyAvg != null ? fD(w.trailingDailyAvg) : '—'}</td>
-                                        <td>{w.daysLeft != null ? w.daysLeft.toLocaleString() : 'N/A'}</td>
-                                        <td style={{ color: w.deltaDaysLeft == null ? 'var(--mu)' : w.deltaDaysLeft < 0 ? '#4ade80' : w.deltaDaysLeft > 0 ? '#f87171' : 'var(--inks)' }}>
-                                          {w.deltaDaysLeft == null ? '—' : w.deltaDaysLeft === 0 ? '0' : w.deltaDaysLeft > 0 ? `+${w.deltaDaysLeft}` : String(w.deltaDaysLeft)}
-                                        </td>
-                                        <td>{w.projectedRecovery ? fDate(w.projectedRecovery) : 'N/A'}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
+              {irLoad ? <Skel /> : (
+                <>
+                  {/* KPI strip */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 12, padding: '16px 18px' }}>
+                    {[
+                      { label: 'Total Investment',     value: fD(546_000),                                                                                                     color: '#64748b' },
+                      { label: 'Recovered to Date',    value: irData?.kpi?.recoveredToDate    != null ? fD(Number(irData.kpi.recoveredToDate))    : '—',                      color: '#60a5fa' },
+                      { label: '% Recovered',          value: irData?.kpi?.pctRecovered       != null ? `${Number(irData.kpi.pctRecovered).toFixed(1)}%` : '—',               color: '#34d399' },
+                      { label: 'Remaining to Recover', value: irData?.kpi?.remainingToRecover != null ? fD(Number(irData.kpi.remainingToRecover)) : '—',                      color: '#f87171' },
+                      { label: 'Trailing Daily Avg',   value: irData?.kpi?.trailingDailyAvg   != null ? fD(Number(irData.kpi.trailingDailyAvg))   : '—',                      color: '#a78bfa' },
+                      { label: 'Est. Days to Recover', value: irData?.kpi?.daysToRecover      != null ? String(irData.kpi.daysToRecover)          : 'N/A',                    color: '#fb923c' },
+                      { label: 'Projected Recovery',   value: irData?.kpi?.projectedDate           ? fDate(irData.kpi.projectedDate)               : 'N/A',                    color: '#fbbf24' },
+                    ].map(c => (
+                      <div key={c.label} className="zdcard" style={{ flex: '1 1 140px' }}>
+                        <div className="dlbl">{c.label}</div>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: c.color, fontVariantNumeric: 'tabular-nums', marginTop: 5 }}>{c.value}</div>
+                      </div>
+                    ))}
                   </div>
 
+                  {/* Period snapshot */}
+                  {irData?.thisWeek && (
+                    <div style={{ padding: '0 18px 20px' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--mu)', marginBottom: 10 }}>
+                        Period Snapshot
+                      </div>
+                      <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
+                        <table className="zt">
+                          <thead>
+                            <tr>
+                              <th style={{ textAlign: 'left', minWidth: 220 }}>Period</th>
+                              <th style={{ textAlign: 'right' }}>Revenue</th>
+                              <th style={{ textAlign: 'right' }}>Running Total</th>
+                              <th style={{ textAlign: 'right' }}>% Recovered</th>
+                              <th style={{ textAlign: 'right' }}>Remaining</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td style={{ fontWeight: 600 }}>
+                                Till Last Sunday{irData.thisWeek.lastSundayDate ? ` (${fDate(irData.thisWeek.lastSundayDate)})` : ''}
+                              </td>
+                              <td>{fD(irData.thisWeek.lastSundayCumulative)}</td>
+                              <td>{fD(irData.thisWeek.lastSundayCumulative)}</td>
+                              <td style={{ color: '#fbbf24' }}>{Number(irData.thisWeek.lastSundayPct).toFixed(2)}%</td>
+                              <td style={{ color: '#f87171' }}>{fD(irData.thisWeek.lastSundayRemaining)}</td>
+                            </tr>
+                            <tr style={{ background: 'rgba(26,188,156,0.07)' }}>
+                              <td style={{ fontWeight: 600 }}>
+                                This Week So Far
+                                {irData.thisWeek.weekStart ? ` (${fDate(irData.thisWeek.weekStart)} – ${fDate(irData.thisWeek.todayDate)})` : ''}
+                              </td>
+                              <td style={{ color: '#34d399', fontWeight: 700 }}>+{fD(irData.thisWeek.revenueThisWeek)}</td>
+                              <td style={{ fontWeight: 700 }}>{fD(irData.kpi.recoveredToDate)}</td>
+                              <td style={{ color: '#34d399', fontWeight: 700 }}>{Number(irData.kpi.pctRecovered).toFixed(2)}%</td>
+                              <td style={{ color: '#f87171', fontWeight: 700 }}>{fD(irData.kpi.remainingToRecover)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Weekly tracking table */}
+                  <div>
+                    <div style={{ padding: '4px 18px 10px', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--mu)' }}>
+                      Weekly Tracking
+                    </div>
+                    {!irData?.weeklyTracking?.length ? (
+                      <div style={{ padding: '16px 18px 20px', color: 'var(--mu)', fontSize: 13 }}>
+                        No weekly data yet — will populate on first Monday cron run.
+                      </div>
+                    ) : (
+                      <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
+                        <table className="zt">
+                          <thead>
+                            <tr>
+                              <th style={{ textAlign: 'left', minWidth: 110 }}>Week Ending</th>
+                              <th style={{ textAlign: 'right' }}>Cumulative Revenue</th>
+                              <th style={{ textAlign: 'right' }}>% Recovered</th>
+                              <th style={{ textAlign: 'right' }}>Remaining</th>
+                              <th style={{ textAlign: 'right' }}>Trailing Daily Avg</th>
+                              <th style={{ textAlign: 'right' }}>Days Left</th>
+                              <th style={{ textAlign: 'right' }}>Δ Days (WoW)</th>
+                              <th style={{ textAlign: 'right' }}>Projected Recovery</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {irData.weeklyTracking.map((w: any, i: number) => (
+                              <tr key={i}>
+                                <td style={{ fontWeight: 600 }}>{fDate(w.weekEnding)}</td>
+                                <td>{fD(w.cumulativeRevenue)}</td>
+                                <td style={{ color: w.pctRecovered >= 100 ? '#4ade80' : w.pctRecovered >= 50 ? '#fbbf24' : '#f87171' }}>
+                                  {Number(w.pctRecovered).toFixed(1)}%
+                                </td>
+                                <td style={{ color: '#f87171' }}>{fD(w.remaining)}</td>
+                                <td>{w.trailingDailyAvg != null ? fD(w.trailingDailyAvg) : '—'}</td>
+                                <td>{w.daysLeft != null ? w.daysLeft.toLocaleString() : 'N/A'}</td>
+                                <td style={{ color: w.deltaDaysLeft == null ? 'var(--mu)' : w.deltaDaysLeft < 0 ? '#4ade80' : w.deltaDaysLeft > 0 ? '#f87171' : 'var(--inks)' }}>
+                                  {w.deltaDaysLeft == null ? '—' : w.deltaDaysLeft === 0 ? '0' : w.deltaDaysLeft > 0 ? `+${w.deltaDaysLeft}` : String(w.deltaDaysLeft)}
+                                </td>
+                                <td>{w.projectedRecovery ? fDate(w.projectedRecovery) : 'N/A'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
             </div>
