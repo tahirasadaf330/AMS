@@ -1174,31 +1174,22 @@ export class ZamaniReportService implements OnModuleInit {
       const cumulativeRevenue = this.safeNum(totRow?.total);
       this.logger.log(`[IR] cumulativeRevenue=${cumulativeRevenue}`);
 
-      this.logger.log('[IR] getTrailingDailyAvg');
-      const trailingAvg = await this.getTrailingDailyAvg(maxDate, trailingDays);
-      this.logger.log(`[IR] trailingAvg=${trailingAvg}`);
-
       const pctRecovered = (cumulativeRevenue / TOTAL_INVESTMENT) * 100;
       const remaining    = TOTAL_INVESTMENT - cumulativeRevenue;
 
-      let daysToRecover: number | null = null;
-      let projectedDate: string | null = null;
-      if (remaining <= 0) {
-        daysToRecover = 0;
-        projectedDate = today;
-      } else if (trailingAvg != null && trailingAvg > 0) {
-        daysToRecover = Math.ceil(remaining / trailingAvg);
-        const proj = new Date();
-        proj.setDate(proj.getDate() + daysToRecover);
-        projectedDate = proj.toISOString().slice(0, 10);
-      }
-
+      // Load latest tracking row — projected date/days/avg come from here so the
+      // KPI card always shows the same projected recovery as the top table row
       this.logger.log('[IR] lastTracking query');
       const [lastTracking] = await this.dataSource.query(
-        `SELECT week_ending::text, cumulative_revenue, pct_recovered, remaining
+        `SELECT week_ending::text, cumulative_revenue, pct_recovered, remaining,
+                trailing_daily_avg, days_left, projected_recovery::text
          FROM ${INVESTMENT_TRACKING} ORDER BY week_ending DESC LIMIT 1`,
       );
       this.logger.log(`[IR] lastTracking=${JSON.stringify(lastTracking)}`);
+
+      const trailingAvg   = lastTracking?.trailing_daily_avg != null ? this.safeNum(lastTracking.trailing_daily_avg) : null;
+      const daysToRecover = lastTracking?.days_left            != null ? Number(lastTracking.days_left) : null;
+      const projectedDate = lastTracking?.projected_recovery?.slice(0, 10) ?? null;
 
       const lastSundayDate       = lastTracking?.week_ending?.slice(0, 10) ?? null;
       const lastSundayCumulative = lastTracking ? this.safeNum(lastTracking.cumulative_revenue) : 0;
