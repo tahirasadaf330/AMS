@@ -367,8 +367,9 @@ export default function ZamaniTrafficPage() {
   const [crLoad, setCrLoad] = React.useState(false);
 
   /* investment recovery */
-  const [irData, setIrData] = React.useState<any>(null);
-  const [irLoad, setIrLoad] = React.useState(false);
+  const [irData, setIrData]   = React.useState<any>(null);
+  const [irLoad, setIrLoad]   = React.useState(false);
+  const [irError, setIrError] = React.useState(false);
 
   React.useEffect(() => {
     zamaniApi.getFilters().then(r => {
@@ -425,8 +426,12 @@ export default function ZamaniTrafficPage() {
 
   React.useEffect(() => {
     if (tab !== 'investment-recovery') return;
+    setIrError(false);
     setIrLoad(true);
-    zamaniApi.getInvestmentRecovery().then(r => setIrData(r.data)).catch(console.error).finally(() => setIrLoad(false));
+    zamaniApi.getInvestmentRecovery()
+      .then(r => setIrData(r.data))
+      .catch(err => { console.error(err); setIrError(true); })
+      .finally(() => setIrLoad(false));
   }, [tab, refreshTick]);
 
   React.useEffect(() => {
@@ -1377,20 +1382,32 @@ const TABS: { id: Tab; l: string }[] = [
 
           return (
             <div className="zpnl">
-              <PH title="Investment Recovery" right={`€${(546_000).toLocaleString()} total · trailing ${irData?.trailingDays ?? 7}d avg`} />
+              <PH title="Investment Recovery" right={`€${(546_000).toLocaleString()} total · trailing ${irData?.trailing_days ?? 7}d avg`} />
 
-              {irLoad ? <Skel /> : (
+              {irLoad ? <Skel /> : irError ? (
+                <div style={{ padding: '40px 18px', textAlign: 'center' }}>
+                  <div style={{ color: 'var(--mu)', fontSize: 14, marginBottom: 14 }}>
+                    Failed to load Investment Recovery data. Your session may have expired.
+                  </div>
+                  <button
+                    onClick={() => setRefreshTick(t => t + 1)}
+                    style={{ cursor: 'pointer', padding: '7px 20px', background: 'var(--turquoise)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13 }}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
                 <>
                   {/* KPI strip */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 12, padding: '16px 18px' }}>
                     {[
-                      { label: 'Total Investment',     value: fD(546_000),                                                                                                     color: '#64748b' },
-                      { label: 'Recovered to Date',    value: irData?.kpi?.recoveredToDate    != null ? fD(Number(irData.kpi.recoveredToDate))    : '—',                      color: '#60a5fa' },
-                      { label: '% Recovered',          value: irData?.kpi?.pctRecovered       != null ? `${Number(irData.kpi.pctRecovered).toFixed(1)}%` : '—',               color: '#34d399' },
-                      { label: 'Remaining to Recover', value: irData?.kpi?.remainingToRecover != null ? fD(Number(irData.kpi.remainingToRecover)) : '—',                      color: '#f87171' },
-                      { label: 'Trailing Daily Avg',   value: irData?.kpi?.trailingDailyAvg   != null ? fD(Number(irData.kpi.trailingDailyAvg))   : '—',                      color: '#a78bfa' },
-                      { label: 'Est. Days to Recover', value: irData?.kpi?.daysToRecover      != null ? String(irData.kpi.daysToRecover)          : 'N/A',                    color: '#fb923c' },
-                      { label: 'Projected Recovery',   value: irData?.kpi?.projectedDate           ? fDate(irData.kpi.projectedDate)               : 'N/A',                    color: '#fbbf24' },
+                      { label: 'Total Investment',     value: fD(546_000),                                                                                                                     color: '#64748b' },
+                      { label: 'Recovered to Date',    value: irData?.kpi?.recovered_to_date    != null ? fD(Number(irData.kpi.recovered_to_date))    : '—',                                  color: '#60a5fa' },
+                      { label: '% Recovered',          value: irData?.kpi?.pct_recovered        != null ? `${Number(irData.kpi.pct_recovered).toFixed(1)}%` : '—',                            color: '#34d399' },
+                      { label: 'Remaining to Recover', value: irData?.kpi?.remaining_to_recover != null ? fD(Number(irData.kpi.remaining_to_recover)) : '—',                                  color: '#f87171' },
+                      { label: 'Trailing Daily Avg',   value: irData?.kpi?.trailing_daily_avg   != null ? fD(Number(irData.kpi.trailing_daily_avg))   : '—',                                  color: '#a78bfa' },
+                      { label: 'Est. Days to Recover', value: irData?.kpi?.days_to_recover      != null ? String(irData.kpi.days_to_recover)          : 'N/A',                                color: '#fb923c' },
+                      { label: 'Projected Recovery',   value: irData?.kpi?.projected_date            ? fDate(irData.kpi.projected_date)               : 'N/A',                                color: '#fbbf24' },
                     ].map(c => (
                       <div key={c.label} className="zdcard" style={{ flex: '1 1 140px' }}>
                         <div className="dlbl">{c.label}</div>
@@ -1400,7 +1417,7 @@ const TABS: { id: Tab; l: string }[] = [
                   </div>
 
                   {/* Period snapshot */}
-                  {irData?.thisWeek && (
+                  {irData?.this_week && (
                     <div style={{ padding: '0 18px 20px' }}>
                       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--mu)', marginBottom: 10 }}>
                         Period Snapshot
@@ -1419,22 +1436,22 @@ const TABS: { id: Tab; l: string }[] = [
                           <tbody>
                             <tr>
                               <td style={{ fontWeight: 600 }}>
-                                Till Last Sunday{irData.thisWeek.lastSundayDate ? ` (${fDate(irData.thisWeek.lastSundayDate)})` : ''}
+                                Till Last Sunday{irData.this_week.last_sunday_date ? ` (${fDate(irData.this_week.last_sunday_date)})` : ''}
                               </td>
-                              <td>{fD(irData.thisWeek.lastSundayCumulative)}</td>
-                              <td>{fD(irData.thisWeek.lastSundayCumulative)}</td>
-                              <td style={{ color: '#fbbf24' }}>{Number(irData.thisWeek.lastSundayPct).toFixed(2)}%</td>
-                              <td style={{ color: '#f87171' }}>{fD(irData.thisWeek.lastSundayRemaining)}</td>
+                              <td>{fD(irData.this_week.last_sunday_cumulative)}</td>
+                              <td>{fD(irData.this_week.last_sunday_cumulative)}</td>
+                              <td style={{ color: '#fbbf24' }}>{Number(irData.this_week.last_sunday_pct).toFixed(2)}%</td>
+                              <td style={{ color: '#f87171' }}>{fD(irData.this_week.last_sunday_remaining)}</td>
                             </tr>
                             <tr style={{ background: 'rgba(26,188,156,0.07)' }}>
                               <td style={{ fontWeight: 600 }}>
                                 This Week So Far
-                                {irData.thisWeek.weekStart ? ` (${fDate(irData.thisWeek.weekStart)} – ${fDate(irData.thisWeek.todayDate)})` : ''}
+                                {irData.this_week.week_start ? ` (${fDate(irData.this_week.week_start)} – ${fDate(irData.this_week.today_date)})` : ''}
                               </td>
-                              <td style={{ color: '#34d399', fontWeight: 700 }}>+{fD(irData.thisWeek.revenueThisWeek)}</td>
-                              <td style={{ fontWeight: 700 }}>{fD(irData.kpi.recoveredToDate)}</td>
-                              <td style={{ color: '#34d399', fontWeight: 700 }}>{Number(irData.kpi.pctRecovered).toFixed(2)}%</td>
-                              <td style={{ color: '#f87171', fontWeight: 700 }}>{fD(irData.kpi.remainingToRecover)}</td>
+                              <td style={{ color: '#34d399', fontWeight: 700 }}>+{fD(irData.this_week.revenue_this_week)}</td>
+                              <td style={{ fontWeight: 700 }}>{fD(irData.kpi.recovered_to_date)}</td>
+                              <td style={{ color: '#34d399', fontWeight: 700 }}>{Number(irData.kpi.pct_recovered).toFixed(2)}%</td>
+                              <td style={{ color: '#f87171', fontWeight: 700 }}>{fD(irData.kpi.remaining_to_recover)}</td>
                             </tr>
                           </tbody>
                         </table>
@@ -1447,7 +1464,7 @@ const TABS: { id: Tab; l: string }[] = [
                     <div style={{ padding: '4px 18px 10px', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--mu)' }}>
                       Weekly Tracking
                     </div>
-                    {!irData?.weeklyTracking?.length ? (
+                    {!irData?.weekly_tracking?.length ? (
                       <div style={{ padding: '16px 18px 20px', color: 'var(--mu)', fontSize: 13 }}>
                         No weekly data yet — will populate on first Monday cron run.
                       </div>
@@ -1467,20 +1484,20 @@ const TABS: { id: Tab; l: string }[] = [
                             </tr>
                           </thead>
                           <tbody>
-                            {irData.weeklyTracking.map((w: any, i: number) => (
+                            {irData.weekly_tracking.map((w: any, i: number) => (
                               <tr key={i}>
-                                <td style={{ fontWeight: 600 }}>{fDate(w.weekEnding)}</td>
-                                <td>{fD(w.cumulativeRevenue)}</td>
-                                <td style={{ color: w.pctRecovered >= 100 ? '#4ade80' : w.pctRecovered >= 50 ? '#fbbf24' : '#f87171' }}>
-                                  {Number(w.pctRecovered).toFixed(1)}%
+                                <td style={{ fontWeight: 600 }}>{fDate(w.week_ending)}</td>
+                                <td>{fD(w.cumulative_revenue)}</td>
+                                <td style={{ color: w.pct_recovered >= 100 ? '#4ade80' : w.pct_recovered >= 50 ? '#fbbf24' : '#f87171' }}>
+                                  {Number(w.pct_recovered).toFixed(1)}%
                                 </td>
                                 <td style={{ color: '#f87171' }}>{fD(w.remaining)}</td>
-                                <td>{w.trailingDailyAvg != null ? fD(w.trailingDailyAvg) : '—'}</td>
-                                <td>{w.daysLeft != null ? w.daysLeft.toLocaleString() : 'N/A'}</td>
-                                <td style={{ color: w.deltaDaysLeft == null ? 'var(--mu)' : w.deltaDaysLeft < 0 ? '#4ade80' : w.deltaDaysLeft > 0 ? '#f87171' : 'var(--inks)' }}>
-                                  {w.deltaDaysLeft == null ? '—' : w.deltaDaysLeft === 0 ? '0' : w.deltaDaysLeft > 0 ? `+${w.deltaDaysLeft}` : String(w.deltaDaysLeft)}
+                                <td>{w.trailing_daily_avg != null ? fD(w.trailing_daily_avg) : '—'}</td>
+                                <td>{w.days_left != null ? w.days_left.toLocaleString() : 'N/A'}</td>
+                                <td style={{ color: w.delta_days_left == null ? 'var(--mu)' : w.delta_days_left < 0 ? '#4ade80' : w.delta_days_left > 0 ? '#f87171' : 'var(--inks)' }}>
+                                  {w.delta_days_left == null ? '—' : w.delta_days_left === 0 ? '0' : w.delta_days_left > 0 ? `+${w.delta_days_left}` : String(w.delta_days_left)}
                                 </td>
-                                <td>{w.projectedRecovery ? fDate(w.projectedRecovery) : 'N/A'}</td>
+                                <td>{w.projected_recovery ? fDate(w.projected_recovery) : 'N/A'}</td>
                               </tr>
                             ))}
                           </tbody>

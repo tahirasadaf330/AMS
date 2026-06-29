@@ -922,8 +922,8 @@ export class ZamaniReportService implements OnModuleInit {
          TO_CHAR(DATE_TRUNC('month', receiveddate), 'Mon YYYY')   AS month_label,
          EXTRACT(YEAR  FROM receiveddate)::int                    AS year,
          EXTRACT(MONTH FROM receiveddate)::int                    AS month_num,
-         ROUND(SUM(revenue)::numeric, 2)                          AS revenue,
-         ROUND(SUM(revenue - negativemargin)::numeric, 2)         AS cost
+         ROUND(COALESCE(SUM(revenue) FILTER (WHERE revenue IS NOT NULL AND revenue::text != 'NaN'), 0)::numeric, 2)                                     AS revenue,
+         ROUND(COALESCE(SUM(revenue - negativemargin) FILTER (WHERE revenue IS NOT NULL AND revenue::text != 'NaN' AND negativemargin IS NOT NULL AND negativemargin::text != 'NaN'), 0)::numeric, 2) AS cost
        FROM ${STAGE}
        GROUP BY DATE_TRUNC('month', receiveddate),
                 EXTRACT(YEAR  FROM receiveddate),
