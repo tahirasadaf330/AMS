@@ -1164,10 +1164,12 @@ export class ZamaniReportService implements OnModuleInit {
       const maxDate: string = (maxRow?.max_date ?? today).slice(0, 10);
       this.logger.log(`[IR] maxDate=${maxDate}`);
 
-      // Sum ALL revenue with no date filter — matches Cost vs Revenue "Total Revenue" exactly
+      // Sum revenue excluding month 2 (Feb) — mirrors the Cost vs Revenue frontend filter
       this.logger.log('[IR] getTotalRevenue');
       const [totRow] = await this.dataSource.query(
-        `SELECT ROUND(COALESCE(SUM(revenue) FILTER (WHERE revenue IS NOT NULL AND revenue::text != 'NaN'), 0)::numeric, 2) AS total FROM ${STAGE}`,
+        `SELECT ROUND(COALESCE(SUM(revenue) FILTER (WHERE revenue IS NOT NULL AND revenue::text != 'NaN'), 0)::numeric, 2) AS total
+         FROM ${STAGE}
+         WHERE EXTRACT(MONTH FROM receiveddate)::int != 2 OR receiveddate IS NULL`,
       );
       const cumulativeRevenue = this.safeNum(totRow?.total);
       this.logger.log(`[IR] cumulativeRevenue=${cumulativeRevenue}`);
