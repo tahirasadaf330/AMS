@@ -1399,7 +1399,7 @@ const TABS: { id: Tab; l: string }[] = [
               ) : (
                 <>
                   {/* KPI strip */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 12, padding: '16px 18px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 12, padding: '16px 18px' }}>
                     {[
                       { label: 'Total Investment',     value: fD(546_000),                                                                                                                     color: '#64748b' },
                       { label: 'Recovered to Date',    value: irData?.kpi?.recovered_to_date    != null ? fD(Number(irData.kpi.recovered_to_date))    : '—',                                  color: '#60a5fa' },
@@ -1474,6 +1474,7 @@ const TABS: { id: Tab; l: string }[] = [
                           <thead>
                             <tr>
                               <th style={{ textAlign: 'left', minWidth: 110 }}>Week Ending</th>
+                              <th style={{ textAlign: 'right' }}>Revenue of Week</th>
                               <th style={{ textAlign: 'right' }}>Cumulative Revenue</th>
                               <th style={{ textAlign: 'right' }}>% Recovered</th>
                               <th style={{ textAlign: 'right' }}>Remaining</th>
@@ -1491,6 +1492,7 @@ const TABS: { id: Tab; l: string }[] = [
                               return (
                               <tr key={i}>
                                 <td style={{ fontWeight: 600 }}>{weekLabel}</td>
+                                <td style={{ color: '#34d399' }}>{w.weekly_revenue != null ? fD(w.weekly_revenue) : '—'}</td>
                                 <td>{fD(w.cumulative_revenue)}</td>
                                 <td style={{ color: w.pct_recovered >= 100 ? '#4ade80' : w.pct_recovered >= 50 ? '#fbbf24' : '#f87171' }}>
                                   {Number(w.pct_recovered).toFixed(1)}%

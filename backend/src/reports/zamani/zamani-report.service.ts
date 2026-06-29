@@ -1119,12 +1119,17 @@ export class ZamaniReportService implements OnModuleInit {
     const safeWeeklyRows = async () => {
       try {
         const rows = await this.dataSource.query(
-          `SELECT week_ending::text, cumulative_revenue, pct_recovered, remaining,
+          `SELECT week_ending::text,
+                  cumulative_revenue,
+                  cumulative_revenue - LAG(cumulative_revenue) OVER (ORDER BY week_ending ASC) AS weekly_revenue,
+                  pct_recovered, remaining,
                   trailing_daily_avg, days_left, delta_days_left, projected_recovery::text
-           FROM ${INVESTMENT_TRACKING} ORDER BY week_ending DESC`,
+           FROM ${INVESTMENT_TRACKING}
+           ORDER BY week_ending DESC`,
         );
         return rows.map((r: any) => ({
           weekEnding:        r.week_ending?.slice(0, 10) ?? null,
+          weeklyRevenue:     r.weekly_revenue != null ? this.safeNum(r.weekly_revenue) : null,
           cumulativeRevenue: this.safeNum(r.cumulative_revenue),
           pctRecovered:      this.safeNum(r.pct_recovered),
           remaining:         this.safeNum(r.remaining),
