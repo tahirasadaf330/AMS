@@ -1107,7 +1107,7 @@ export class ZamaniReportService implements OnModuleInit {
         const rows = await this.dataSource.query(
           `SELECT week_ending::text, cumulative_revenue, pct_recovered, remaining,
                   trailing_daily_avg, days_left, delta_days_left, projected_recovery::text
-           FROM ${INVESTMENT_TRACKING} ORDER BY week_ending ASC`,
+           FROM ${INVESTMENT_TRACKING} ORDER BY week_ending DESC`,
         );
         return rows.map((r: any) => ({
           weekEnding:        r.week_ending?.slice(0, 10) ?? null,
@@ -1142,12 +1142,20 @@ export class ZamaniReportService implements OnModuleInit {
       const today = new Date().toISOString().slice(0, 10);
       this.logger.log(`[IR] today=${today}`);
 
+      // Anchor on MAX data date so KPI totals match Cost vs Revenue
+      const [maxRow] = await this.dataSource.query(
+        `SELECT COALESCE(MAX(receiveddate::date)::text, $1) AS max_date FROM ${STAGE}`,
+        [today],
+      );
+      const maxDate: string = (maxRow?.max_date ?? today).slice(0, 10);
+      this.logger.log(`[IR] maxDate=${maxDate}`);
+
       this.logger.log('[IR] getCumulativeRevenue');
-      const cumulativeRevenue = await this.getCumulativeRevenue(today);
+      const cumulativeRevenue = await this.getCumulativeRevenue(maxDate);
       this.logger.log(`[IR] cumulativeRevenue=${cumulativeRevenue}`);
 
       this.logger.log('[IR] getTrailingDailyAvg');
-      const trailingAvg = await this.getTrailingDailyAvg(today, trailingDays);
+      const trailingAvg = await this.getTrailingDailyAvg(maxDate, trailingDays);
       this.logger.log(`[IR] trailingAvg=${trailingAvg}`);
 
       const pctRecovered = (cumulativeRevenue / TOTAL_INVESTMENT) * 100;
@@ -1195,7 +1203,7 @@ export class ZamaniReportService implements OnModuleInit {
         thisWeek: {
           lastSundayDate,
           weekStart,
-          todayDate:           today,
+          todayDate:           maxDate,
           revenueThisWeek:     thisWeekRevenue,
           lastSundayCumulative,
           lastSundayPct,

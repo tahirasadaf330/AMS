@@ -1484,9 +1484,13 @@ const TABS: { id: Tab; l: string }[] = [
                             </tr>
                           </thead>
                           <tbody>
-                            {irData.weekly_tracking.map((w: any, i: number) => (
+                            {irData.weekly_tracking.map((w: any, i: number) => {
+                              const we = new Date(w.week_ending + 'T00:00:00');
+                              const ws = new Date(we); ws.setDate(we.getDate() - 6);
+                              const weekLabel = `${fDate(ws.toISOString().slice(0, 10))} – ${fDate(w.week_ending)}`;
+                              return (
                               <tr key={i}>
-                                <td style={{ fontWeight: 600 }}>{fDate(w.week_ending)}</td>
+                                <td style={{ fontWeight: 600 }}>{weekLabel}</td>
                                 <td>{fD(w.cumulative_revenue)}</td>
                                 <td style={{ color: w.pct_recovered >= 100 ? '#4ade80' : w.pct_recovered >= 50 ? '#fbbf24' : '#f87171' }}>
                                   {Number(w.pct_recovered).toFixed(1)}%
@@ -1499,7 +1503,8 @@ const TABS: { id: Tab; l: string }[] = [
                                 </td>
                                 <td>{w.projected_recovery ? fDate(w.projected_recovery) : 'N/A'}</td>
                               </tr>
-                            ))}
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
