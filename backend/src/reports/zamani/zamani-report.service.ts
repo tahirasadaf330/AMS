@@ -1023,7 +1023,7 @@ export class ZamaniReportService implements OnModuleInit {
     return Number.isFinite(n) ? n : null;
   }
 
-  private async runWeekForDate(weekEnding: Date, trailingDays: number): Promise<void> {
+  private async runWeekForDate(weekEnding: Date, trailingDays: number, forceUpdate = false): Promise<void> {
     const weekEndStr   = weekEnding.toISOString().slice(0, 10);
     const cumRevenue   = await this.getCumulativeRevenue(weekEndStr);
     const pctRecovered = TOTAL_INVESTMENT > 0 ? (cumRevenue / TOTAL_INVESTMENT) * 100 : 0;
@@ -1051,11 +1051,23 @@ export class ZamaniReportService implements OnModuleInit {
         ? daysLeft - Number(prevRow.days_left)
         : null;
 
+    const conflictClause = forceUpdate
+      ? `DO UPDATE SET
+           cumulative_revenue   = EXCLUDED.cumulative_revenue,
+           pct_recovered        = EXCLUDED.pct_recovered,
+           remaining            = EXCLUDED.remaining,
+           trailing_daily_avg   = EXCLUDED.trailing_daily_avg,
+           days_left            = EXCLUDED.days_left,
+           delta_days_left      = EXCLUDED.delta_days_left,
+           projected_recovery   = EXCLUDED.projected_recovery,
+           trailing_window_days = EXCLUDED.trailing_window_days`
+      : `DO NOTHING`;
+
     await this.dataSource.query(
       `INSERT INTO ${INVESTMENT_TRACKING}
          (week_ending, cumulative_revenue, pct_recovered, remaining, trailing_daily_avg, days_left, delta_days_left, projected_recovery, trailing_window_days)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::date, $9)
-       ON CONFLICT (week_ending) DO NOTHING`,
+       ON CONFLICT (week_ending) ${conflictClause}`,
       [weekEndStr, cumRevenue, pctRecovered, remaining, trailingAvg, daysLeft, deltaDaysLeft, projectedRecovery, trailingDays],
     );
   }
@@ -1086,12 +1098,14 @@ export class ZamaniReportService implements OnModuleInit {
     );
     const existingSet = new Set(existing.map((r) => r.week_ending.slice(0, 10)));
 
+    const lastSundayStr = lastSunday.toISOString().slice(0, 10);
     const cursor = new Date(firstSunday);
     while (cursor <= lastSunday) {
-      const dateStr = cursor.toISOString().slice(0, 10);
-      if (!existingSet.has(dateStr)) {
+      const dateStr  = cursor.toISOString().slice(0, 10);
+      const isLatest = dateStr === lastSundayStr;
+      if (isLatest || !existingSet.has(dateStr)) {
         try {
-          await this.runWeekForDate(new Date(cursor), trailingDays);
+          await this.runWeekForDate(new Date(cursor), trailingDays, isLatest);
         } catch (err) {
           this.logger.error(`runWeekForDate failed for ${dateStr}`, err);
         }
