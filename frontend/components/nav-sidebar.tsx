@@ -19,6 +19,7 @@ import {
   ChevronUp,
   BarChart2,
   FileBarChart,
+  Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
@@ -57,6 +58,7 @@ export function NavSidebar() {
     { label: 'Data Sources', href: '/admin/datasources', icon: ServerCog, minRole: 'admin' },
     { label: 'Datasets', href: '/admin/datasets', icon: Database, minRole: 'admin' },
     { label: 'Settings', href: '/admin/settings', icon: Settings, minRole: 'admin' },
+    { label: 'Google MO Import', href: '/admin/google-mo-imports', icon: Upload, minRole: 'admin' },
   ];
 
   const isActive = (href: string) => {
@@ -102,8 +104,8 @@ export function NavSidebar() {
               <Clock className="h-5 w-5" />
             </Link>
           )}
-          {(hasReportAccess('zamani') || hasReportAccess('vcs-balance') || hasReportAccess('sms-credit-limit') || hasReportAccess('prepayment-cl')) && (
-            <Link href={hasReportAccess('zamani') ? '/reports/zamani-traffic' : hasReportAccess('vcs-balance') ? '/reports/vcs-balance' : '/reports/sms-credit-limit'} className={cn('p-2 rounded-lg hover:bg-gray-700', isActive('/reports') ? 'text-blue-400' : 'text-gray-400')} title="Reports">
+          {(hasReportAccess('zamani') || hasReportAccess('vcs-balance') || hasReportAccess('sms-credit-limit') || hasReportAccess('prepayment-cl') || hasReportAccess('google_mo')) && (
+            <Link href={hasReportAccess('zamani') ? '/reports/zamani-traffic' : hasReportAccess('google_mo') ? '/reports/google-mo-traffic' : hasReportAccess('vcs-balance') ? '/reports/vcs-balance' : '/reports/sms-credit-limit'} className={cn('p-2 rounded-lg hover:bg-gray-700', isActive('/reports') ? 'text-blue-400' : 'text-gray-400')} title="Reports">
               <BarChart2 className="h-5 w-5" />
             </Link>
           )}
@@ -146,7 +148,7 @@ export function NavSidebar() {
         {navItems.map((item) => {
           if (item.minRole && !canAccess(
             item.minRole === 'editor' ? 'create_condition' :
-            item.minRole === 'full_rights' ? 'manage_schedule' : item.minRole
+              item.minRole === 'full_rights' ? 'manage_schedule' : item.minRole
           )) {
             return null;
           }
@@ -227,6 +229,21 @@ export function NavSidebar() {
                 >
                   <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
                   <span>Zamani Traffic</span>
+                </Link>
+              )}
+              {hasReportAccess('google_mo') && (
+                <Link
+                  href="/reports/google-mo-traffic"
+                  className={cn(
+                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
+                    'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
+                    isActive('/reports/google-mo-traffic')
+                      ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
+                      : 'text-gray-500 dark:text-gray-400'
+                  )}
+                >
+                  <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>Google MO Traffic</span>
                 </Link>
               )}
               {hasReportAccess('vcs-balance') && (

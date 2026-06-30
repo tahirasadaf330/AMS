@@ -1,10 +1,9 @@
 # AMS — Alert Management System: Project Context
 
 ## Stack
-- **Backend**: NestJS 10, TypeScript, TypeORM, PostgreSQL 16 — port `3001`
-- **Frontend**: Next.js 14 App Router, React Query, Tailwind CSS (dark theme) — port `3000`
-- **Node.js**: v20.19.2 portable at `C:\Users\bidbadmin\tools\node-v20.19.2-win-x64` (NOT on PATH)
-- **Database**: PostgreSQL 16 — `localhost:5432/AMS` (user: postgres)
+- **Backend**: NestJS 10, TypeScript, TypeORM, PostgreSQL 15 — port `3001`
+- **Frontend**: Next.js 16 App Router, React Query, Tailwind CSS (dark theme) — port `3000`
+- **Database**: PostgreSQL 15 — `localhost:5432/AMS` (user: postgres)
 - **Email**: Microsoft Graph API (client credentials flow)
 - **Teams**: Adaptive Card webhooks
 
@@ -12,14 +11,11 @@
 
 ```powershell
 # Backend
-$env:Path += ";C:\Users\bidbadmin\tools\node-v20.19.2-win-x64"
-cd C:\Users\bidbadmin\PyCharmMiscProject\AMS\backend
-npm run build          # compile TypeScript → dist/
-node dist/main.js      # run (or start:dev for watch mode)
+cd d:\Hayo\AMS\backend
+npm run start:dev      # watch mode (recommended for local dev)
 
 # Frontend
-$env:Path += ";C:\Users\bidbadmin\tools\node-v20.19.2-win-x64"
-cd C:\Users\bidbadmin\PyCharmMiscProject\AMS\frontend
+cd d:\Hayo\AMS\frontend
 npm run dev
 ```
 
@@ -145,7 +141,7 @@ conditions (
   logic VARCHAR(8) DEFAULT 'AND',  -- 'AND' | 'OR'
   condition_rows JSONB,            -- [{ column, operator, value }]
   channels JSONB,                  -- { email: { enabled, recipients[] }, teams: { enabled, webhookUrl, severity } }
-  cooldown_minutes INT DEFAULT 60,
+  -- cooldown_minutes INT DEFAULT 60 — column exists in DB but removed from entity (not used)
   is_active BOOLEAN DEFAULT true,
   created_by UUID,
   created_at / updated_at TIMESTAMPTZ

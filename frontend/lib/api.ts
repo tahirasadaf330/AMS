@@ -337,6 +337,40 @@ export const zamaniApi = {
     api.get('/reports/zamani/investment-recovery', { params: { trailingDays } }),
 };
 
+// ── GOOGLE MO TRAFFIC REPORT ──────────────────────────────────
+export const googleMoApi = {
+  getFilters: () => api.get('/reports/google-mo/filters'),
+  getData: (params: Record<string, string>) => api.get('/reports/google-mo/data', { params }),
+  getComparison: (params: Record<string, string>) => api.get('/reports/google-mo/comparison', { params }),
+  getProfitLoss: (params: Record<string, string>) => api.get('/reports/google-mo/profit-loss', { params }),
+  getPlYears: () => api.get('/reports/google-mo/pl-years'),
+  getPlMonths: (params: Record<string, string>) => api.get('/reports/google-mo/pl-months', { params }),
+  getYesterday: (params: Record<string, string>) => api.get('/reports/google-mo/yesterday', { params }),
+  getYesterdayIristelFilters: () => api.get('/reports/google-mo/yesterday-iristel-filters'),
+  getYesterdayIristel: (params: Record<string, string>) => api.get('/reports/google-mo/yesterday-iristel', { params }),
+  getEstimates: (params?: Record<string, string>) => api.get('/reports/google-mo/estimates', { params }),
+};
+
+// ── GOOGLE MO IMPORT (admin) ──────────────────────────────────
+export const googleMoImportApi = {
+  importCosts: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post<{ upserted: number; vendor_rows: number; skipped: number }>(
+      '/admin/google-mo/import/costs',
+      fd,
+    );
+  },
+  importEstimates: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post<{ upserted: number; skipped: number }>(
+      '/admin/google-mo/import/estimates',
+      fd,
+    );
+  },
+};
+
 // ── VCS BALANCE REPORT ────────────────────────────────────────
 export const vcsBalanceApi = {
   getData: () => api.get('/reports/vcs-balance/data'),
