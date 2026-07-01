@@ -1491,9 +1491,9 @@ export default function GoogleMoTrafficPage() {
                         <table className="zt">
                           <thead><tr>
                             {ySort.th('date', 'Date')}
-                            {ySort.th('country_name', 'Country Name', 'center')}
-                            {ySort.th('operator_name', 'Operator Name', 'center')}
-                            {ySort.th('vendor_name', 'Vendor Name', 'center')}
+                            {ySort.th('country_name', 'Country Name')}
+                            {ySort.th('operator_name', 'Operator Name')}
+                            {ySort.th('vendor_name', 'Vendor Name')}
                             {ySort.th('volume', 'Volume')}
                             {ySort.th('revenue', 'Revenue')}
                             {ySort.th('vendor_cost', 'Vendor Cost')}
@@ -1503,9 +1503,9 @@ export default function GoogleMoTrafficPage() {
                             {ySorted.slice(yPag.start, yPag.end).map((r: any, i: number) => (
                               <tr key={i}>
                                 <td>{fDate(r.date)}</td>
-                                <td style={{ textAlign: 'center' }}><CountryDot name={r.country_name} center /></td>
-                                <td style={{ textAlign: 'center' }}>{r.operator_name}</td>
-                                <td style={{ textAlign: 'center' }}>{r.vendor_name}</td>
+                                <td style={{ textAlign: 'left' }}><CountryDot name={r.country_name} /></td>
+                                <td style={{ textAlign: 'left' }}>{r.operator_name}</td>
+                                <td style={{ textAlign: 'left' }}>{r.vendor_name}</td>
                                 <td style={{ textAlign: 'right' }}>{fN(r.volume)}</td>
                                 <td style={{ textAlign: 'right' }}>{fR(r.revenue)}</td>
                                 <td style={{ textAlign: 'right' }}>{fR(r.vendor_cost)}</td>
@@ -1605,7 +1605,7 @@ export default function GoogleMoTrafficPage() {
                             {yiSort.th('date', 'Date')}
                             {yiSort.th('country_name', 'Country Name')}
                             {yiSort.th('operator_name', 'Operator Name')}
-                            {yiSort.th('vendor_name', 'Vendor Name', 'center')}
+                            {yiSort.th('vendor_name', 'Vendor Name')}
                             {yiSort.th('volume', 'Volume')}
                             {yiSort.th('revenue', 'Revenue')}
                             {yiSort.th('vendor_cost', 'Vendor Cost')}
@@ -1617,7 +1617,7 @@ export default function GoogleMoTrafficPage() {
                                 <td>{fDate(r.date)}</td>
                                 <td style={{ textAlign: 'left' }}><CountryDot name={r.country_name} /></td>
                                 <td style={{ textAlign: 'left' }}>{r.operator_name}</td>
-                                <td style={{ textAlign: 'center' }}>{r.vendor_name}</td>
+                                <td style={{ textAlign: 'left' }}>{r.vendor_name}</td>
                                 <td style={{ textAlign: 'right' }}>{fN(r.volume)}</td>
                                 <td style={{ textAlign: 'right' }}>{fR(r.revenue)}</td>
                                 <td style={{ textAlign: 'right' }}>{fR(r.vendor_cost)}</td>
