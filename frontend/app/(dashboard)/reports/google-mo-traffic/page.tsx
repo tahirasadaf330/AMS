@@ -35,6 +35,35 @@ const fDate = (s: string) => {
   return `${String(d.getDate()).padStart(2, '0')}-${MNS[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`;
 };
 
+/* Stable per-country dot colour — same country → same colour across every tab,
+   independent of sort order or pagination. Names are normalised so casing /
+   whitespace differences between tables still resolve to the same colour. */
+const _countryColorCache = new Map<string, string>();
+function countryColor(name: any): string {
+  const key = String(name ?? '').trim().toLowerCase();
+  if (!key) return 'var(--mu)';
+  const cached = _countryColorCache.get(key);
+  if (cached) return cached;
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+  const color = PAL[Math.abs(h) % PAL.length];
+  _countryColorCache.set(key, color);
+  return color;
+}
+
+/* Volume Y-axis ticks for the Yesterday bar chart: fixed low-end anchors
+   0 → 100 → 3000 → 6000, then extend upward with a rounded step so the top
+   tick always clears the tallest bar without crowding the axis. */
+function volumeAxisTicks(maxVal: number): number[] {
+  const ticks = [0, 100, 3000, 6000];
+  if (!(maxVal > 6000)) return ticks;
+  const rawStep = (maxVal - 6000) / 4;
+  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const step = Math.max(3000, Math.ceil(rawStep / mag) * mag);
+  for (let t = 6000 + step; ticks[ticks.length - 1] < maxVal; t += step) ticks.push(t);
+  return ticks;
+}
+
 /* ── Date computation for Data Table filters ─────────────────────── */
 function computeDtDates(
   mode: 'day' | 'month' | 'range',
@@ -212,6 +241,15 @@ function DiffCell({ o, n, noBg }: { o: any; n: any; noBg?: boolean }) {
     <td style={{ background: noBg ? undefined : (d >= 0 ? 'rgba(39,174,96,0.18)' : 'rgba(231,76,60,0.18)'), textAlign: 'right' }}>
       <span className={d >= 0 ? 'zpos' : 'zneg'}>{d >= 0 ? '+' : ''}{d.toFixed(2)}%</span>
     </td>
+  );
+}
+/* Country label with its stable colour dot — used across every tab's tables */
+function CountryDot({ name, center }: { name: any; center?: boolean }) {
+  return (
+    <div className="zconn" style={center ? { justifyContent: 'center' } : undefined}>
+      <span className="zdot" style={{ background: countryColor(name) }} />
+      {name}
+    </div>
   );
 }
 const TIP = { contentStyle: { background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 8, fontSize: 12 }, labelStyle: { color: 'var(--mu)' } };
@@ -399,6 +437,12 @@ export default function GoogleMoTrafficPage() {
   const [yiData, setYiData] = React.useState<any>(null);
   const [yiLoad, setYiLoad] = React.useState(false);
   const yiSort = useSortState('date');
+  const [yiMetrics, setYiMetrics] = React.useState<Set<Metric>>(new Set<Metric>(['volume', 'revenue', 'vendor_cost', 'margin']));
+  const toggleYiMetric = (m: Metric) => setYiMetrics(prev => {
+    const next = new Set(prev);
+    if (next.has(m) && next.size > 1) next.delete(m); else next.add(m);
+    return next;
+  });
 
   /* ── Initialise date inputs after mount (client-only) ──────── */
   React.useEffect(() => {
@@ -556,6 +600,12 @@ export default function GoogleMoTrafficPage() {
     return Array.from(map.values()).sort((a, b) => b.volume - a.volume);
   }, [yRows]);
 
+  // Volume-axis ticks for the Yesterday bar chart (top 12 shown), upper tick adapts to the data
+  const yVolTicks = React.useMemo(
+    () => volumeAxisTicks(yChartData.slice(0, 12).reduce((m: number, d: any) => Math.max(m, Number(d.volume || 0)), 0)),
+    [yChartData],
+  );
+
   const yiRows = yiData?.rows ?? [];
   const yiSorted = yiSort.sort(yiRows);
   const yiPag = usePagination(yiSorted.length, 12);
@@ -598,8 +648,8 @@ export default function GoogleMoTrafficPage() {
     col: PAL[i % PAL.length],
   })), [dtData]);
 
-  // Fixed volume ticks; extend domain if data exceeds the last tick
-  const DT_OP_VOL_TICKS = [0, 15_000, 75_000, 150_000, 250_000];
+  // Log-scale volume ticks so small operators stay visible next to the giants
+  const DT_OP_VOL_TICKS = [100, 1_000, 10_000, 100_000, 300_000];
 
   // Estimates pagination
   const dtEstRows = estimates?.rows ?? [];
@@ -641,11 +691,11 @@ export default function GoogleMoTrafficPage() {
     if (!cmpRows.length) return [];
     const sorted = [...cmpRows].sort((a: any, b: any) => Number(b.revenue_old) - Number(a.revenue_old));
     const total = sorted.reduce((s: number, r: any) => s + Number(r.revenue_old), 0);
-    return sorted.slice(0, 10).map((r: any, i: number) => ({
+    return sorted.slice(0, 10).map((r: any) => ({
       name: r.country_name,
       value: Number(r.revenue_old),
       pct: total > 0 ? (Number(r.revenue_old) / total * 100) : 0,
-      fill: PAL[i % PAL.length],
+      fill: countryColor(r.country_name),
     }));
   }, [cmpRows]);
 
@@ -653,11 +703,11 @@ export default function GoogleMoTrafficPage() {
     if (!cmpRows.length) return [];
     const sorted = [...cmpRows].sort((a: any, b: any) => Number(b.revenue_new) - Number(a.revenue_new));
     const total = sorted.reduce((s: number, r: any) => s + Number(r.revenue_new), 0);
-    return sorted.slice(0, 10).map((r: any, i: number) => ({
+    return sorted.slice(0, 10).map((r: any) => ({
       name: r.country_name,
       value: Number(r.revenue_new),
       pct: total > 0 ? (Number(r.revenue_new) / total * 100) : 0,
-      fill: PAL[i % PAL.length],
+      fill: countryColor(r.country_name),
     }));
   }, [cmpRows]);
   const cmpSorted = cmpSort.sort(cmpRows);
@@ -870,7 +920,7 @@ export default function GoogleMoTrafficPage() {
                             {dtMainSorted.slice(dtRowPag.start, dtRowPag.end).map((r: any, i: number) => (
                               <tr key={i}>
                                 <td style={{ textAlign: 'left', fontFamily: "'Hanken Grotesk',sans-serif", color: 'var(--inks)', fontWeight: 500 }}>{fDate(r.date)}</td>
-                                <td style={{ textAlign: 'left', fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, color: 'var(--ink)' }}>{r.country_name}</td>
+                                <td style={{ textAlign: 'left', fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, color: 'var(--ink)' }}><CountryDot name={r.country_name} /></td>
                                 <td style={{ textAlign: 'left', fontFamily: "'Hanken Grotesk',sans-serif", color: 'var(--inks)', fontWeight: 500 }}>{r.operator_name}</td>
                                 <td style={{ textAlign: 'left', fontFamily: "'Hanken Grotesk',sans-serif", color: 'var(--inks)', fontWeight: 500 }}>{r.customer_name}</td>
                                 <td style={{ textAlign: 'left', fontFamily: "'Hanken Grotesk',sans-serif", color: 'var(--inks)', fontWeight: 500 }}>{r.vendor_name}</td>
@@ -1020,12 +1070,14 @@ export default function GoogleMoTrafficPage() {
                           />
                           <YAxis
                             yAxisId="left"
+                            scale="log"
+                            allowDataOverflow
                             tick={{ fontSize: 10, fill: 'var(--mu)', fontFamily: "'Hanken Grotesk',sans-serif" }}
                             axisLine={false}
                             tickLine={false}
                             width={72}
                             ticks={DT_OP_VOL_TICKS}
-                            domain={[0, (dataMax: number) => Math.max(dataMax, 250_000)]}
+                            domain={[100, (dataMax: number) => Math.max(dataMax * 1.05, 300_000)]}
                             tickFormatter={(v: number) => fN(v)}
                           />
                           <YAxis
@@ -1086,7 +1138,7 @@ export default function GoogleMoTrafficPage() {
                         <tbody>
                           {dtEstSorted.slice(dtEstPag.start, dtEstPag.end).map((r: any, i: number) => (
                             <tr key={i}>
-                              <td>{r.country}</td>
+                              <td><CountryDot name={r.country} /></td>
                               <td>{fN(r.traffic_30d)}</td>
                               <td>{fN(r.estimation)}</td>
                               <td>{fP(r.pct_received)}</td>
@@ -1245,7 +1297,7 @@ export default function GoogleMoTrafficPage() {
                           <tbody>
                             {cmpSorted.slice(cmpPag.start, cmpPag.end).map((r: any, i: number) => (
                               <tr key={i}>
-                                <td><div className="zconn"><span className="zdot" style={{ background: PAL[(cmpPag.start + i) % PAL.length] }} />{r.country_name}</div></td>
+                                <td><CountryDot name={r.country_name} /></td>
                                 <td>{fN(r.volume_old)}</td>
                                 <td>{fN(r.volume_new)}</td>
                                 <td><DiffCmp o={r.volume_old} n={r.volume_new} /></td>
@@ -1288,8 +1340,8 @@ export default function GoogleMoTrafficPage() {
                           <YAxis {...AX} width={70} tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}K`} />
                           <Tooltip {...TIP} formatter={(v: any, name: string) => [fR(v), name]} labelFormatter={(v: string) => `Date: ${v}`} />
                           <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                          {cTrendPivot.countries.map((c, i) => (
-                            <Line key={c} type="monotone" dataKey={c} stroke={PAL[i % PAL.length]} dot={false} strokeWidth={2} connectNulls />
+                          {cTrendPivot.countries.map((c) => (
+                            <Line key={c} type="monotone" dataKey={c} stroke={countryColor(c)} dot={false} strokeWidth={2} connectNulls />
                           ))}
                         </LineChart>
                       </ResponsiveContainer>
@@ -1368,7 +1420,7 @@ export default function GoogleMoTrafficPage() {
                           {plSorted.slice(plPag.start, plPag.end).map((r: any, i: number) => (
                             <tr key={i}>
                               <td>{r.month_name?.trim()}</td>
-                              <td><div className="zconn"><span className="zdot" style={{ background: PAL[(plPag.start + i) % PAL.length] }} />{r.country_name}</div></td>
+                              <td><CountryDot name={r.country_name} /></td>
                               <td>{fR(r.revenue)}</td>
                               <td>{fR(r.vendor_cost)}</td>
                               <td>{fN(r.volume)}</td>
@@ -1451,7 +1503,7 @@ export default function GoogleMoTrafficPage() {
                             {ySorted.slice(yPag.start, yPag.end).map((r: any, i: number) => (
                               <tr key={i}>
                                 <td>{fDate(r.date)}</td>
-                                <td style={{ textAlign: 'center' }}>{r.country_name}</td>
+                                <td style={{ textAlign: 'center' }}><CountryDot name={r.country_name} center /></td>
                                 <td style={{ textAlign: 'center' }}>{r.operator_name}</td>
                                 <td style={{ textAlign: 'center' }}>{r.vendor_name}</td>
                                 <td style={{ textAlign: 'right' }}>{fN(r.volume)}</td>
@@ -1485,7 +1537,7 @@ export default function GoogleMoTrafficPage() {
                         <BarChart data={yChartData.slice(0, 12).map((d: any) => ({ ...d, margin: Math.max(0, d.margin) }))} margin={{ top: 4, right: 64, bottom: 80, left: 10 }} barCategoryGap="28%" barGap={3}>
                           <CartesianGrid strokeDasharray="3 5" stroke="var(--ln)" vertical={false} />
                           <XAxis dataKey="country_name" tick={{ fontSize: 10, fill: 'var(--inks)' }} axisLine={{ stroke: 'var(--lns)' }} tickLine={false} angle={-40} textAnchor="end" interval={0} height={80} />
-                          <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={72} tickFormatter={(v: number) => fN(v)} />
+                          <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={72} ticks={yVolTicks} domain={[0, yVolTicks[yVolTicks.length - 1]]} allowDataOverflow tickFormatter={(v: number) => fN(v)} />
                           <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={64} tickFormatter={(v: number) => fR(v)} domain={[0, (dataMax: number) => Math.max(650, Math.ceil(dataMax * 1.05))]} />
                           <Tooltip
                             contentStyle={{ background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 10, fontSize: 12, padding: '10px 14px', boxShadow: '0 4px 16px rgba(0,0,0,.12)' }}
@@ -1551,8 +1603,8 @@ export default function GoogleMoTrafficPage() {
                         <table className="zt">
                           <thead><tr>
                             {yiSort.th('date', 'Date')}
-                            {yiSort.th('country_name', 'Country Name', 'center')}
-                            {yiSort.th('operator_name', 'Operator Name', 'center')}
+                            {yiSort.th('country_name', 'Country Name')}
+                            {yiSort.th('operator_name', 'Operator Name')}
                             {yiSort.th('vendor_name', 'Vendor Name', 'center')}
                             {yiSort.th('volume', 'Volume')}
                             {yiSort.th('revenue', 'Revenue')}
@@ -1563,8 +1615,8 @@ export default function GoogleMoTrafficPage() {
                             {yiSorted.slice(yiPag.start, yiPag.end).map((r: any, i: number) => (
                               <tr key={i}>
                                 <td>{fDate(r.date)}</td>
-                                <td style={{ textAlign: 'center' }}>{r.country_name}</td>
-                                <td style={{ textAlign: 'center' }}>{r.operator_name}</td>
+                                <td style={{ textAlign: 'left' }}><CountryDot name={r.country_name} /></td>
+                                <td style={{ textAlign: 'left' }}>{r.operator_name}</td>
                                 <td style={{ textAlign: 'center' }}>{r.vendor_name}</td>
                                 <td style={{ textAlign: 'right' }}>{fN(r.volume)}</td>
                                 <td style={{ textAlign: 'right' }}>{fR(r.revenue)}</td>
@@ -1591,14 +1643,37 @@ export default function GoogleMoTrafficPage() {
 
                 {yiChartData.length > 0 && (
                   <div className="zpnl" style={{ marginBottom: 16 }}>
-                    <PH title="Yesterday (Iristel) — Top 12 Countries" right={`Top ${Math.min(12, yiChartData.length)} of ${yiChartData.length}`} />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 18px 12px', borderBottom: '1px solid var(--ln)', flexWrap: 'wrap', gap: 8 }}>
+                      <div>
+                        <h2 style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--ink)', letterSpacing: '-.2px' }}>
+                          Yesterday (Iristel) — Top 12 Countries
+                        </h2>
+                        <span style={{ fontSize: 11, color: 'var(--mu)', fontWeight: 600 }}>Top {Math.min(12, yiChartData.length)} of {yiChartData.length}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {(Object.keys(MCFG) as Metric[]).map(m => {
+                          const active = yiMetrics.has(m);
+                          return (
+                            <button key={m} onClick={() => toggleYiMetric(m)} style={{
+                              padding: '5px 13px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: '.12s', letterSpacing: '.02em',
+                              border: `1.5px solid ${active ? MCFG[m].color : 'var(--lns)'}`,
+                              background: active ? MCFG[m].color : 'var(--sf2)',
+                              color: active ? '#fff' : 'var(--mu)',
+                              boxShadow: active ? `0 2px 0 rgba(0,0,0,.18)` : 'none',
+                            }}>
+                              {MCFG[m].label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                     <div style={{ height: 340, padding: '16px 8px 8px 4px' }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={yiChartData.slice(0, 12)} margin={{ top: 4, right: 64, bottom: 80, left: 10 }} barCategoryGap="28%" barGap={3}>
                           <CartesianGrid strokeDasharray="3 5" stroke="var(--ln)" vertical={false} />
                           <XAxis dataKey="country_name" tick={{ fontSize: 10, fill: 'var(--inks)' }} axisLine={{ stroke: 'var(--lns)' }} tickLine={false} angle={-40} textAnchor="end" interval={0} height={80} />
-                          <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={72} tickFormatter={(v: number) => fN(v)} />
-                          <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={64} tickFormatter={(v: number) => fR(v)} />
+                          <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={yiMetrics.has('volume') ? 72 : 0} hide={!yiMetrics.has('volume')} tickFormatter={(v: number) => fN(v)} />
+                          <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={(yiMetrics.has('revenue') || yiMetrics.has('vendor_cost') || yiMetrics.has('margin')) ? 64 : 0} hide={!(yiMetrics.has('revenue') || yiMetrics.has('vendor_cost') || yiMetrics.has('margin'))} tickFormatter={(v: number) => fR(v)} />
                           <Tooltip
                             contentStyle={{ background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 10, fontSize: 12, padding: '10px 14px', boxShadow: '0 4px 16px rgba(0,0,0,.12)' }}
                             labelStyle={{ fontWeight: 700, fontSize: 12, color: 'var(--ink)', marginBottom: 6 }}
@@ -1607,10 +1682,9 @@ export default function GoogleMoTrafficPage() {
                             cursor={{ fill: 'var(--sf2)', radius: 4 }}
                           />
                           <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 4, color: 'var(--inks)' }} />
-                          <Bar yAxisId="left" dataKey="volume" name="Volume" fill={PAL[0]} radius={[5, 5, 0, 0]} maxBarSize={40} />
-                          <Bar yAxisId="right" dataKey="revenue" name="Revenue" fill={PAL[1]} radius={[5, 5, 0, 0]} maxBarSize={40} />
-                          <Bar yAxisId="right" dataKey="vendor_cost" name="Vendor Cost" fill={PAL[4]} radius={[5, 5, 0, 0]} maxBarSize={40} />
-                          <Bar yAxisId="right" dataKey="margin" name="Margin" fill={PAL[2]} radius={[5, 5, 0, 0]} maxBarSize={40} />
+                          {(Object.keys(MCFG) as Metric[]).filter(m => yiMetrics.has(m)).map(m => (
+                            <Bar key={m} yAxisId={MCFG[m].yAxis} dataKey={m} name={MCFG[m].label} fill={MCFG[m].color} radius={[5, 5, 0, 0]} maxBarSize={40} />
+                          ))}
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
