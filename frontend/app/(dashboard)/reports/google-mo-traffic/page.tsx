@@ -628,7 +628,7 @@ export default function GoogleMoTrafficPage() {
     }
     return {
       data: Object.values(byDate).sort((a: any, b: any) => a.date.localeCompare(b.date)),
-      countries: [...countrySet],
+      countries: Array.from(countrySet),
     };
   }, [cData]);
 
