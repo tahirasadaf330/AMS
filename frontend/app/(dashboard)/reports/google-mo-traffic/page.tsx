@@ -8,27 +8,27 @@ import {
 import { googleMoApi } from '@/lib/api';
 import { useDatasetSocket } from '@/hooks/useDatasetSocket';
 
-const PAL = ['#3498db','#1abc9c','#9b59b6','#e67e22','#e74c3c','#f1c40f','#2ecc71','#16a085','#8e44ad','#d35400','#34495e','#2980b9','#27ae60','#c0392b','#f39c12','#7f8c8d'];
-const MNF = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const MNS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const PAL = ['#3498db', '#1abc9c', '#9b59b6', '#e67e22', '#e74c3c', '#f1c40f', '#2ecc71', '#16a085', '#8e44ad', '#d35400', '#34495e', '#2980b9', '#27ae60', '#c0392b', '#f39c12', '#7f8c8d'];
+const MNF = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MNS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const fN  = (n: any) => n != null ? Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
-const fV  = (n: any) => {
+const fN = (n: any) => n != null ? Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
+const fV = (n: any) => {
   if (n == null) return '—';
   const v = Number(n);
   if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
   if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
   return fN(v);
 };
-const fR  = (n: any) => n != null ? `$${Number(n).toFixed(4)}` : '—';
-const fM  = (n: any) => {
+const fR = (n: any) => n != null ? `$${Number(n).toFixed(4)}` : '—';
+const fM = (n: any) => {
   if (n == null) return '—';
   const v = Number(n);
   if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
   if (v >= 1e3) return `$${(v / 1e3).toFixed(1)}K`;
   return `$${v.toFixed(2)}`;
 };
-const fP  = (n: any) => n != null ? `${Number(n).toFixed(2)}%` : '—';
+const fP = (n: any) => n != null ? `${Number(n).toFixed(2)}%` : '—';
 const fDate = (s: string) => {
   if (!s) return '';
   const d = new Date(s + 'T00:00:00');
@@ -52,13 +52,13 @@ function computeDtDates(
   }
   if (mode === 'month') {
     const ms = monthStart || fmt(today).slice(0, 7);
-    const me = monthEnd   || fmt(today).slice(0, 7);
+    const me = monthEnd || fmt(today).slice(0, 7);
     const [sy, sm] = ms.split('-').map(Number);
     const [ey, em] = me.split('-').map(Number);
     const lastDay = new Date(ey, em, 0).getDate();
     return {
       date_start: `${sy}-${String(sm).padStart(2, '0')}-01`,
-      date_end:   `${ey}-${String(em).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
+      date_end: `${ey}-${String(em).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
     };
   }
   // range mode — predefined n-day window
@@ -167,10 +167,10 @@ const CSS = `
 `;
 
 /* ── Shared helpers ─────────────────────────────────────────────────── */
-const IC_VOL   = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="6" height="18"/><rect x="9" y="8" width="6" height="13"/><rect x="16" y="13" width="6" height="8"/></svg>;
-const IC_REV   = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>;
-const IC_COST  = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4M21 12a2 2 0 0 0 0 4H5a2 2 0 0 0 0 4h16v-4"/></svg>;
-const IC_TREND = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v6h-6"/></svg>;
+const IC_VOL = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="6" height="18" /><rect x="9" y="8" width="6" height="13" /><rect x="16" y="13" width="6" height="8" /></svg>;
+const IC_REV = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>;
+const IC_COST = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4M21 12a2 2 0 0 0 0 4H5a2 2 0 0 0 0 4h16v-4" /></svg>;
+const IC_TREND = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 17l6-6 4 4 8-8" /><path d="M21 7v6h-6" /></svg>;
 
 function Kpi({ color, label, value, sub, icon }: { color: string; label: string; value: string; sub?: React.ReactNode; icon: React.ReactNode }) {
   return (
@@ -215,7 +215,7 @@ function DiffCell({ o, n, noBg }: { o: any; n: any; noBg?: boolean }) {
   );
 }
 const TIP = { contentStyle: { background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 8, fontSize: 12 }, labelStyle: { color: 'var(--mu)' } };
-const AX  = { tick: { fontSize: 10, fill: 'var(--mu)' }, axisLine: false, tickLine: false };
+const AX = { tick: { fontSize: 10, fill: 'var(--mu)' }, axisLine: false, tickLine: false };
 
 const LEFT_SORT_KEYS = new Set(['date', 'country', 'country_name', 'operator_name', 'customer_name', 'vendor_name', 'month_name']);
 
@@ -258,7 +258,7 @@ function usePagination(total: number, pageSize: number) {
   // Clamp page if total shrinks
   const safePage = Math.min(page, totalPages);
   const start = (safePage - 1) * pageSize;
-  const end   = start + pageSize;
+  const end = start + pageSize;
   return { page: safePage, setPage, totalPages, start, end };
 }
 
@@ -267,7 +267,7 @@ function Paginator({ page, totalPages, setPage, total, pageSize }: {
 }) {
   if (totalPages <= 1) return null;
   const from = (page - 1) * pageSize + 1;
-  const to   = Math.min(page * pageSize, total);
+  const to = Math.min(page * pageSize, total);
   const pages: (number | '…')[] = [];
   if (totalPages <= 7) {
     for (let i = 1; i <= totalPages; i++) pages.push(i);
@@ -308,44 +308,44 @@ function Paginator({ page, totalPages, setPage, total, pageSize }: {
 ════════════════════════════════════════════════════════════════════ */
 type Tab = 'data-table' | 'comparison' | 'profit-loss' | 'yesterday' | 'yesterday-iristel';
 const TABS: { id: Tab; l: string }[] = [
-  { id: 'data-table',         l: 'Data Table' },
-  { id: 'comparison',         l: 'Comparison' },
-  { id: 'profit-loss',        l: 'Profit and Loss' },
-  { id: 'yesterday',          l: 'Yesterday Data' },
-  { id: 'yesterday-iristel',  l: 'Yesterday Data - Iristel' },
+  { id: 'data-table', l: 'Data Table' },
+  { id: 'comparison', l: 'Comparison' },
+  { id: 'profit-loss', l: 'Profit and Loss' },
+  { id: 'yesterday', l: 'Yesterday Data' },
+  { id: 'yesterday-iristel', l: 'Yesterday Data - Iristel' },
 ];
 
 type Metric = 'volume' | 'revenue' | 'vendor_cost' | 'margin';
 const MCFG: Record<Metric, { label: string; color: string; yAxis: 'left' | 'right'; fmt: (v: any) => string }> = {
-  volume:      { label: 'Volume',      color: PAL[0], yAxis: 'left',  fmt: fV },
-  revenue:     { label: 'Revenue',     color: PAL[1], yAxis: 'right', fmt: fR },
+  volume: { label: 'Volume', color: PAL[0], yAxis: 'left', fmt: fV },
+  revenue: { label: 'Revenue', color: PAL[1], yAxis: 'right', fmt: fR },
   vendor_cost: { label: 'Vendor Cost', color: PAL[4], yAxis: 'right', fmt: fR },
-  margin:      { label: 'Margin',      color: PAL[2], yAxis: 'right', fmt: fR },
+  margin: { label: 'Margin', color: PAL[2], yAxis: 'right', fmt: fR },
 };
 
 export default function GoogleMoTrafficPage() {
-  const [tab, setTab]                 = React.useState<Tab>('data-table');
-  const [filters, setFilters]         = React.useState<any>({});
-  const [latestDate, setLatestDate]   = React.useState('');
+  const [tab, setTab] = React.useState<Tab>('data-table');
+  const [filters, setFilters] = React.useState<any>({});
+  const [latestDate, setLatestDate] = React.useState('');
   const [lastRefresh, setLastRefresh] = React.useState<string | null>(null);
-  const [datasetId, setDatasetId]     = React.useState<string | null>(null);
+  const [datasetId, setDatasetId] = React.useState<string | null>(null);
   const [refreshTick, setRefreshTick] = React.useState(0);
 
   /* ── Data Table state ──────────────────────────────────────── */
-  const [dtMode,       setDtMode]       = React.useState<'day' | 'month' | 'range'>('day');
-  const [dtDayStart,   setDtDayStart]   = React.useState('');
-  const [dtDayEnd,     setDtDayEnd]     = React.useState('');
+  const [dtMode, setDtMode] = React.useState<'day' | 'month' | 'range'>('day');
+  const [dtDayStart, setDtDayStart] = React.useState('');
+  const [dtDayEnd, setDtDayEnd] = React.useState('');
   const [dtMonthStart, setDtMonthStart] = React.useState('');
-  const [dtMonthEnd,   setDtMonthEnd]   = React.useState('');
-  const [dtRange,      setDtRange]      = React.useState('5');
-  const [dtMccmnc,     setDtMccmnc]     = React.useState('');
-  const [dtCountry,    setDtCountry]    = React.useState('');
-  const [dtOperator,   setDtOperator]   = React.useState('');
-  const [dtData,       setDtData]       = React.useState<any>(null);
-  const [dtLoad,       setDtLoad]       = React.useState(false);
-  const [dtMetrics,    setDtMetrics]    = React.useState<Set<Metric>>(new Set<Metric>(['volume']));
-  const [dtOpMetrics,  setDtOpMetrics]  = React.useState<Set<Metric>>(new Set<Metric>(['volume','revenue','vendor_cost','margin']));
-  const [estimates,    setEstimates]    = React.useState<any>(null);
+  const [dtMonthEnd, setDtMonthEnd] = React.useState('');
+  const [dtRange, setDtRange] = React.useState('5');
+  const [dtMccmnc, setDtMccmnc] = React.useState('');
+  const [dtCountry, setDtCountry] = React.useState('');
+  const [dtOperator, setDtOperator] = React.useState('');
+  const [dtData, setDtData] = React.useState<any>(null);
+  const [dtLoad, setDtLoad] = React.useState(false);
+  const [dtMetrics, setDtMetrics] = React.useState<Set<Metric>>(new Set<Metric>(['volume']));
+  const [dtOpMetrics, setDtOpMetrics] = React.useState<Set<Metric>>(new Set<Metric>(['volume', 'revenue', 'vendor_cost', 'margin']));
+  const [estimates, setEstimates] = React.useState<any>(null);
 
   const dtRowSort = useSortState('date');
 
@@ -361,43 +361,43 @@ export default function GoogleMoTrafficPage() {
   });
 
   /* Comparison */
-  const [cDateNew,  setCDateNew]  = React.useState('');
-  const [cDateOld,  setCDateOld]  = React.useState('');
-  const [cCountry,  setCCountry]  = React.useState('');
+  const [cDateNew, setCDateNew] = React.useState('');
+  const [cDateOld, setCDateOld] = React.useState('');
+  const [cCountry, setCCountry] = React.useState('');
   const [cOperator, setCOperator] = React.useState('');
-  const [cData,     setCData]     = React.useState<any>(null);
-  const [cLoad,     setCLoad]     = React.useState(false);
+  const [cData, setCData] = React.useState<any>(null);
+  const [cLoad, setCLoad] = React.useState(false);
 
-  const cmpSort  = useSortState('volume_new');
+  const cmpSort = useSortState('volume_new');
   const yvdbSort = useSortState('volume_td2');
 
   /* Profit and Loss */
-  const [plMccmnc,          setPlMccmnc]          = React.useState('');
-  const [plCountry,         setPlCountry]         = React.useState('');
-  const [plOperator,        setPlOperator]        = React.useState('');
-  const [plYear,            setPlYear]            = React.useState('');
-  const [plMonth,           setPlMonth]           = React.useState('');
-  const [plAvailableYears,  setPlAvailableYears]  = React.useState<number[]>([]);
+  const [plMccmnc, setPlMccmnc] = React.useState('');
+  const [plCountry, setPlCountry] = React.useState('');
+  const [plOperator, setPlOperator] = React.useState('');
+  const [plYear, setPlYear] = React.useState('');
+  const [plMonth, setPlMonth] = React.useState('');
+  const [plAvailableYears, setPlAvailableYears] = React.useState<number[]>([]);
   const [plAvailableMonths, setPlAvailableMonths] = React.useState<number[]>([]);
-  const [plData,            setPlData]            = React.useState<any>(null);
-  const [plLoad,            setPlLoad]            = React.useState(false);
+  const [plData, setPlData] = React.useState<any>(null);
+  const [plLoad, setPlLoad] = React.useState(false);
   const plSort = useSortState('year');
 
   /* Yesterday */
-  const [yMccmnc,   setYMccmnc]   = React.useState('');
-  const [yCountry,  setYCountry]  = React.useState('');
+  const [yMccmnc, setYMccmnc] = React.useState('');
+  const [yCountry, setYCountry] = React.useState('');
   const [yOperator, setYOperator] = React.useState('');
-  const [yData,     setYData]     = React.useState<any>(null);
-  const [yLoad,     setYLoad]     = React.useState(false);
+  const [yData, setYData] = React.useState<any>(null);
+  const [yLoad, setYLoad] = React.useState(false);
   const ySort = useSortState('date');
 
   /* Yesterday Iristel */
-  const [yiFilters,  setYiFilters]  = React.useState<any>(null);
-  const [yiMccmnc,   setYiMccmnc]   = React.useState('');
-  const [yiCountry,  setYiCountry]  = React.useState('');
+  const [yiFilters, setYiFilters] = React.useState<any>(null);
+  const [yiMccmnc, setYiMccmnc] = React.useState('');
+  const [yiCountry, setYiCountry] = React.useState('');
   const [yiOperator, setYiOperator] = React.useState('');
-  const [yiData,     setYiData]     = React.useState<any>(null);
-  const [yiLoad,     setYiLoad]     = React.useState(false);
+  const [yiData, setYiData] = React.useState<any>(null);
+  const [yiLoad, setYiLoad] = React.useState(false);
   const yiSort = useSortState('date');
 
   /* ── Initialise date inputs after mount (client-only) ──────── */
@@ -405,7 +405,7 @@ export default function GoogleMoTrafficPage() {
     const today = new Date();
     const fmt = (d: Date) =>
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const fiveAgo   = new Date(today); fiveAgo.setDate(today.getDate() - 4);
+    const fiveAgo = new Date(today); fiveAgo.setDate(today.getDate() - 4);
     const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
     const dayBefore = new Date(today); dayBefore.setDate(today.getDate() - 2);
     const ym = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -442,10 +442,10 @@ export default function GoogleMoTrafficPage() {
     setDtLoad(true);
     const p: Record<string, string> = {};
     if (dtApiStart) p.date_start = dtApiStart;
-    if (dtApiEnd)   p.date_end   = dtApiEnd;
-    if (dtMccmnc)   p.mccmnc    = dtMccmnc;
-    if (dtCountry)  p.country   = dtCountry;
-    if (dtOperator) p.operator  = dtOperator;
+    if (dtApiEnd) p.date_end = dtApiEnd;
+    if (dtMccmnc) p.mccmnc = dtMccmnc;
+    if (dtCountry) p.country = dtCountry;
+    if (dtOperator) p.operator = dtOperator;
     Promise.all([googleMoApi.getData(p), googleMoApi.getEstimates(p)])
       .then(([d, e]) => { setDtData((d as any).data); setEstimates((e as any).data); })
       .catch(console.error).finally(() => setDtLoad(false));
@@ -455,9 +455,9 @@ export default function GoogleMoTrafficPage() {
     if (tab !== 'comparison') return;
     setCLoad(true);
     const p: Record<string, string> = {};
-    if (cDateOld)  p.date_old  = cDateOld;
-    if (cDateNew)  p.date_new  = cDateNew;
-    if (cCountry)  p.countries = cCountry;
+    if (cDateOld) p.date_old = cDateOld;
+    if (cDateNew) p.date_new = cDateNew;
+    if (cCountry) p.countries = cCountry;
     if (cOperator) p.operators = cOperator;
     googleMoApi.getComparison(p).then(r => setCData((r as any).data)).catch(console.error).finally(() => setCLoad(false));
   }, [tab, cDateOld, cDateNew, cCountry, cOperator, refreshTick]);
@@ -466,18 +466,18 @@ export default function GoogleMoTrafficPage() {
     if (tab !== 'profit-loss') return;
     setPlLoad(true);
     const p: Record<string, string> = {};
-    if (plMccmnc)   p.mccmnc    = plMccmnc;
-    if (plCountry)  p.countries = plCountry;
+    if (plMccmnc) p.mccmnc = plMccmnc;
+    if (plCountry) p.countries = plCountry;
     if (plOperator) p.operators = plOperator;
-    if (plYear)     p.year      = plYear;
-    if (plMonth)    p.month     = plMonth;
+    if (plYear) p.year = plYear;
+    if (plMonth) p.month = plMonth;
     googleMoApi.getProfitLoss(p).then(r => setPlData((r as any).data)).catch(console.error).finally(() => setPlLoad(false));
   }, [tab, plMccmnc, plCountry, plOperator, plYear, plMonth, refreshTick]);
 
   // On mount: cascade fetch years → pick best year → fetch months → pick best month
   React.useEffect(() => {
     const today = new Date();
-    const currYear  = today.getFullYear();
+    const currYear = today.getFullYear();
     const currMonth = today.getMonth() + 1;
     googleMoApi.getPlYears().then(r => {
       const years: number[] = (r as any).data?.years ?? [];
@@ -508,8 +508,8 @@ export default function GoogleMoTrafficPage() {
     if (tab !== 'yesterday') return;
     setYLoad(true);
     const p: Record<string, string> = {};
-    if (yMccmnc)   p.mccmnc    = yMccmnc;
-    if (yCountry)  p.countries = yCountry;
+    if (yMccmnc) p.mccmnc = yMccmnc;
+    if (yCountry) p.countries = yCountry;
     if (yOperator) p.operators = yOperator;
     googleMoApi.getYesterday(p).then(r => setYData((r as any).data)).catch(console.error).finally(() => setYLoad(false));
   }, [tab, yMccmnc, yCountry, yOperator, refreshTick]);
@@ -521,23 +521,23 @@ export default function GoogleMoTrafficPage() {
     }
     setYiLoad(true);
     const p: Record<string, string> = {};
-    if (yiMccmnc)   p.mccmnc    = yiMccmnc;
-    if (yiCountry)  p.countries = yiCountry;
+    if (yiMccmnc) p.mccmnc = yiMccmnc;
+    if (yiCountry) p.countries = yiCountry;
     if (yiOperator) p.operators = yiOperator;
     googleMoApi.getYesterdayIristel(p).then(r => setYiData((r as any).data)).catch(console.error).finally(() => setYiLoad(false));
   }, [tab, yiMccmnc, yiCountry, yiOperator, refreshTick]);
 
   /* ── Derived ────────────────────────────────────────────────── */
-  const yRows   = yData?.rows ?? [];
+  const yRows = yData?.rows ?? [];
   const ySorted = ySort.sort(yRows);
-  const yPag    = usePagination(ySorted.length, 12);
+  const yPag = usePagination(ySorted.length, 12);
   const yTotals = React.useMemo(() => {
     if (!yRows.length) return null;
     return yRows.reduce((acc: any, r: any) => ({
-      volume:      acc.volume      + Number(r.volume      || 0),
-      revenue:     acc.revenue     + Number(r.revenue     || 0),
+      volume: acc.volume + Number(r.volume || 0),
+      revenue: acc.revenue + Number(r.revenue || 0),
       vendor_cost: acc.vendor_cost + Number(r.vendor_cost || 0),
-      margin:      acc.margin      + Number(r.margin      || 0),
+      margin: acc.margin + Number(r.margin || 0),
     }), { volume: 0, revenue: 0, vendor_cost: 0, margin: 0 });
   }, [yRows]);
 
@@ -548,24 +548,24 @@ export default function GoogleMoTrafficPage() {
       const key = r.country_name ?? '';
       if (!map.has(key)) map.set(key, { country_name: key, volume: 0, revenue: 0, vendor_cost: 0, margin: 0 });
       const e = map.get(key)!;
-      e.volume      += Number(r.volume      || 0);
-      e.revenue     += Number(r.revenue     || 0);
+      e.volume += Number(r.volume || 0);
+      e.revenue += Number(r.revenue || 0);
       e.vendor_cost += Number(r.vendor_cost || 0);
-      e.margin      += Number(r.margin      || 0);
+      e.margin += Number(r.margin || 0);
     }
     return Array.from(map.values()).sort((a, b) => b.volume - a.volume);
   }, [yRows]);
 
-  const yiRows   = yiData?.rows ?? [];
+  const yiRows = yiData?.rows ?? [];
   const yiSorted = yiSort.sort(yiRows);
-  const yiPag    = usePagination(yiSorted.length, 12);
+  const yiPag = usePagination(yiSorted.length, 12);
   const yiTotals = React.useMemo(() => {
     if (!yiRows.length) return null;
     return yiRows.reduce((acc: any, r: any) => ({
-      volume:      acc.volume      + Number(r.volume      || 0),
-      revenue:     acc.revenue     + Number(r.revenue     || 0),
+      volume: acc.volume + Number(r.volume || 0),
+      revenue: acc.revenue + Number(r.revenue || 0),
       vendor_cost: acc.vendor_cost + Number(r.vendor_cost || 0),
-      margin:      acc.margin      + Number(r.margin      || 0),
+      margin: acc.margin + Number(r.margin || 0),
     }), { volume: 0, revenue: 0, vendor_cost: 0, margin: 0 });
   }, [yiRows]);
   const yiChartData = React.useMemo(() => {
@@ -575,26 +575,26 @@ export default function GoogleMoTrafficPage() {
       const key = r.country_name ?? '';
       if (!map.has(key)) map.set(key, { country_name: key, volume: 0, revenue: 0, vendor_cost: 0, margin: 0 });
       const e = map.get(key)!;
-      e.volume      += Number(r.volume      || 0);
-      e.revenue     += Number(r.revenue     || 0);
+      e.volume += Number(r.volume || 0);
+      e.revenue += Number(r.revenue || 0);
       e.vendor_cost += Number(r.vendor_cost || 0);
-      e.margin      += Number(r.margin      || 0);
+      e.margin += Number(r.margin || 0);
     }
     return Array.from(map.values()).sort((a, b) => b.volume - a.volume);
   }, [yiRows]);
 
   // Main data rows table
-  const dtMainRows   = React.useMemo(() => dtData?.rows ?? [], [dtData]);
+  const dtMainRows = React.useMemo(() => dtData?.rows ?? [], [dtData]);
   const dtMainSorted = dtRowSort.sort(dtMainRows);
-  const dtRowPag     = usePagination(dtMainSorted.length, 12);
+  const dtRowPag = usePagination(dtMainSorted.length, 12);
 
   // Operator summary — always last 30 days, respects mccmnc/country/operator filters
-  const dtOpRows30  = React.useMemo(() => (dtData?.operator_summary30 ?? []).map((r: any, i: number) => ({
+  const dtOpRows30 = React.useMemo(() => (dtData?.operator_summary30 ?? []).map((r: any, i: number) => ({
     ...r,
-    volume:      Number(r.volume      ?? 0),
-    revenue:     Number(r.revenue     ?? 0),
+    volume: Number(r.volume ?? 0),
+    revenue: Number(r.revenue ?? 0),
     vendor_cost: Number(r.vendor_cost ?? 0),
-    margin:      Number(r.margin      ?? 0),
+    margin: Number(r.margin ?? 0),
     col: PAL[i % PAL.length],
   })), [dtData]);
 
@@ -602,25 +602,25 @@ export default function GoogleMoTrafficPage() {
   const DT_OP_VOL_TICKS = [0, 15_000, 75_000, 150_000, 250_000];
 
   // Estimates pagination
-  const dtEstRows   = estimates?.rows ?? [];
-  const dtEstSort   = useSortState('traffic_30d');
+  const dtEstRows = estimates?.rows ?? [];
+  const dtEstSort = useSortState('traffic_30d');
   const dtEstSorted = dtEstSort.sort(dtEstRows);
-  const dtEstPag    = usePagination(dtEstSorted.length, 12);
+  const dtEstPag = usePagination(dtEstSorted.length, 12);
 
   const cTotals = cData ? {
-    vol_old: Number(cData.totals_old?.volume      ?? 0),
-    vol_new: Number(cData.totals_new?.volume      ?? 0),
-    rev_old: Number(cData.totals_old?.revenue     ?? 0),
-    rev_new: Number(cData.totals_new?.revenue     ?? 0),
-    vc_old:  Number(cData.totals_old?.vendor_cost ?? 0),
-    vc_new:  Number(cData.totals_new?.vendor_cost ?? 0),
-    mar_old: Number(cData.totals_old?.margin      ?? 0),
-    mar_new: Number(cData.totals_new?.margin      ?? 0),
+    vol_old: Number(cData.totals_old?.volume ?? 0),
+    vol_new: Number(cData.totals_new?.volume ?? 0),
+    rev_old: Number(cData.totals_old?.revenue ?? 0),
+    rev_new: Number(cData.totals_new?.revenue ?? 0),
+    vc_old: Number(cData.totals_old?.vendor_cost ?? 0),
+    vc_new: Number(cData.totals_new?.vendor_cost ?? 0),
+    mar_old: Number(cData.totals_old?.margin ?? 0),
+    mar_new: Number(cData.totals_new?.margin ?? 0),
   } : null;
 
   const cTrendPivot = React.useMemo(() => {
     const byDate: Record<string, any> = {};
-    const countrySet: Set<string>     = new Set();
+    const countrySet: Set<string> = new Set();
     for (const r of cData?.trends ?? []) {
       if (!byDate[r.date]) byDate[r.date] = { date: r.date };
       byDate[r.date][r.country_name] = Number(r.revenue ?? 0);
@@ -635,7 +635,7 @@ export default function GoogleMoTrafficPage() {
   const cOldLabel = cDateOld ? fDate(cDateOld) : (cData?.date_old ? fDate(cData.date_old) : '—');
   const cNewLabel = cDateNew ? fDate(cDateNew) : (cData?.date_new ? fDate(cData.date_new) : '—');
 
-  const cmpRows    = cData?.rows ?? [];
+  const cmpRows = cData?.rows ?? [];
 
   const cRevShareOld = React.useMemo(() => {
     if (!cmpRows.length) return [];
@@ -660,35 +660,35 @@ export default function GoogleMoTrafficPage() {
       fill: PAL[i % PAL.length],
     }));
   }, [cmpRows]);
-  const cmpSorted  = cmpSort.sort(cmpRows);
-  const cmpPag     = usePagination(cmpSorted.length, 12);
+  const cmpSorted = cmpSort.sort(cmpRows);
+  const cmpPag = usePagination(cmpSorted.length, 12);
 
-  const yvdbRows   = cData?.yesterday_vs_day_before ?? [];
+  const yvdbRows = cData?.yesterday_vs_day_before ?? [];
   const yvdbSorted = yvdbSort.sort(yvdbRows);
-  const yvdbPag    = usePagination(yvdbSorted.length, 12);
+  const yvdbPag = usePagination(yvdbSorted.length, 12);
   const yvdbTotals = React.useMemo(() => {
     if (!yvdbRows.length) return null;
     return yvdbRows.reduce((acc: any, r: any) => ({
-      volume_td2:  acc.volume_td2  + Number(r.volume_td2  || 0),
-      volume_td1:  acc.volume_td1  + Number(r.volume_td1  || 0),
+      volume_td2: acc.volume_td2 + Number(r.volume_td2 || 0),
+      volume_td1: acc.volume_td1 + Number(r.volume_td1 || 0),
       revenue_td2: acc.revenue_td2 + Number(r.revenue_td2 || 0),
       revenue_td1: acc.revenue_td1 + Number(r.revenue_td1 || 0),
-      margin_td2:  acc.margin_td2  + Number(r.margin_td2  || 0),
-      margin_td1:  acc.margin_td1  + Number(r.margin_td1  || 0),
+      margin_td2: acc.margin_td2 + Number(r.margin_td2 || 0),
+      margin_td1: acc.margin_td1 + Number(r.margin_td1 || 0),
     }), { volume_td2: 0, volume_td1: 0, revenue_td2: 0, revenue_td1: 0, margin_td2: 0, margin_td1: 0 });
   }, [yvdbRows]);
 
-  const plRows   = plData?.rows ?? [];
+  const plRows = plData?.rows ?? [];
   const plSorted = plSort.sort(plRows);
-  const plPag    = usePagination(plSorted.length, 12);
+  const plPag = usePagination(plSorted.length, 12);
   const plTotals = React.useMemo(() => {
     if (!plRows.length) return null;
     return plRows.reduce((acc: any, r: any) => ({
-      volume:            acc.volume            + Number(r.volume            || 0),
-      revenue:           acc.revenue           + Number(r.revenue           || 0),
-      vendor_cost:       acc.vendor_cost       + Number(r.vendor_cost       || 0),
+      volume: acc.volume + Number(r.volume || 0),
+      revenue: acc.revenue + Number(r.revenue || 0),
+      vendor_cost: acc.vendor_cost + Number(r.vendor_cost || 0),
       monthly_misc_cost: acc.monthly_misc_cost + Number(r.monthly_misc_cost || 0),
-      margin:            acc.margin            + Number(r.margin            || 0),
+      margin: acc.margin + Number(r.margin || 0),
     }), { volume: 0, revenue: 0, vendor_cost: 0, monthly_misc_cost: 0, margin: 0 });
   }, [plRows]);
 
@@ -761,7 +761,7 @@ export default function GoogleMoTrafficPage() {
                     setDtMccmnc(''); setDtCountry(''); setDtOperator('');
                     setDtMode('day');
                     const today = new Date();
-                    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                     const fiveAgo = new Date(today); fiveAgo.setDate(today.getDate() - 4);
                     setDtDayStart(fmt(fiveAgo)); setDtDayEnd(fmt(today));
                     setDtRange('5');
@@ -832,10 +832,10 @@ export default function GoogleMoTrafficPage() {
             {/* ── KPI Cards ─────────────────────────────────── */}
             {dtData?.totals && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 18 }}>
-                <Kpi color="km1" label="Volume"      icon={IC_VOL}   value={fN(dtData.totals.volume)}      sub={dtRangeLabel} />
-                <Kpi color="km2" label="Revenue"     icon={IC_REV}   value={fM(dtData.totals.revenue)}     sub={dtRangeLabel} />
-                <Kpi color="km3" label="Vendor Cost" icon={IC_COST}  value={fM(dtData.totals.vendor_cost)} sub="supplier cost" />
-                <Kpi color="km4" label="Margin"      icon={IC_TREND} value={fM(dtData.totals.margin)}      sub="net contribution" />
+                <Kpi color="km1" label="Volume" icon={IC_VOL} value={fN(dtData.totals.volume)} sub={dtRangeLabel} />
+                <Kpi color="km2" label="Revenue" icon={IC_REV} value={fM(dtData.totals.revenue)} sub={dtRangeLabel} />
+                <Kpi color="km3" label="Vendor Cost" icon={IC_COST} value={fM(dtData.totals.vendor_cost)} sub="supplier cost" />
+                <Kpi color="km4" label="Margin" icon={IC_TREND} value={fM(dtData.totals.margin)} sub="net contribution" />
               </div>
             )}
 
@@ -856,15 +856,15 @@ export default function GoogleMoTrafficPage() {
                       <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
                         <table className="zt">
                           <thead><tr>
-                            {dtRowSort.th('date',          'Date')}
-                            {dtRowSort.th('country_name',  'Country')}
+                            {dtRowSort.th('date', 'Date')}
+                            {dtRowSort.th('country_name', 'Country')}
                             {dtRowSort.th('operator_name', 'Operator')}
                             {dtRowSort.th('customer_name', 'Customer')}
-                            {dtRowSort.th('vendor_name',   'Vendor')}
-                            {dtRowSort.th('volume',        'Volume')}
-                            {dtRowSort.th('revenue',       'Revenue')}
-                            {dtRowSort.th('vendor_cost',   'Vendor Cost')}
-                            {dtRowSort.th('margin',        'Margin')}
+                            {dtRowSort.th('vendor_name', 'Vendor')}
+                            {dtRowSort.th('volume', 'Volume')}
+                            {dtRowSort.th('revenue', 'Revenue')}
+                            {dtRowSort.th('vendor_cost', 'Vendor Cost')}
+                            {dtRowSort.th('margin', 'Margin')}
                           </tr></thead>
                           <tbody>
                             {dtMainSorted.slice(dtRowPag.start, dtRowPag.end).map((r: any, i: number) => (
@@ -925,28 +925,28 @@ export default function GoogleMoTrafficPage() {
                       {(() => {
                         const parsed = dtData.trends30.map((d: any) => ({
                           ...d,
-                          volume:      Number(d.volume      ?? 0),
-                          revenue:     Number(d.revenue     ?? 0),
+                          volume: Number(d.volume ?? 0),
+                          revenue: Number(d.revenue ?? 0),
                           vendor_cost: Number(d.vendor_cost ?? 0),
-                          margin:      Number(d.margin      ?? 0),
+                          margin: Number(d.margin ?? 0),
                         }));
-                        const showLeft  = dtMetrics.has('volume');
+                        const showLeft = dtMetrics.has('volume');
                         const showRight = dtMetrics.has('revenue') || dtMetrics.has('vendor_cost') || dtMetrics.has('margin');
-                        const multi     = dtMetrics.size > 1;
+                        const multi = dtMetrics.size > 1;
                         return (
                           <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={parsed} margin={{ top: 8, right: showRight ? 70 : 16, bottom: 0, left: 0 }}>
                               <defs>
                                 {(Object.keys(MCFG) as Metric[]).map(m => (
                                   <linearGradient key={m} id={`gmlg_${m}`} x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%"   stopColor={MCFG[m].color} stopOpacity={multi ? 0.22 : 0.45} />
+                                    <stop offset="0%" stopColor={MCFG[m].color} stopOpacity={multi ? 0.22 : 0.45} />
                                     <stop offset="100%" stopColor={MCFG[m].color} stopOpacity={0.02} />
                                   </linearGradient>
                                 ))}
                               </defs>
                               <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
                               <XAxis dataKey="date" {...AX} tickFormatter={(v: string) => v.slice(5)} />
-                              <YAxis yAxisId="left"  orientation="left"  {...AX} width={showLeft ? 60 : 0}  hide={!showLeft}  domain={[0, (d: number) => d * 1.15]} tickFormatter={v => fV(v)} />
+                              <YAxis yAxisId="left" orientation="left"  {...AX} width={showLeft ? 60 : 0} hide={!showLeft} domain={[0, (d: number) => d * 1.15]} tickFormatter={v => fV(v)} />
                               <YAxis yAxisId="right" orientation="right" {...AX} width={showRight ? 70 : 0} hide={!showRight} domain={[0, (d: number) => d * 1.15]} tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}K`} />
                               <Tooltip {...TIP}
                                 formatter={(v: any, name: string) => { const m = name as Metric; return [MCFG[m]?.fmt(v) ?? v, MCFG[m]?.label ?? name]; }}
@@ -1002,7 +1002,7 @@ export default function GoogleMoTrafficPage() {
                           <defs>
                             {(Object.keys(MCFG) as Metric[]).map(m => (
                               <linearGradient key={m} id={`barlg_${m}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%"   stopColor={MCFG[m].color} stopOpacity={1}   />
+                                <stop offset="0%" stopColor={MCFG[m].color} stopOpacity={1} />
                                 <stop offset="100%" stopColor={MCFG[m].color} stopOpacity={0.72} />
                               </linearGradient>
                             ))}
@@ -1078,9 +1078,9 @@ export default function GoogleMoTrafficPage() {
                     <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
                       <table className="zt">
                         <thead><tr>
-                          {dtEstSort.th('country',      'Country')}
-                          {dtEstSort.th('traffic_30d',  'Traffic (period)')}
-                          {dtEstSort.th('estimation',   'Traffic Estimates')}
+                          {dtEstSort.th('country', 'Country')}
+                          {dtEstSort.th('traffic_30d', 'Traffic (period)')}
+                          {dtEstSort.th('estimation', 'Traffic Estimates')}
                           {dtEstSort.th('pct_received', '% of Traffic Received')}
                         </tr></thead>
                         <tbody>
@@ -1152,10 +1152,10 @@ export default function GoogleMoTrafficPage() {
                       <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, fontFamily: "'Montserrat',sans-serif" }}>{cOldLabel}</div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 28px' }}>
                         {[
-                          { label: 'MESSAGES',    val: fN(cTotals.vol_old) },
-                          { label: 'VENDOR COST', val: fR(cTotals.vc_old)  },
-                          { label: 'REVENUE',     val: fR(cTotals.rev_old) },
-                          { label: 'MARGIN',      val: fR(cTotals.mar_old) },
+                          { label: 'MESSAGES', val: fN(cTotals.vol_old) },
+                          { label: 'VENDOR COST', val: fR(cTotals.vc_old) },
+                          { label: 'REVENUE', val: fR(cTotals.rev_old) },
+                          { label: 'MARGIN', val: fR(cTotals.mar_old) },
                         ].map(({ label, val }) => (
                           <div key={label}>
                             <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', opacity: 0.72, marginBottom: 4 }}>{label}</div>
@@ -1169,10 +1169,10 @@ export default function GoogleMoTrafficPage() {
                       <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, fontFamily: "'Montserrat',sans-serif" }}>{cNewLabel}</div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 28px' }}>
                         {[
-                          { label: 'MESSAGES',    val: fN(cTotals.vol_new) },
-                          { label: 'VENDOR COST', val: fR(cTotals.vc_new)  },
-                          { label: 'REVENUE',     val: fR(cTotals.rev_new) },
-                          { label: 'MARGIN',      val: fR(cTotals.mar_new) },
+                          { label: 'MESSAGES', val: fN(cTotals.vol_new) },
+                          { label: 'VENDOR COST', val: fR(cTotals.vc_new) },
+                          { label: 'REVENUE', val: fR(cTotals.rev_new) },
+                          { label: 'MARGIN', val: fR(cTotals.mar_new) },
                         ].map(({ label, val }) => (
                           <div key={label}>
                             <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', opacity: 0.72, marginBottom: 4 }}>{label}</div>
@@ -1231,16 +1231,16 @@ export default function GoogleMoTrafficPage() {
                       <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
                         <table className="zt">
                           <thead><tr>
-                            {cmpSort.th('country_name',      'Country Name')}
-                            {cmpSort.th('volume_old',        'Volume Old')}
-                            {cmpSort.th('volume_new',        'Volume New')}
-                            {cmpSort.th('volume_diff_pct',   'Volume Diff %')}
-                            {cmpSort.th('revenue_old',       'Revenue Old')}
-                            {cmpSort.th('revenue_new',       'Revenue New')}
-                            {cmpSort.th('revenue_diff_pct',  'Revenue Diff %')}
-                            {cmpSort.th('margin_old',        'Margin Old')}
-                            {cmpSort.th('margin_new',        'Margin New')}
-                            {cmpSort.th('margin_diff_pct',   'Margin Diff %')}
+                            {cmpSort.th('country_name', 'Country Name')}
+                            {cmpSort.th('volume_old', 'Volume Old')}
+                            {cmpSort.th('volume_new', 'Volume New')}
+                            {cmpSort.th('volume_diff_pct', 'Volume Diff %')}
+                            {cmpSort.th('revenue_old', 'Revenue Old')}
+                            {cmpSort.th('revenue_new', 'Revenue New')}
+                            {cmpSort.th('revenue_diff_pct', 'Revenue Diff %')}
+                            {cmpSort.th('margin_old', 'Margin Old')}
+                            {cmpSort.th('margin_new', 'Margin New')}
+                            {cmpSort.th('margin_diff_pct', 'Margin Diff %')}
                           </tr></thead>
                           <tbody>
                             {cmpSorted.slice(cmpPag.start, cmpPag.end).map((r: any, i: number) => (
@@ -1297,63 +1297,6 @@ export default function GoogleMoTrafficPage() {
                   </div>
                 )}
 
-                {/* Table 2: Yesterday Vs Day Before Yesterday */}
-                <div className="zpnl">
-                  <PH title="Yesterday Vs Day Before Yesterday" right="TD - 1 = yesterday  ·  TD - 2 = day before yesterday" />
-                  {!yvdbSorted.length ? (
-                    <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No data available.</div>
-                  ) : (
-                    <>
-                      <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
-                        <table className="zt">
-                          <thead><tr>
-                            {yvdbSort.th('country_name',      'Country')}
-                            {yvdbSort.th('volume_td2',        'Volume (TD - 1)')}
-                            {yvdbSort.th('volume_td1',        'Volume (TD - 2)')}
-                            {yvdbSort.th('volume_diff_pct',   'Volume Diff %')}
-                            {yvdbSort.th('revenue_td2',       'Revenue (TD - 1)')}
-                            {yvdbSort.th('revenue_td1',       'Revenue (TD - 2)')}
-                            {yvdbSort.th('revenue_diff_pct',  'Revenue Diff %')}
-                            {yvdbSort.th('margin_td2',        'Margin (TD - 1)')}
-                            {yvdbSort.th('margin_td1',        'Margin (TD - 2)')}
-                            {yvdbSort.th('margin_diff_pct',   'Margin Diff %')}
-                          </tr></thead>
-                          <tbody>
-                            {yvdbSorted.slice(yvdbPag.start, yvdbPag.end).map((r: any, i: number) => (
-                              <tr key={i}>
-                                <td><div className="zconn"><span className="zdot" style={{ background: PAL[(yvdbPag.start + i) % PAL.length] }} />{r.country_name}</div></td>
-                                <td>{fN(r.volume_td2)}</td>
-                                <td>{fN(r.volume_td1)}</td>
-                                <DiffCell o={r.volume_td1} n={r.volume_td2} noBg />
-                                <td>{fR(r.revenue_td2)}</td>
-                                <td>{fR(r.revenue_td1)}</td>
-                                <DiffCell o={r.revenue_td1} n={r.revenue_td2} noBg />
-                                <td className={Number(r.margin_td2 ?? 0) < 0 ? 'zneg' : ''}>{fR(r.margin_td2)}</td>
-                                <td className={Number(r.margin_td1 ?? 0) < 0 ? 'zneg' : ''}>{fR(r.margin_td1)}</td>
-                                <DiffCell o={r.margin_td1} n={r.margin_td2} noBg />
-                              </tr>
-                            ))}
-                          </tbody>
-                          {yvdbTotals && (
-                            <tfoot><tr>
-                              <td>Total</td>
-                              <td>{fN(yvdbTotals.volume_td2)}</td>
-                              <td>{fN(yvdbTotals.volume_td1)}</td>
-                              <DiffCell o={yvdbTotals.volume_td1} n={yvdbTotals.volume_td2} noBg />
-                              <td>{fR(yvdbTotals.revenue_td2)}</td>
-                              <td>{fR(yvdbTotals.revenue_td1)}</td>
-                              <DiffCell o={yvdbTotals.revenue_td1} n={yvdbTotals.revenue_td2} noBg />
-                              <td>{fR(yvdbTotals.margin_td2)}</td>
-                              <td>{fR(yvdbTotals.margin_td1)}</td>
-                              <DiffCell o={yvdbTotals.margin_td1} n={yvdbTotals.margin_td2} noBg />
-                            </tr></tfoot>
-                          )}
-                        </table>
-                      </div>
-                      <Paginator page={yvdbPag.page} totalPages={yvdbPag.totalPages} setPage={yvdbPag.setPage} total={yvdbSorted.length} pageSize={12} />
-                    </>
-                  )}
-                </div>
               </>
             )}
           </>
@@ -1413,13 +1356,13 @@ export default function GoogleMoTrafficPage() {
                     <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
                       <table className="zt">
                         <thead><tr>
-                          {plSort.th('month_name',        'Month Name')}
-                          {plSort.th('country_name',      'Country Name')}
-                          {plSort.th('revenue',           'Revenue')}
-                          {plSort.th('vendor_cost',       'Vendor Cost')}
-                          {plSort.th('volume',            'Volume')}
+                          {plSort.th('month_name', 'Month Name')}
+                          {plSort.th('country_name', 'Country Name')}
+                          {plSort.th('revenue', 'Revenue')}
+                          {plSort.th('vendor_cost', 'Vendor Cost')}
+                          {plSort.th('volume', 'Volume')}
                           {plSort.th('monthly_misc_cost', 'Monthly & Miscellaneous Cost')}
-                          {plSort.th('margin',            'Margin')}
+                          {plSort.th('margin', 'Margin')}
                         </tr></thead>
                         <tbody>
                           {plSorted.slice(plPag.start, plPag.end).map((r: any, i: number) => (
@@ -1495,14 +1438,14 @@ export default function GoogleMoTrafficPage() {
                       <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
                         <table className="zt">
                           <thead><tr>
-                            {ySort.th('date',          'Date')}
-                            {ySort.th('country_name',  'Country Name',  'center')}
+                            {ySort.th('date', 'Date')}
+                            {ySort.th('country_name', 'Country Name', 'center')}
                             {ySort.th('operator_name', 'Operator Name', 'center')}
-                            {ySort.th('vendor_name',   'Vendor Name',   'center')}
-                            {ySort.th('volume',        'Volume')}
-                            {ySort.th('revenue',       'Revenue')}
-                            {ySort.th('vendor_cost',   'Vendor Cost')}
-                            {ySort.th('margin',        'Margin')}
+                            {ySort.th('vendor_name', 'Vendor Name', 'center')}
+                            {ySort.th('volume', 'Volume')}
+                            {ySort.th('revenue', 'Revenue')}
+                            {ySort.th('vendor_cost', 'Vendor Cost')}
+                            {ySort.th('margin', 'Margin')}
                           </tr></thead>
                           <tbody>
                             {ySorted.slice(yPag.start, yPag.end).map((r: any, i: number) => (
@@ -1542,7 +1485,7 @@ export default function GoogleMoTrafficPage() {
                         <BarChart data={yChartData.slice(0, 12).map((d: any) => ({ ...d, margin: Math.max(0, d.margin) }))} margin={{ top: 4, right: 64, bottom: 80, left: 10 }} barCategoryGap="28%" barGap={3}>
                           <CartesianGrid strokeDasharray="3 5" stroke="var(--ln)" vertical={false} />
                           <XAxis dataKey="country_name" tick={{ fontSize: 10, fill: 'var(--inks)' }} axisLine={{ stroke: 'var(--lns)' }} tickLine={false} angle={-40} textAnchor="end" interval={0} height={80} />
-                          <YAxis yAxisId="left"  tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={72} tickFormatter={(v: number) => fN(v)} />
+                          <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={72} tickFormatter={(v: number) => fN(v)} />
                           <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={64} tickFormatter={(v: number) => fR(v)} domain={[0, (dataMax: number) => Math.max(650, Math.ceil(dataMax * 1.05))]} />
                           <Tooltip
                             contentStyle={{ background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 10, fontSize: 12, padding: '10px 14px', boxShadow: '0 4px 16px rgba(0,0,0,.12)' }}
@@ -1552,10 +1495,10 @@ export default function GoogleMoTrafficPage() {
                             cursor={{ fill: 'var(--sf2)', radius: 4 }}
                           />
                           <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 4, color: 'var(--inks)' }} />
-                          <Bar yAxisId="left"  dataKey="volume"      name="Volume"      fill={PAL[0]} radius={[5,5,0,0]} maxBarSize={40} />
-                          <Bar yAxisId="right" dataKey="revenue"     name="Revenue"     fill={PAL[1]} radius={[5,5,0,0]} maxBarSize={40} />
-                          <Bar yAxisId="right" dataKey="vendor_cost" name="Vendor Cost" fill={PAL[4]} radius={[5,5,0,0]} maxBarSize={40} />
-                          <Bar yAxisId="right" dataKey="margin"      name="Margin"      fill={PAL[2]} radius={[5,5,0,0]} maxBarSize={40} />
+                          <Bar yAxisId="left" dataKey="volume" name="Volume" fill={PAL[0]} radius={[5, 5, 0, 0]} maxBarSize={40} />
+                          <Bar yAxisId="right" dataKey="revenue" name="Revenue" fill={PAL[1]} radius={[5, 5, 0, 0]} maxBarSize={40} />
+                          <Bar yAxisId="right" dataKey="vendor_cost" name="Vendor Cost" fill={PAL[4]} radius={[5, 5, 0, 0]} maxBarSize={40} />
+                          <Bar yAxisId="right" dataKey="margin" name="Margin" fill={PAL[2]} radius={[5, 5, 0, 0]} maxBarSize={40} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -1607,14 +1550,14 @@ export default function GoogleMoTrafficPage() {
                       <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
                         <table className="zt">
                           <thead><tr>
-                            {yiSort.th('date',          'Date')}
-                            {yiSort.th('country_name',  'Country Name',  'center')}
+                            {yiSort.th('date', 'Date')}
+                            {yiSort.th('country_name', 'Country Name', 'center')}
                             {yiSort.th('operator_name', 'Operator Name', 'center')}
-                            {yiSort.th('vendor_name',   'Vendor Name',   'center')}
-                            {yiSort.th('volume',        'Volume')}
-                            {yiSort.th('revenue',       'Revenue')}
-                            {yiSort.th('vendor_cost',   'Vendor Cost')}
-                            {yiSort.th('margin',        'Margin')}
+                            {yiSort.th('vendor_name', 'Vendor Name', 'center')}
+                            {yiSort.th('volume', 'Volume')}
+                            {yiSort.th('revenue', 'Revenue')}
+                            {yiSort.th('vendor_cost', 'Vendor Cost')}
+                            {yiSort.th('margin', 'Margin')}
                           </tr></thead>
                           <tbody>
                             {yiSorted.slice(yiPag.start, yiPag.end).map((r: any, i: number) => (
@@ -1664,10 +1607,10 @@ export default function GoogleMoTrafficPage() {
                             cursor={{ fill: 'var(--sf2)', radius: 4 }}
                           />
                           <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 4, color: 'var(--inks)' }} />
-                          <Bar yAxisId="left"  dataKey="volume"      name="Volume"      fill={PAL[0]} radius={[5,5,0,0]} maxBarSize={40} />
-                          <Bar yAxisId="right" dataKey="revenue"     name="Revenue"     fill={PAL[1]} radius={[5,5,0,0]} maxBarSize={40} />
-                          <Bar yAxisId="right" dataKey="vendor_cost" name="Vendor Cost" fill={PAL[4]} radius={[5,5,0,0]} maxBarSize={40} />
-                          <Bar yAxisId="right" dataKey="margin"      name="Margin"      fill={PAL[2]} radius={[5,5,0,0]} maxBarSize={40} />
+                          <Bar yAxisId="left" dataKey="volume" name="Volume" fill={PAL[0]} radius={[5, 5, 0, 0]} maxBarSize={40} />
+                          <Bar yAxisId="right" dataKey="revenue" name="Revenue" fill={PAL[1]} radius={[5, 5, 0, 0]} maxBarSize={40} />
+                          <Bar yAxisId="right" dataKey="vendor_cost" name="Vendor Cost" fill={PAL[4]} radius={[5, 5, 0, 0]} maxBarSize={40} />
+                          <Bar yAxisId="right" dataKey="margin" name="Margin" fill={PAL[2]} radius={[5, 5, 0, 0]} maxBarSize={40} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
