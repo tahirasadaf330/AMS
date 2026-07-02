@@ -5,8 +5,8 @@ import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/store/auth.store';
 import { useUIStore } from '@/store/ui.store';
-import { googleMoImportApi } from '@/lib/api';
-import { CheckCircle2, AlertCircle, Upload, FileText, X } from 'lucide-react';
+import { googleMoImportApi, type SharePointSyncStatus } from '@/lib/api';
+import { CheckCircle2, AlertCircle, Upload, FileText, X, RefreshCw, Cloud } from 'lucide-react';
 
 interface ImportResult {
   upserted: number;
@@ -91,6 +91,37 @@ function FileDropZone({
   );
 }
 
+function formatSyncTime(iso: string | null): string {
+  if (!iso) return 'never';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'never';
+  return d.toLocaleString();
+}
+
+function SharePointStatusLine({ status }: { status: SharePointSyncStatus }) {
+  const color =
+    status.lastStatus === 'success'
+      ? 'text-green-600 dark:text-green-400'
+      : status.lastStatus === 'error'
+        ? 'text-red-600 dark:text-red-400'
+        : 'text-gray-400 dark:text-gray-500';
+  return (
+    <div className="text-xs">
+      <span className="text-gray-500 dark:text-gray-400">
+        Source: <code className="font-mono text-gray-500 dark:text-gray-400">{status.fileName}</code>
+      </span>
+      <span className={`ml-2 ${color}`}>
+        {status.lastStatus === 'never'
+          ? 'Not synced yet'
+          : `Last sync: ${formatSyncTime(status.lastSyncedAt)} · ${status.lastStatus}`}
+      </span>
+      {status.lastStatus === 'error' && status.lastMessage && (
+        <p className="mt-1 text-red-600 dark:text-red-400">{status.lastMessage}</p>
+      )}
+    </div>
+  );
+}
+
 function ImportSection({
   title,
   description,
@@ -99,6 +130,9 @@ function ImportSection({
   onFile,
   onClear,
   onImport,
+  spStatus,
+  syncing,
+  onSyncSharePoint,
 }: {
   title: string;
   description: string;
@@ -107,6 +141,9 @@ function ImportSection({
   onFile: (f: File) => void;
   onClear: () => void;
   onImport: () => void;
+  spStatus?: SharePointSyncStatus | null;
+  syncing?: boolean;
+  onSyncSharePoint?: () => void;
 }) {
   return (
     <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-5 space-y-4">
@@ -117,6 +154,22 @@ function ImportSection({
           Required columns: <code className="text-blue-400 font-mono">{columns}</code>
         </p>
       </div>
+
+      {onSyncSharePoint && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-700/40 bg-blue-50/60 dark:bg-blue-900/10 px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-blue-700 dark:text-blue-300">
+              <Cloud className="h-4 w-4" />
+              SharePoint source
+            </div>
+            <Button onClick={onSyncSharePoint} disabled={syncing} isLoading={syncing} size="sm" variant="outline">
+              <RefreshCw className="h-3.5 w-3.5" />
+              Sync from SharePoint
+            </Button>
+          </div>
+          {spStatus && <SharePointStatusLine status={spStatus} />}
+        </div>
+      )}
 
       <FileDropZone
         accept=".xlsx,.xls,.csv,.pdf"
@@ -169,6 +222,51 @@ export default function GoogleMoImportsPage() {
   const [costs, setCosts] = React.useState<SectionState>(defaultSection());
   const [estimates, setEstimates] = React.useState<SectionState>(defaultSection());
 
+  const [spStatus, setSpStatus] = React.useState<Record<'costs' | 'estimates', SharePointSyncStatus | null>>({
+    costs: null,
+    estimates: null,
+  });
+  const [spSyncing, setSpSyncing] = React.useState<Record<'costs' | 'estimates', boolean>>({
+    costs: false,
+    estimates: false,
+  });
+
+  const loadSpStatus = React.useCallback(async () => {
+    try {
+      const { data } = await googleMoImportApi.sharePointStatus();
+      const next: Record<'costs' | 'estimates', SharePointSyncStatus | null> = { costs: null, estimates: null };
+      for (const s of data) next[s.target] = s;
+      setSpStatus(next);
+    } catch {
+      // status is best-effort; ignore if it fails to load
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (isAdmin) void loadSpStatus();
+  }, [isAdmin, loadSpStatus]);
+
+  const handleSharePointSync = async (target: 'costs' | 'estimates') => {
+    setSpSyncing((p) => ({ ...p, [target]: true }));
+    try {
+      const { data } = await googleMoImportApi.syncFromSharePoint(target);
+      setSpStatus((p) => ({ ...p, [target]: data }));
+      addToast({
+        title: `${data.lastResult?.upserted ?? 0} rows synced from SharePoint`,
+        variant: 'success',
+      });
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ??
+        err?.message ??
+        'SharePoint sync failed.';
+      addToast({ title: msg, variant: 'destructive' });
+      void loadSpStatus();
+    } finally {
+      setSpSyncing((p) => ({ ...p, [target]: false }));
+    }
+  };
+
   const handleImport = async (
     type: 'costs' | 'estimates',
     setState: React.Dispatch<React.SetStateAction<SectionState>>,
@@ -218,6 +316,9 @@ export default function GoogleMoImportsPage() {
           onImport={() => {
             if (costs.file) void handleImport('costs', setCosts, costs.file);
           }}
+          spStatus={spStatus.costs}
+          syncing={spSyncing.costs}
+          onSyncSharePoint={() => void handleSharePointSync('costs')}
         />
 
         <ImportSection
@@ -230,6 +331,9 @@ export default function GoogleMoImportsPage() {
           onImport={() => {
             if (estimates.file) void handleImport('estimates', setEstimates, estimates.file);
           }}
+          spStatus={spStatus.estimates}
+          syncing={spSyncing.estimates}
+          onSyncSharePoint={() => void handleSharePointSync('estimates')}
         />
       </div>
 

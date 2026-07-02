@@ -222,6 +222,14 @@ export class GoogleMoService implements OnModuleInit {
     this.logger.log("Google MO Traffic dataset record created");
   }
 
+  /** True if the given dataset is the Google MO Traffic dataset (matched by stage table / name). */
+  isGoogleMoDataset(dataset: {
+    stageTableName?: string | null;
+    name?: string | null;
+  }): boolean {
+    return dataset?.stageTableName === STAGE || dataset?.name === DATASET_NAME;
+  }
+
   private async ensureStageTable(): Promise<void> {
     const [row] = await this.dataSource.query(
       `SELECT to_regclass($1)::text AS tbl`,

@@ -109,6 +109,16 @@ export class GraphEmailService {
     return !!(this.tokenCache && (this.tokenCache.expiresAt - 60000) > Date.now());
   }
 
+  /**
+   * Returns a valid app-only Microsoft Graph access token, reusing the same
+   * credentials (DB settings → env fallback) and token cache as email sending.
+   * Used by other services that need Graph access (e.g. SharePoint file sync).
+   */
+  async getGraphToken(): Promise<string> {
+    const { token } = await this.getAccessToken();
+    return token;
+  }
+
   async testConnection(): Promise<void> {
     await this.getAccessToken();
   }

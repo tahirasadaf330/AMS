@@ -4,6 +4,8 @@ import { CronJob } from 'cron';
 import { DatasetsService } from '../datasets/datasets.service';
 import { StageService } from '../stage/stage.service';
 import { Dataset } from '../common/entities/dataset.entity';
+import { GoogleMoService } from '../reports/google-mo/google-mo.service';
+import { SharePointSyncService, SpTarget } from '../reports/google-mo/sharepoint-sync.service';
 
 const MAX_BACKOFF_MS = 60 * 1000;
 const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, MAX_BACKOFF_MS];
@@ -22,6 +24,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private schedulerRegistry: SchedulerRegistry,
     private datasetsService: DatasetsService,
     private stageService: StageService,
+    private googleMoService: GoogleMoService,
+    private sharePointSync: SharePointSyncService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -150,10 +154,30 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         this.jobStates.set(dataset.id, state);
       }
 
+      // When the Google MO Traffic dataset refreshes, pull its SharePoint-backed
+      // Costs + Estimates files so they update in lockstep. Best-effort and
+      // fire-and-forget: a SharePoint failure must never fail the dataset refresh.
+      if (this.googleMoService.isGoogleMoDataset(dataset)) {
+        void this.syncGoogleMoSharePoint();
+      }
+
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       this.logger.error(`Refresh cycle failed for ${dataset.name}: ${errorMsg}`);
       this.scheduleRetry(dataset);
+    }
+  }
+
+  /** Pull the Google MO SharePoint files after a successful traffic refresh (best-effort). */
+  private async syncGoogleMoSharePoint(): Promise<void> {
+    for (const target of ['costs', 'estimates'] as SpTarget[]) {
+      try {
+        const r = await this.sharePointSync.sync(target);
+        this.logger.log(`SharePoint pull after Google MO refresh (${target}): ${r.lastMessage}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`SharePoint pull after Google MO refresh (${target}) failed: ${msg}`);
+      }
     }
   }
 

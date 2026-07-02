@@ -369,7 +369,23 @@ export const googleMoImportApi = {
       fd,
     );
   },
+  // SharePoint-backed sources (pull the latest .xlsx from SharePoint and import)
+  sharePointStatus: () =>
+    api.get<SharePointSyncStatus[]>('/admin/google-mo/import/sharepoint'),
+  syncFromSharePoint: (target: 'costs' | 'estimates') =>
+    api.post<SharePointSyncStatus>(`/admin/google-mo/import/sharepoint/${target}`),
 };
+
+export interface SharePointSyncStatus {
+  target: 'costs' | 'estimates';
+  label: string;
+  fileName: string;
+  sitePath: string;
+  lastSyncedAt: string | null;
+  lastStatus: 'success' | 'error' | 'never';
+  lastMessage: string | null;
+  lastResult: { upserted: number; vendor_rows?: number; skipped: number } | null;
+}
 
 // ── VCS BALANCE REPORT ────────────────────────────────────────
 export const vcsBalanceApi = {
