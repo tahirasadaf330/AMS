@@ -14,7 +14,7 @@ import { Dialog, DialogHeader, DialogBody, DialogFooter } from '@/components/ui/
 import { Drawer } from '@/components/ui/drawer';
 import { StatusBadge } from '@/components/status-badge';
 import { SkeletonTable } from '@/components/ui/skeleton';
-import { adminUsersApi } from '@/lib/api';
+import { adminUsersApi, adminReportsApi } from '@/lib/api';
 import { useDatasets } from '@/hooks/useDashboard';
 import { useAuthStore } from '@/store/auth.store';
 import { useUIStore } from '@/store/ui.store';
@@ -39,12 +39,17 @@ function useAdminUsers() {
   });
 }
 
-const AVAILABLE_REPORTS = [
-  { id: 'zamani', name: 'Zamani Traffic' },
-  { id: 'vcs-balance', name: 'Voice Credit Limit' },
-  { id: 'sms-credit-limit', name: 'SMS Credit Limit' },
-  { id: 'prepayment-cl', name: 'Pre-Payment Limit' },
-];
+// Reports available to grant are auto-discovered from the backend
+// (@ReportAccess decorators) — no hardcoded list to keep in sync.
+function useAvailableReports() {
+  return useQuery({
+    queryKey: ['admin', 'reports'],
+    queryFn: async () => {
+      const { data } = await adminReportsApi.list();
+      return data.map((r) => ({ id: r.slug, name: r.name }));
+    },
+  });
+}
 
 interface UserFormData {
   name: string;
@@ -69,6 +74,7 @@ const defaultFormData: UserFormData = {
 export default function AdminUsersPage() {
   const isAdmin = useAuthStore((s) => s.canAccess('admin'));
   const { data: users, isLoading } = useAdminUsers();
+  const { data: availableReports = [] } = useAvailableReports();
   const { data: datasets } = useDatasets();
   const queryClient = useQueryClient();
   const addToast = useUIStore((s) => s.addToast);
@@ -430,7 +436,7 @@ export default function AdminUsersPage() {
                   <div>
                     <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Reports</p>
                     <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto p-2 rounded border border-gray-200 dark:border-gray-700">
-                      {AVAILABLE_REPORTS.map((r) => (
+                      {availableReports.map((r) => (
                         <label key={r.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
                           <input
                             type="checkbox"
@@ -568,11 +574,11 @@ export default function AdminUsersPage() {
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
                   <span>Reports</span>
                   <span className="text-xs font-normal text-gray-400 dark:text-gray-500">
-                    {accessFormData.report_access.length} of {AVAILABLE_REPORTS.length} granted
+                    {accessFormData.report_access.length} of {availableReports.length} granted
                   </span>
                 </h3>
                 <div className="space-y-2">
-                  {AVAILABLE_REPORTS.map((r) => {
+                  {availableReports.map((r) => {
                     const checked = accessFormData.report_access.includes(r.id);
                     return (
                       <label key={r.id} className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30">
@@ -658,7 +664,7 @@ export default function AdminUsersPage() {
                       ) : (
                         <div className="flex flex-wrap gap-1.5">
                           {(drawerUser.report_access ?? []).map((slug) => {
-                            const rpt = AVAILABLE_REPORTS.find((r) => r.id === slug);
+                            const rpt = availableReports.find((r) => r.id === slug);
                             return rpt ? (
                               <span key={slug} className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">{rpt.name}</span>
                             ) : null;

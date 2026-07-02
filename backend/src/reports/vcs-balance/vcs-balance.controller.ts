@@ -6,7 +6,7 @@ import { VcsBalanceService } from './vcs-balance.service';
 
 @Controller('reports/vcs-balance')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('vcs-balance')
+@ReportAccess('vcs-balance', 'Voice Credit Limit')
 export class VcsBalanceController {
   constructor(private readonly service: VcsBalanceService) {}
 

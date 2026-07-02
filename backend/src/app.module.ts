@@ -40,6 +40,7 @@ import { VcsBalanceModule } from "./reports/vcs-balance/vcs-balance.module";
 import { SmsCreditLimitModule } from "./reports/sms-credit-limit/sms-credit-limit.module";
 import { GoogleMoModule } from "./reports/google-mo/google-mo.module";
 import { PrepaymentClModule } from "./reports/prepayment-cl/prepayment-cl.module";
+import { ReportsRegistryModule } from "./admin/reports/reports-registry.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -106,6 +107,7 @@ import { PrepaymentClModule } from "./reports/prepayment-cl/prepayment-cl.module
     SmsCreditLimitModule,
     GoogleMoModule,
     PrepaymentClModule,
+    ReportsRegistryModule,
   ],
 })
 export class AppModule {}

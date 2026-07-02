@@ -225,6 +225,16 @@ export const adminUsersApi = {
     api.delete(`/admin/users/${userId}/sessions/${sessionId}`),
 };
 
+// ── ADMIN — REPORTS REGISTRY ──────────────────────────────────
+// Auto-discovered list of grantable reports (from backend @ReportAccess decorators)
+export interface ReportInfo {
+  slug: string;
+  name: string;
+}
+export const adminReportsApi = {
+  list: () => api.get<ReportInfo[]>('/admin/reports'),
+};
+
 // ── ADMIN — DATASETS ──────────────────────────────────────────
 export const adminDatasetsApi = {
   list: () => api.get<Dataset[]>('/admin/datasets'),
