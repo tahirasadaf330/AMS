@@ -35,18 +35,28 @@ const fDate = (s: string) => {
   return `${String(d.getDate()).padStart(2, '0')}-${MNS[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`;
 };
 
-/* Stable per-country dot colour — same country → same colour across every tab,
-   independent of sort order or pagination. Names are normalised so casing /
-   whitespace differences between tables still resolve to the same colour. */
+/* Stable, well-separated per-country colour — same country → same colour on
+   every tab/chart (pure function of the name), but spread across the full HSL
+   space so different countries look distinct instead of clustering into a few
+   similar palette hues. Two independent hashes drive hue vs. saturation/
+   lightness, so even countries with nearby hues stay tellable apart. */
 const _countryColorCache = new Map<string, string>();
 function countryColor(name: any): string {
   const key = String(name ?? '').trim().toLowerCase();
   if (!key) return 'var(--mu)';
   const cached = _countryColorCache.get(key);
   if (cached) return cached;
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
-  const color = PAL[Math.abs(h) % PAL.length];
+  let h1 = 0, h2 = 0, h3 = 0;
+  for (let i = 0; i < key.length; i++) {
+    const c = key.charCodeAt(i);
+    h1 = (Math.imul(h1, 31) + c) | 0;
+    h2 = (Math.imul(h2, 131) + c * 7 + 17) | 0;
+    h3 = (Math.imul(h3, 159) + c * 13 + 91) | 0;
+  }
+  const hue = Math.abs(h1) % 360;
+  const sat = 52 + (Math.abs(h2) % 7) * 6;              // 52 → 88%
+  const light = 38 + (Math.abs(h3) % 5) * 7;            // 38 → 66%
+  const color = `hsl(${hue}, ${sat}%, ${light}%)`;
   _countryColorCache.set(key, color);
   return color;
 }
@@ -408,6 +418,8 @@ export default function GoogleMoTrafficPage() {
 
   const cmpSort = useSortState('volume_new');
   const yvdbSort = useSortState('volume_td2');
+  // Metric plotted on the Last-7-Days trend line chart (one line per country → single metric at a time)
+  const [cTrendMetric, setCTrendMetric] = React.useState<Metric>('revenue');
 
   /* Profit and Loss */
   const [plMccmnc, setPlMccmnc] = React.useState('');
@@ -428,6 +440,12 @@ export default function GoogleMoTrafficPage() {
   const [yData, setYData] = React.useState<any>(null);
   const [yLoad, setYLoad] = React.useState(false);
   const ySort = useSortState('date');
+  const [yMetrics, setYMetrics] = React.useState<Set<Metric>>(new Set<Metric>(['volume', 'revenue', 'vendor_cost', 'margin']));
+  const toggleYMetric = (m: Metric) => setYMetrics(prev => {
+    const next = new Set(prev);
+    if (next.has(m) && next.size > 1) next.delete(m); else next.add(m);
+    return next;
+  });
 
   /* Yesterday Iristel */
   const [yiFilters, setYiFilters] = React.useState<any>(null);
@@ -673,14 +691,14 @@ export default function GoogleMoTrafficPage() {
     const countrySet: Set<string> = new Set();
     for (const r of cData?.trends ?? []) {
       if (!byDate[r.date]) byDate[r.date] = { date: r.date };
-      byDate[r.date][r.country_name] = Number(r.revenue ?? 0);
+      byDate[r.date][r.country_name] = Number(r[cTrendMetric] ?? 0);
       countrySet.add(r.country_name);
     }
     return {
       data: Object.values(byDate).sort((a: any, b: any) => a.date.localeCompare(b.date)),
       countries: Array.from(countrySet),
     };
-  }, [cData]);
+  }, [cData, cTrendMetric]);
 
   const cOldLabel = cDateOld ? fDate(cDateOld) : (cData?.date_old ? fDate(cData.date_old) : '—');
   const cNewLabel = cDateNew ? fDate(cDateNew) : (cData?.date_new ? fDate(cData.date_new) : '—');
@@ -1331,14 +1349,37 @@ export default function GoogleMoTrafficPage() {
                 {/* Trend chart: Last 7 Days Trends */}
                 {cTrendPivot.data.length > 0 && (
                   <div className="zpnl" style={{ marginBottom: 16 }}>
-                    <PH title="Last 7 Days Trends" right="Revenue by Country (incl. today)" />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 18px 12px', borderBottom: '1px solid var(--ln)', flexWrap: 'wrap', gap: 8 }}>
+                      <div>
+                        <h2 style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--ink)', letterSpacing: '-.2px' }}>
+                          Last 7 Days Trends
+                        </h2>
+                        <span style={{ fontSize: 11, color: 'var(--mu)', fontWeight: 600 }}>{MCFG[cTrendMetric].label} by Country (incl. today)</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {(Object.keys(MCFG) as Metric[]).map(m => {
+                          const active = cTrendMetric === m;
+                          return (
+                            <button key={m} onClick={() => setCTrendMetric(m)} style={{
+                              padding: '5px 13px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: '.12s', letterSpacing: '.02em',
+                              border: `1.5px solid ${active ? MCFG[m].color : 'var(--lns)'}`,
+                              background: active ? MCFG[m].color : 'var(--sf2)',
+                              color: active ? '#fff' : 'var(--mu)',
+                              boxShadow: active ? `0 2px 0 rgba(0,0,0,.18)` : 'none',
+                            }}>
+                              {MCFG[m].label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                     <div style={{ height: 280, padding: '12px 12px 8px' }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={cTrendPivot.data} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
                           <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
                           <XAxis dataKey="date" {...AX} tickFormatter={(v: string) => v.slice(5)} />
-                          <YAxis {...AX} width={70} tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}K`} />
-                          <Tooltip {...TIP} formatter={(v: any, name: string) => [fR(v), name]} labelFormatter={(v: string) => `Date: ${v}`} />
+                          <YAxis {...AX} width={70} tickFormatter={(v: number) => cTrendMetric === 'volume' ? fV(v) : `$${(v / 1000).toFixed(1)}K`} />
+                          <Tooltip {...TIP} formatter={(v: any, name: string) => [MCFG[cTrendMetric].fmt(v), name]} labelFormatter={(v: string) => `Date: ${v}`} />
                           <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                           {cTrendPivot.countries.map((c) => (
                             <Line key={c} type="monotone" dataKey={c} stroke={countryColor(c)} dot={false} strokeWidth={2} connectNulls />
@@ -1531,14 +1572,34 @@ export default function GoogleMoTrafficPage() {
 
                 {yChartData.length > 0 && (
                   <div className="zpnl" style={{ marginBottom: 16 }}>
-                    <PH title="Yesterday — Volume by Country" />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 18px 12px', borderBottom: '1px solid var(--ln)', flexWrap: 'wrap', gap: 8 }}>
+                      <h2 style={{ fontFamily: "'Montserrat',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--ink)', letterSpacing: '-.2px' }}>
+                        Yesterday — Volume by Country
+                      </h2>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {(Object.keys(MCFG) as Metric[]).map(m => {
+                          const active = yMetrics.has(m);
+                          return (
+                            <button key={m} onClick={() => toggleYMetric(m)} style={{
+                              padding: '5px 13px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: '.12s', letterSpacing: '.02em',
+                              border: `1.5px solid ${active ? MCFG[m].color : 'var(--lns)'}`,
+                              background: active ? MCFG[m].color : 'var(--sf2)',
+                              color: active ? '#fff' : 'var(--mu)',
+                              boxShadow: active ? `0 2px 0 rgba(0,0,0,.18)` : 'none',
+                            }}>
+                              {MCFG[m].label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                     <div style={{ height: 340, padding: '16px 8px 8px 4px' }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={yChartData.slice(0, 12).map((d: any) => ({ ...d, margin: Math.max(0, d.margin) }))} margin={{ top: 4, right: 64, bottom: 80, left: 10 }} barCategoryGap="28%" barGap={3}>
                           <CartesianGrid strokeDasharray="3 5" stroke="var(--ln)" vertical={false} />
                           <XAxis dataKey="country_name" tick={{ fontSize: 10, fill: 'var(--inks)' }} axisLine={{ stroke: 'var(--lns)' }} tickLine={false} angle={-40} textAnchor="end" interval={0} height={80} />
-                          <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={72} ticks={yVolTicks} domain={[0, yVolTicks[yVolTicks.length - 1]]} allowDataOverflow tickFormatter={(v: number) => fN(v)} />
-                          <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={64} tickFormatter={(v: number) => fR(v)} domain={[0, (dataMax: number) => Math.max(650, Math.ceil(dataMax * 1.05))]} />
+                          <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={yMetrics.has('volume') ? 72 : 0} hide={!yMetrics.has('volume')} ticks={yVolTicks} domain={[0, yVolTicks[yVolTicks.length - 1]]} allowDataOverflow tickFormatter={(v: number) => fN(v)} />
+                          <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--mu)' }} axisLine={false} tickLine={false} width={(yMetrics.has('revenue') || yMetrics.has('vendor_cost') || yMetrics.has('margin')) ? 64 : 0} hide={!(yMetrics.has('revenue') || yMetrics.has('vendor_cost') || yMetrics.has('margin'))} tickFormatter={(v: number) => fR(v)} domain={[0, (dataMax: number) => Math.max(650, Math.ceil(dataMax * 1.05))]} />
                           <Tooltip
                             contentStyle={{ background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 10, fontSize: 12, padding: '10px 14px', boxShadow: '0 4px 16px rgba(0,0,0,.12)' }}
                             labelStyle={{ fontWeight: 700, fontSize: 12, color: 'var(--ink)', marginBottom: 6 }}
@@ -1547,10 +1608,9 @@ export default function GoogleMoTrafficPage() {
                             cursor={{ fill: 'var(--sf2)', radius: 4 }}
                           />
                           <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 4, color: 'var(--inks)' }} />
-                          <Bar yAxisId="left" dataKey="volume" name="Volume" fill={PAL[0]} radius={[5, 5, 0, 0]} maxBarSize={40} />
-                          <Bar yAxisId="right" dataKey="revenue" name="Revenue" fill={PAL[1]} radius={[5, 5, 0, 0]} maxBarSize={40} />
-                          <Bar yAxisId="right" dataKey="vendor_cost" name="Vendor Cost" fill={PAL[4]} radius={[5, 5, 0, 0]} maxBarSize={40} />
-                          <Bar yAxisId="right" dataKey="margin" name="Margin" fill={PAL[2]} radius={[5, 5, 0, 0]} maxBarSize={40} />
+                          {(Object.keys(MCFG) as Metric[]).filter(m => yMetrics.has(m)).map(m => (
+                            <Bar key={m} yAxisId={MCFG[m].yAxis} dataKey={m} name={MCFG[m].label} fill={MCFG[m].color} radius={[5, 5, 0, 0]} maxBarSize={40} />
+                          ))}
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
