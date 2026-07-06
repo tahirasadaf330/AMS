@@ -75,10 +75,30 @@ export class DatasourceExecutorService implements OnModuleDestroy {
     } else {
       if (signal?.aborted) throw new Error('Refresh cancelled');
       const request = (pool.pool as mssql.ConnectionPool).request();
-      if (signal) {
-        signal.addEventListener('abort', () => { request.cancel(); }, { once: true });
-      }
-      const result = await request.query(sql);
+
+      const queryPromise = request.query(sql);
+
+      // If a cancellation signal is provided, race the query against a cancel
+      // promise that calls request.cancel() (best-effort server-side) and then
+      // rejects with a stable 'Refresh cancelled' message regardless of whether
+      // mssql's own cancel succeeds or throws a different error string.
+      const result = signal
+        ? await Promise.race([
+            queryPromise,
+            new Promise<never>((_, reject) => {
+              if (signal.aborted) {
+                request.cancel();
+                reject(new Error('Refresh cancelled'));
+                return;
+              }
+              signal.addEventListener('abort', () => {
+                request.cancel();
+                reject(new Error('Refresh cancelled'));
+              }, { once: true });
+            }),
+          ])
+        : await queryPromise;
+
       const cols = result.recordset.columns ?? {};
       return {
         rows: result.recordset as unknown as Record<string, unknown>[],
