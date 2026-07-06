@@ -47,6 +47,12 @@ export class Dataset {
   @Column({ name: 'data_source_id', type: 'uuid', nullable: true })
   dataSourceId: string | null;
 
+  @Column({ name: 'incremental_lookback_days', type: 'int', nullable: true })
+  incrementalLookbackDays: number | null;
+
+  @Column({ name: 'incremental_initial_date', type: 'varchar', length: 20, nullable: true })
+  incrementalInitialDate: string | null;
+
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy: string | null;
 

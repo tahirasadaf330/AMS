@@ -66,7 +66,36 @@ export class StageService {
     try {
       // Step 1: Query source database — null dataSourceId means Jerasoft builtin
       this.logger.log(`Refreshing dataset: ${dataset.name} (${dataset.id})`);
-      const result = await this.datasourceExecutor.query(dataset.dataSourceId ?? 'jerasoft', dataset.sqlQuery);
+
+      // Incremental mode: replace {{LOOKBACK_DATE}} placeholder with a computed date
+      const isIncremental = (dataset.incrementalLookbackDays ?? 0) > 0;
+      let lookbackDate: string | null = null;
+
+      let sql = dataset.sqlQuery;
+      if (isIncremental) {
+        // Check whether the stage table already has data
+        let hasData = false;
+        try {
+          const [cnt] = await this.dataSource.query(
+            `SELECT EXISTS (SELECT 1 FROM ${dataset.stageTableName} LIMIT 1) AS has_data`,
+          );
+          hasData = cnt?.has_data === true;
+        } catch { /* table may not exist yet — treat as empty */ }
+
+        if (hasData) {
+          const d = new Date();
+          d.setDate(d.getDate() - dataset.incrementalLookbackDays!);
+          lookbackDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          this.logger.log(`Incremental refresh: lookback window from ${lookbackDate} (${dataset.incrementalLookbackDays} days)`);
+        } else {
+          lookbackDate = dataset.incrementalInitialDate ?? '2020-01-01';
+          this.logger.log(`Incremental initial full load from ${lookbackDate}`);
+        }
+
+        sql = sql.replace(/\{\{LOOKBACK_DATE\}\}/g, lookbackDate);
+      }
+
+      const result = await this.datasourceExecutor.query(dataset.dataSourceId ?? 'jerasoft', sql);
       rows = result.rows;
 
       // Sanitize row keys: map Jerasoft column names to safe PostgreSQL column names
@@ -82,10 +111,17 @@ export class StageService {
       await queryRunner.startTransaction();
 
       try {
-        // Step 3: Delete all existing rows
-        await queryRunner.query(
-          `DELETE FROM ${dataset.stageTableName} WHERE refreshed_at IS NOT NULL`,
-        );
+        // Step 3: Delete rows — incremental deletes only the lookback window; full refresh clears all
+        if (isIncremental && lookbackDate) {
+          await queryRunner.query(
+            `DELETE FROM ${dataset.stageTableName} WHERE "date" >= $1::date`,
+            [lookbackDate],
+          );
+        } else {
+          await queryRunner.query(
+            `DELETE FROM ${dataset.stageTableName} WHERE refreshed_at IS NOT NULL`,
+          );
+        }
 
         // Step 4: Insert new rows in batches
         if (sanitizedRows.length > 0) {

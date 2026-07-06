@@ -25,7 +25,7 @@ WITH ReceivedParts AS (
         ON comp.CompanyId = cc.CompanyId
     LEFT JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
         ON mt.EdrSourceId = e.EdrSmppServerId AND mt.MessageSourceId = 1 AND mt.RetryNumber = 0
-    WHERE e.ReceivedDateTime >= '2026-01-01'
+    WHERE e.ReceivedDateTime >= '{{LOOKBACK_DATE}}'
       AND comp.CompanyDeleted = 0
     GROUP BY CAST(COALESCE(mt.SubmitDateTime, e.ReceivedDateTime) AS DATE),
              csc.CustomerConnectionId, mt.MccMnc, mt.MtVendorConnectionId, mt.TerminatedSenderId
@@ -46,7 +46,7 @@ WITH ReceivedParts AS (
         ON comp.CompanyId = cc.CompanyId
     LEFT JOIN SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK)
         ON amt.EdrSourceId = ae.ArchiveEdrSmppServerId AND amt.MessageSourceId = 1 AND amt.RetryNumber = 0
-    WHERE ae.ReceivedDateTime >= '2026-01-01'
+    WHERE ae.ReceivedDateTime >= '{{LOOKBACK_DATE}}'
       AND comp.CompanyDeleted = 0
     GROUP BY CAST(COALESCE(amt.SubmitDateTime, ae.ReceivedDateTime) AS DATE),
              csc.CustomerConnectionId, amt.MccMnc, amt.MtVendorConnectionId, amt.TerminatedSenderId
@@ -67,7 +67,7 @@ WITH ReceivedParts AS (
         ON comp.CompanyId = cc.CompanyId
     LEFT JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
         ON mt.EdrSourceId = e.EdrApiId AND mt.MessageSourceId = 2 AND mt.RetryNumber = 0
-    WHERE e.ReceivedDateTime >= '2026-01-01'
+    WHERE e.ReceivedDateTime >= '{{LOOKBACK_DATE}}'
       AND comp.CompanyDeleted = 0
     GROUP BY CAST(COALESCE(mt.SubmitDateTime, e.ReceivedDateTime) AS DATE),
              chc.CustomerConnectionId, mt.MccMnc, mt.MtVendorConnectionId, mt.TerminatedSenderId
@@ -88,7 +88,7 @@ WITH ReceivedParts AS (
         ON comp.CompanyId = cc.CompanyId
     LEFT JOIN SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK)
         ON amt.EdrSourceId = ae.ArchiveEdrApiId AND amt.MessageSourceId = 2 AND amt.RetryNumber = 0
-    WHERE ae.ReceivedDateTime >= '2026-01-01'
+    WHERE ae.ReceivedDateTime >= '{{LOOKBACK_DATE}}'
       AND comp.CompanyDeleted = 0
     GROUP BY CAST(COALESCE(amt.SubmitDateTime, ae.ReceivedDateTime) AS DATE),
              chc.CustomerConnectionId, amt.MccMnc, amt.MtVendorConnectionId, amt.TerminatedSenderId
@@ -111,7 +111,7 @@ WITH ReceivedParts AS (
         ON comp.CompanyId = cc.CompanyId
     LEFT JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
         ON mt.EdrSourceId = emd.EdrSmsCampaignMessageDataId AND mt.MessageSourceId = 3 AND mt.RetryNumber = 0
-    WHERE emd.ReceivedDateTime >= '2026-01-01'
+    WHERE emd.ReceivedDateTime >= '{{LOOKBACK_DATE}}'
       AND comp.CompanyDeleted = 0
     GROUP BY CAST(COALESCE(mt.SubmitDateTime, emd.ReceivedDateTime) AS DATE),
              chc.CustomerConnectionId, mt.MccMnc, mt.MtVendorConnectionId, mt.TerminatedSenderId
@@ -134,7 +134,7 @@ WITH ReceivedParts AS (
         ON comp.CompanyId = cc.CompanyId
     LEFT JOIN SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK)
         ON amt.EdrSourceId = aemd.ArchiveEdrSmsCampaignMessageDataId AND amt.MessageSourceId = 3 AND amt.RetryNumber = 0
-    WHERE aemd.ReceivedDateTime >= '2026-01-01'
+    WHERE aemd.ReceivedDateTime >= '{{LOOKBACK_DATE}}'
       AND comp.CompanyDeleted = 0
     GROUP BY CAST(COALESCE(amt.SubmitDateTime, aemd.ReceivedDateTime) AS DATE),
              chc.CustomerConnectionId, amt.MccMnc, amt.MtVendorConnectionId, amt.TerminatedSenderId
@@ -150,13 +150,13 @@ AllMtEdr AS (
            MtVendorCost, DlrStatusId, SubmitDateTime, MccMnc, CustomerCost, TerminatedSenderId,
            RetryNumber
     FROM SMSCEdr.dbo.MTEdr
-    WHERE SubmitDateTime >= '2026-01-01'
+    WHERE SubmitDateTime >= '{{LOOKBACK_DATE}}'
     UNION ALL
     SELECT PartsSent, CustomerConnectionId, MtVendorConnectionId,
            MtVendorCost, DlrStatusId, SubmitDateTime, MccMnc, CustomerCost, TerminatedSenderId,
            RetryNumber
     FROM SMSCArchiveEdr.dbo.ArchiveMtEdr
-    WHERE SubmitDateTime >= '2026-01-01'
+    WHERE SubmitDateTime >= '{{LOOKBACK_DATE}}'
 ),
 EdrStats AS (
     SELECT
@@ -311,11 +311,14 @@ export class SmsReportService implements OnModuleInit {
       const sqlChanged  = existing.sqlQuery !== SEED_SQL;
       const metaChanged = JSON.stringify(existing.columnMetadata) !== JSON.stringify(SEED_COLUMNS);
       const nameChanged = existing.name !== DATASET_NAME;
-      if (sqlChanged || metaChanged || nameChanged) {
+      const incrChanged = existing.incrementalLookbackDays !== 7 || existing.incrementalInitialDate !== '2026-01-01';
+      if (sqlChanged || metaChanged || nameChanged || incrChanged) {
         await this.datasetRepo.update(existing.id, {
-          name:           DATASET_NAME,
-          sqlQuery:       SEED_SQL,
-          columnMetadata: SEED_COLUMNS as any,
+          name:                    DATASET_NAME,
+          sqlQuery:                SEED_SQL,
+          columnMetadata:          SEED_COLUMNS as any,
+          incrementalLookbackDays: 7,
+          incrementalInitialDate:  '2026-01-01',
         });
         this.logger.log('Updated SMS Report dataset name, SQL and column metadata');
       }
@@ -331,16 +334,18 @@ export class SmsReportService implements OnModuleInit {
     this.logger.log('Seeding SMS Traffic Report dataset…');
     const saved = await this.datasetRepo.save(
       this.datasetRepo.create({
-        name:           DATASET_NAME,
-        description:    'Daily SMS per connection with income, expenses and delivery stats from ASMSC (last 90 days).',
-        sourceDb:       'mssql',
-        dataSourceId:   asmsc.id,
-        sqlQuery:       SEED_SQL,
-        stageTableName: STAGE,
-        columnMetadata: SEED_COLUMNS as any,
-        scheduleCron:   '0 2 * * *',
-        isActive:       true,
-        createdBy:      null,
+        name:                    DATASET_NAME,
+        description:             'Daily SMS per connection with income, expenses and delivery stats from ASMSC (last 90 days).',
+        sourceDb:                'mssql',
+        dataSourceId:            asmsc.id,
+        sqlQuery:                SEED_SQL,
+        stageTableName:          STAGE,
+        columnMetadata:          SEED_COLUMNS as any,
+        scheduleCron:            '0 2 * * *',
+        isActive:                true,
+        createdBy:               null,
+        incrementalLookbackDays: 7,
+        incrementalInitialDate:  '2026-01-01',
       }),
     );
     this._datasetId = saved.id;
