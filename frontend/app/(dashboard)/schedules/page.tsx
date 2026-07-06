@@ -68,6 +68,18 @@ export default function SchedulesPage() {
     },
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: async (datasetId: string) => {
+      await schedulesApi.cancel(datasetId);
+    },
+    onSuccess: () => {
+      addToast({ title: 'Refresh cancelled', variant: 'success' });
+    },
+    onError: () => {
+      addToast({ title: 'Cancel failed', variant: 'destructive' });
+    },
+  });
+
   if (!canManage) {
     return (
       <div className="flex items-center justify-center h-64 text-gray-500 text-sm">
@@ -204,8 +216,12 @@ export default function SchedulesPage() {
               onTrigger={async (id) => {
                 await triggerMutation.mutateAsync(id);
               }}
+              onCancel={async (id) => {
+                await cancelMutation.mutateAsync(id);
+              }}
               isSaving={saveScheduleMutation.isPending}
               isTriggering={triggerMutation.isPending}
+              isCancelling={cancelMutation.isPending}
             />
           )}
         </DialogBody>

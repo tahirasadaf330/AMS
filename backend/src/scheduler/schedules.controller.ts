@@ -79,6 +79,13 @@ export class SchedulesController {
     return updated;
   }
 
+  @Post(':datasetId/cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancel(@Param('datasetId') datasetId: string) {
+    const cancelled = this.schedulerService.cancelRefresh(datasetId);
+    return { message: cancelled ? 'Refresh cancelled' : 'No active refresh', datasetId };
+  }
+
   @Post(':datasetId/trigger')
   @HttpCode(HttpStatus.OK)
   async trigger(

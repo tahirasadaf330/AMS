@@ -33,8 +33,10 @@ export interface ScheduleEditorProps {
   scheduleEndDate?: string | null;
   onSave: (datasetId: string, cron: string, startDate: string | null, endDate: string | null) => Promise<void>;
   onTrigger: (datasetId: string) => Promise<void>;
+  onCancel?: (datasetId: string) => Promise<void>;
   isSaving?: boolean;
   isTriggering?: boolean;
+  isCancelling?: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -184,8 +186,10 @@ export function ScheduleEditor({
   scheduleEndDate,
   onSave,
   onTrigger,
+  onCancel,
   isSaving,
   isTriggering,
+  isCancelling,
 }: ScheduleEditorProps) {
   const [config, setConfig] = React.useState<ScheduleConfig>(() =>
     parseCron(currentCron ?? '', scheduleStartDate, scheduleEndDate)
@@ -486,6 +490,18 @@ export function ScheduleEditor({
         >
           Trigger Now
         </Button>
+        {onCancel && (
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            onClick={() => void onCancel(datasetId)}
+            isLoading={isCancelling}
+            disabled={!isTriggering}
+          >
+            Cancel Refresh
+          </Button>
+        )}
       </div>
     </div>
   );

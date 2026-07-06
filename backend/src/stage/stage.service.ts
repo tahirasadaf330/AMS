@@ -36,7 +36,7 @@ export class StageService {
    * 6. Log to dataset_refresh_log
    * 7. Emit WebSocket event
    */
-  async refreshDataset(dataset: Dataset): Promise<RefreshResult> {
+  async refreshDataset(dataset: Dataset, signal?: AbortSignal): Promise<RefreshResult> {
     const startedAt = new Date();
     const startMs = Date.now();
 
@@ -108,7 +108,8 @@ export class StageService {
         sql = sql.replace(/\{\{LOOKBACK_DATE\}\}/g, initialDate);
       }
 
-      const result = await this.datasourceExecutor.query(dataset.dataSourceId ?? 'jerasoft', sql);
+      if (signal?.aborted) throw new Error('Refresh cancelled');
+      const result = await this.datasourceExecutor.query(dataset.dataSourceId ?? 'jerasoft', sql, signal);
       rows = result.rows;
 
       // Sanitize row keys: map Jerasoft column names to safe PostgreSQL column names

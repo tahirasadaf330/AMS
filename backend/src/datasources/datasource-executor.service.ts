@@ -59,10 +59,11 @@ export class DatasourceExecutorService implements OnModuleDestroy {
     this.pools.clear();
   }
 
-  async query(dataSourceId: string, sql: string): Promise<SourceQueryResult> {
+  async query(dataSourceId: string, sql: string, signal?: AbortSignal): Promise<SourceQueryResult> {
     const pool = await this.getPool(dataSourceId);
 
     if (pool.type === 'postgresql') {
+      if (signal?.aborted) throw new Error('Refresh cancelled');
       const result = await (pool.pool as PgPool).query(sql);
       return {
         rows: result.rows as Record<string, unknown>[],
@@ -72,7 +73,11 @@ export class DatasourceExecutorService implements OnModuleDestroy {
         })),
       };
     } else {
+      if (signal?.aborted) throw new Error('Refresh cancelled');
       const request = (pool.pool as mssql.ConnectionPool).request();
+      if (signal) {
+        signal.addEventListener('abort', () => { request.cancel(); }, { once: true });
+      }
       const result = await request.query(sql);
       const cols = result.recordset.columns ?? {};
       return {

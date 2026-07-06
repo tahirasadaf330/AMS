@@ -19,6 +19,7 @@ interface JobState {
 export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SchedulerService.name);
   private readonly jobStates = new Map<string, JobState>();
+  private readonly inFlight = new Map<string, AbortController>();
 
   constructor(
     private schedulerRegistry: SchedulerRegistry,
@@ -83,9 +84,17 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
           this.logger.debug(`Dataset ${dataset.name}: past schedule end date, skipping`);
           return;
         }
-        this.runRefreshCycle(dataset).catch((err) => {
-          this.logger.error(`Unhandled error in refresh cycle for ${dataset.id}`, err);
-        });
+        if (!this.inFlight.has(dataset.id)) {
+          const ctrl = new AbortController();
+          this.inFlight.set(dataset.id, ctrl);
+          this.runRefreshCycle(dataset, ctrl.signal)
+            .finally(() => this.inFlight.delete(dataset.id))
+            .catch((err) => {
+              this.logger.error(`Unhandled error in refresh cycle for ${dataset.id}`, err);
+            });
+        } else {
+          this.logger.warn(`Skipping scheduled run for ${dataset.name}: refresh already in progress`);
+        }
       });
 
       this.schedulerRegistry.addCronJob(jobName, job);
@@ -132,16 +141,39 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async triggerNow(datasetId: string): Promise<void> {
+    // Cancel any already-running refresh for this dataset
+    this.cancelRefresh(datasetId);
+    const controller = new AbortController();
+    this.inFlight.set(datasetId, controller);
     const dataset = await this.datasetsService.findOne(datasetId);
-    await this.runRefreshCycle(dataset);
+    try {
+      await this.runRefreshCycle(dataset, controller.signal);
+    } finally {
+      this.inFlight.delete(datasetId);
+    }
   }
 
-  private async runRefreshCycle(dataset: Dataset): Promise<void> {
+  cancelRefresh(datasetId: string): boolean {
+    const controller = this.inFlight.get(datasetId);
+    if (controller) {
+      controller.abort();
+      this.inFlight.delete(datasetId);
+      this.logger.log(`Cancelled in-flight refresh for dataset ${datasetId}`);
+      return true;
+    }
+    return false;
+  }
+
+  isRefreshing(datasetId: string): boolean {
+    return this.inFlight.has(datasetId);
+  }
+
+  private async runRefreshCycle(dataset: Dataset, signal?: AbortSignal): Promise<void> {
     this.logger.log(`Starting refresh cycle for dataset: ${dataset.name}`);
 
     try {
       // Run refresh and get rows
-      const result = await this.stageService.refreshDataset(dataset);
+      const result = await this.stageService.refreshDataset(dataset, signal);
 
       // Reset retry state on success
       const state = this.jobStates.get(dataset.id);
@@ -163,6 +195,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
 
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      if (errorMsg === 'Refresh cancelled') {
+        this.logger.log(`Refresh cancelled for dataset ${dataset.name}`);
+        return;
+      }
       this.logger.error(`Refresh cycle failed for ${dataset.name}: ${errorMsg}`);
       this.scheduleRetry(dataset);
     }

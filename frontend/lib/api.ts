@@ -188,6 +188,9 @@ export const schedulesApi = {
 
   trigger: (datasetId: string) =>
     api.post<{ message: string }>(`/schedules/${datasetId}/trigger`),
+
+  cancel: (datasetId: string) =>
+    api.post<{ message: string }>(`/schedules/${datasetId}/cancel`),
 };
 
 // ── NOTIFICATIONS ─────────────────────────────────────────────
