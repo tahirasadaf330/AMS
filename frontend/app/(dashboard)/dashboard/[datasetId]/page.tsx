@@ -18,7 +18,7 @@ import {
 } from '@/hooks/useDashboard';
 import { useAuthStore } from '@/store/auth.store';
 import { useDatasetStore } from '@/store/dataset.store';
-import { subscribeToDataset, unsubscribeFromDataset } from '@/lib/socket';
+import { subscribeToDataset, unsubscribeFromDataset, getCurrentSocket } from '@/lib/socket';
 import { formatDatetimeFull, formatNumber } from '@/lib/utils';
 import { RefreshHistoryTable } from '@/components/refresh-history-table';
 import { useConditions } from '@/hooks/useConditions';
@@ -34,6 +34,7 @@ export default function DatasetDashboardPage() {
   const [columnFilters, setColumnFilters] = React.useState<Record<string, string>>({});
   const [showHistory, setShowHistory] = React.useState(false);
   const [visibleColumnKeys, setVisibleColumnKeys] = React.useState<string[]>([]);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
 
   // Subscribe to real-time updates for this dataset
   const token = useAuthStore((s) => s.token);
@@ -41,6 +42,21 @@ export default function DatasetDashboardPage() {
     if (!token) return;
     subscribeToDataset(datasetId);
     return () => unsubscribeFromDataset(datasetId);
+  }, [datasetId, token]);
+
+  // Clear isRefreshing when the backend signals completion (success or failure)
+  React.useEffect(() => {
+    const socket = getCurrentSocket();
+    if (!socket) return;
+    const done = (event: { dataset_id: string }) => {
+      if (event.dataset_id === datasetId) setIsRefreshing(false);
+    };
+    socket.on('dataset:refreshed', done);
+    socket.on('dataset:refresh_failed', done);
+    return () => {
+      socket.off('dataset:refreshed', done);
+      socket.off('dataset:refresh_failed', done);
+    };
   }, [datasetId, token]);
 
   const tableParams = {
@@ -125,18 +141,24 @@ export default function DatasetDashboardPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => void triggerRefresh.mutateAsync(datasetId)}
+                onClick={() => {
+                  setIsRefreshing(true);
+                  void triggerRefresh.mutateAsync(datasetId).catch(() => setIsRefreshing(false));
+                }}
                 isLoading={triggerRefresh.isPending}
+                disabled={isRefreshing}
               >
                 <RefreshCw className="h-4 w-4" />
                 Refresh Now
               </Button>
             )}
-            {canRefresh && triggerRefresh.isPending && (
+            {canRefresh && isRefreshing && (
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={() => void cancelRefresh.mutateAsync(datasetId)}
+                onClick={() => {
+                  void cancelRefresh.mutateAsync(datasetId).finally(() => setIsRefreshing(false));
+                }}
                 isLoading={cancelRefresh.isPending}
               >
                 <XCircle className="h-4 w-4" />
