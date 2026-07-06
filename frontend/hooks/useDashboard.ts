@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { dashboardApi } from '@/lib/api';
+import { dashboardApi, schedulesApi } from '@/lib/api';
 import type { DashboardDataParams } from '@/types';
 import { useUIStore } from '@/store/ui.store';
 
@@ -98,6 +98,24 @@ export function useTriggerRefresh() {
         description: 'Could not trigger dataset refresh.',
         variant: 'destructive',
       });
+    },
+  });
+}
+
+// ── useCancelRefresh ──────────────────────────────────────────
+export function useCancelRefresh() {
+  const addToast = useUIStore((s) => s.addToast);
+
+  return useMutation({
+    mutationFn: async (datasetId: string) => {
+      const { data } = await schedulesApi.cancel(datasetId);
+      return data;
+    },
+    onSuccess: () => {
+      addToast({ title: 'Refresh cancelled', variant: 'success' });
+    },
+    onError: () => {
+      addToast({ title: 'Could not cancel refresh', variant: 'destructive' });
     },
   });
 }

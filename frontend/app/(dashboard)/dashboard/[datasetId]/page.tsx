@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useParams } from 'next/navigation';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, XCircle } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { ExportButtons } from '@/components/export-buttons';
 import { TableView } from '@/components/table-view';
@@ -13,6 +13,7 @@ import {
   useDashboardData,
   useRefreshHistory,
   useTriggerRefresh,
+  useCancelRefresh,
   useDatasets,
 } from '@/hooks/useDashboard';
 import { useAuthStore } from '@/store/auth.store';
@@ -57,6 +58,7 @@ export default function DatasetDashboardPage() {
   const { data: datasetsAll } = useDatasets();
   const { data: conditions } = useConditions();
   const triggerRefresh = useTriggerRefresh();
+  const cancelRefresh = useCancelRefresh();
 
   // Get dataset from store (has real-time refresh info)
   const storeDataset = useDatasetStore((s) => s.getDataset(datasetId));
@@ -128,6 +130,17 @@ export default function DatasetDashboardPage() {
               >
                 <RefreshCw className="h-4 w-4" />
                 Refresh Now
+              </Button>
+            )}
+            {canRefresh && triggerRefresh.isPending && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => void cancelRefresh.mutateAsync(datasetId)}
+                isLoading={cancelRefresh.isPending}
+              >
+                <XCircle className="h-4 w-4" />
+                Cancel Refresh
               </Button>
             )}
             <ExportButtons datasetId={datasetId} exportParams={exportParams} />
