@@ -389,6 +389,14 @@ export class SmsReportService implements OnModuleInit {
         this.logger.log(`Added missing column "${col.key}" to ${STAGE}`);
       }
     }
+
+    // Ensure indexes exist for existing tables (idempotent)
+    await this.dataSource.query(
+      `CREATE INDEX IF NOT EXISTS idx_${STAGE}_date ON ${STAGE} (date DESC)`,
+    );
+    await this.dataSource.query(
+      `CREATE INDEX IF NOT EXISTS idx_${STAGE}_refreshed ON ${STAGE} (refreshed_at DESC)`,
+    );
   }
 
   async getData(startDate?: string, endDate?: string, accountManager?: string, company?: string): Promise<any> {
@@ -455,9 +463,14 @@ export class SmsReportService implements OnModuleInit {
     const totalSent     = rows.reduce((s: number, r: any) => s + r.successful_sent, 0);
     const totalDelivered = rows.reduce((s: number, r: any) => s + r.delivered, 0);
 
-    // Unique account managers for filter dropdown
+    // Unique account managers — scoped to the requested date range for speed
+    const mgrParams: any[] = [];
+    const mgrConds: string[] = ["account_manager IS NOT NULL", "account_manager <> ''"];
+    if (startDate) { mgrParams.push(startDate); mgrConds.push(`date >= $${mgrParams.length}::date`); }
+    if (endDate)   { mgrParams.push(endDate);   mgrConds.push(`date <= $${mgrParams.length}::date`); }
     const managersAll: string[] = await this.dataSource.query(
-      `SELECT DISTINCT account_manager FROM ${STAGE} WHERE account_manager IS NOT NULL AND account_manager <> '' ORDER BY account_manager`,
+      `SELECT DISTINCT account_manager FROM ${STAGE} WHERE ${mgrConds.join(' AND ')} ORDER BY account_manager`,
+      mgrParams,
     ).then((rs: any[]) => rs.map((r: any) => r.account_manager)).catch(() => []);
 
     const [refreshRow] = await this.dataSource.query(
