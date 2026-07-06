@@ -95,6 +95,13 @@ export class StageService {
         sql = sql.replace(/\{\{LOOKBACK_DATE\}\}/g, lookbackDate);
       }
 
+      // Safety net: if placeholder survived (e.g. incrementalLookbackDays null in DB), fall back to initial date
+      if (sql.includes('{{LOOKBACK_DATE}}')) {
+        const fallback = dataset.incrementalInitialDate ?? '2020-01-01';
+        this.logger.warn(`{{LOOKBACK_DATE}} not replaced (incrementalLookbackDays=${dataset.incrementalLookbackDays}) — using fallback ${fallback}`);
+        sql = sql.replace(/\{\{LOOKBACK_DATE\}\}/g, fallback);
+      }
+
       const result = await this.datasourceExecutor.query(dataset.dataSourceId ?? 'jerasoft', sql);
       rows = result.rows;
 
