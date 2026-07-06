@@ -307,7 +307,7 @@ export class DatasourceExecutorService implements OnModuleDestroy {
           encrypt: ds.sslMode !== 'disable',
           trustServerCertificate: ds.sslMode !== 'require',
           connectTimeout: 5000,
-          requestTimeout: 30000,
+          requestTimeout: 600000,
         },
         pool: { max: 5, min: 0, idleTimeoutMillis: 30000 },
       };

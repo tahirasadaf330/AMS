@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -100,7 +101,17 @@ export class DatasetsService {
 
       const saved = await this.datasetRepo.save(dataset);
       return saved;
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        const detail: string = err.detail ?? '';
+        if (detail.includes('stage_table_name')) {
+          throw new ConflictException(`Stage table name "${dto.stage_table_name}" is already used by another dataset`);
+        }
+        if (detail.includes('name')) {
+          throw new ConflictException(`A dataset named "${dto.name}" already exists`);
+        }
+        throw new ConflictException('A dataset with these details already exists');
+      }
       this.logger.error('Error creating dataset', err);
       throw err;
     }

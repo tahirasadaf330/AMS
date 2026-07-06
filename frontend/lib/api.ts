@@ -24,7 +24,7 @@ import type {
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001',
   withCredentials: true, // for HttpOnly refresh-token cookie
-  timeout: 30_000,
+  timeout: 300_000,
 });
 
 // Token injector — updated by the auth store
@@ -415,6 +415,12 @@ export const mtEdrApi = {
 // ── PRE-PAYMENT CL REPORT ─────────────────────────────────────
 export const prepaymentClApi = {
   getData: () => api.get('/reports/prepayment-cl/data'),
+};
+
+// ── SMS TRAFFIC REPORT ────────────────────────────────────────
+export const smsReportApi = {
+  getData: (params?: { startDate?: string; endDate?: string; accountManager?: string; company?: string }) =>
+    api.get('/reports/sms-report/data', { params }),
 };
 
 // ── SYSTEM ────────────────────────────────────────────────────

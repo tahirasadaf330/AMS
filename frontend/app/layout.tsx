@@ -22,7 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className={`${inter.variable} font-sans bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 antialiased`}>
+      <body suppressHydrationWarning className={`${inter.variable} font-sans bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 antialiased`}>
         <Providers>
           {children}
           <Toaster />

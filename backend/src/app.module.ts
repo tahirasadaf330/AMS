@@ -42,6 +42,7 @@ import { GoogleMoModule } from "./reports/google-mo/google-mo.module";
 import { PrepaymentClModule } from "./reports/prepayment-cl/prepayment-cl.module";
 import { ReportsRegistryModule } from "./admin/reports/reports-registry.module";
 import { MtEdrModule } from "./reports/mt-edr/mt-edr.module";
+import { SmsReportModule } from "./reports/sms-report/sms-report.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -109,6 +110,7 @@ import { MtEdrModule } from "./reports/mt-edr/mt-edr.module";
     GoogleMoModule,
     PrepaymentClModule,
     MtEdrModule,
+    SmsReportModule,
     ReportsRegistryModule,
   ],
 })
