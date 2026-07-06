@@ -1206,15 +1206,15 @@ export default function SmsReportPage() {
   };
 
   /* ── load ────────────────────────────────────────────────── */
-  const load = React.useCallback(async (am: string, co: string) => {
+  const load = React.useCallback(async (startDate: string, endDate: string, am: string, co: string) => {
     setLoading(true); setError(null);
     try {
-      const { data } = await smsReportApi.getData({ accountManager: am || undefined, company: co || undefined });
+      const { data } = await smsReportApi.getData({ startDate: startDate || undefined, endDate: endDate || undefined, accountManager: am || undefined, company: co || undefined });
       setRows(data.rows ?? []);
       setManagers(data.managers ?? []);
-      setDatasetId(data.datasetId ?? null);
-      setLastRefreshed(data.lastRefreshed ?? null);
-      setMaxDate((data as any).maxDate ?? null);
+      setDatasetId((data as any).dataset_id ?? null);
+      setLastRefreshed((data as any).last_refreshed ?? null);
+      setMaxDate((data as any).max_date ?? null);
     } catch (e: any) {
       setError(e?.response?.data?.message ?? e.message ?? 'Failed to load');
     } finally {
@@ -1222,8 +1222,8 @@ export default function SmsReportPage() {
     }
   }, []);
 
-  React.useEffect(() => { load('', ''); }, []);
-  useDatasetSocket(datasetId ?? undefined, () => load(acctMgr, coFilt));
+  React.useEffect(() => { load(daysAgo(89), yd(), '', ''); }, []);
+  useDatasetSocket(datasetId ?? undefined, () => load(saleStart, saleEnd, acctMgr, coFilt));
 
   /* ── today info ──────────────────────────────────────────── */
   const todayStr  = React.useMemo(() => iso(new Date()), []);
