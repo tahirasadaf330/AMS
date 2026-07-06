@@ -41,6 +41,7 @@ import { SmsCreditLimitModule } from "./reports/sms-credit-limit/sms-credit-limi
 import { GoogleMoModule } from "./reports/google-mo/google-mo.module";
 import { PrepaymentClModule } from "./reports/prepayment-cl/prepayment-cl.module";
 import { ReportsRegistryModule } from "./admin/reports/reports-registry.module";
+import { MtEdrModule } from "./reports/mt-edr/mt-edr.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -107,6 +108,7 @@ import { ReportsRegistryModule } from "./admin/reports/reports-registry.module";
     SmsCreditLimitModule,
     GoogleMoModule,
     PrepaymentClModule,
+    MtEdrModule,
     ReportsRegistryModule,
   ],
 })

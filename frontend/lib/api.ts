@@ -407,6 +407,11 @@ export const smsCreditLimitApi = {
   getData: () => api.get('/reports/sms-credit-limit/data'),
 };
 
+// ── MT EDR MONITORING REPORT ──────────────────────────────────
+export const mtEdrApi = {
+  getData: () => api.get('/reports/mt-edr/data'),
+};
+
 // ── PRE-PAYMENT CL REPORT ─────────────────────────────────────
 export const prepaymentClApi = {
   getData: () => api.get('/reports/prepayment-cl/data'),
