@@ -67,8 +67,15 @@ export class StageService {
       // Step 1: Query source database — null dataSourceId means Jerasoft builtin
       this.logger.log(`Refreshing dataset: ${dataset.name} (${dataset.id})`);
 
-      // Incremental mode: replace {{LOOKBACK_DATE}} placeholder with a computed date
-      const isIncremental = (dataset.incrementalLookbackDays ?? 0) > 0;
+      // Incremental mode: fetch incremental config directly from DB to avoid TypeORM column-mapping issues
+      const [incrConfig] = await this.dataSource.query(
+        `SELECT incremental_lookback_days, incremental_initial_date FROM datasets WHERE id = $1`,
+        [dataset.id],
+      ).catch(() => [null]);
+
+      const lookbackDays: number = Number(incrConfig?.incremental_lookback_days) || 0;
+      const initialDate: string  = incrConfig?.incremental_initial_date ?? '2020-01-01';
+      const isIncremental = lookbackDays > 0;
       let lookbackDate: string | null = null;
 
       let sql = dataset.sqlQuery;
@@ -84,22 +91,21 @@ export class StageService {
 
         if (hasData) {
           const d = new Date();
-          d.setDate(d.getDate() - dataset.incrementalLookbackDays!);
+          d.setDate(d.getDate() - lookbackDays);
           lookbackDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          this.logger.log(`Incremental refresh: lookback window from ${lookbackDate} (${dataset.incrementalLookbackDays} days)`);
+          this.logger.log(`Incremental refresh: lookback window from ${lookbackDate} (${lookbackDays} days)`);
         } else {
-          lookbackDate = dataset.incrementalInitialDate ?? '2020-01-01';
+          lookbackDate = initialDate;
           this.logger.log(`Incremental initial full load from ${lookbackDate}`);
         }
 
         sql = sql.replace(/\{\{LOOKBACK_DATE\}\}/g, lookbackDate);
       }
 
-      // Safety net: if placeholder survived (e.g. incrementalLookbackDays null in DB), fall back to initial date
+      // Safety net: if placeholder survived, replace with initial date before hitting source DB
       if (sql.includes('{{LOOKBACK_DATE}}')) {
-        const fallback = dataset.incrementalInitialDate ?? '2020-01-01';
-        this.logger.warn(`{{LOOKBACK_DATE}} not replaced (incrementalLookbackDays=${dataset.incrementalLookbackDays}) — using fallback ${fallback}`);
-        sql = sql.replace(/\{\{LOOKBACK_DATE\}\}/g, fallback);
+        this.logger.warn(`{{LOOKBACK_DATE}} still present after processing — using ${initialDate}`);
+        sql = sql.replace(/\{\{LOOKBACK_DATE\}\}/g, initialDate);
       }
 
       const result = await this.datasourceExecutor.query(dataset.dataSourceId ?? 'jerasoft', sql);
