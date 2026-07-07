@@ -197,7 +197,7 @@ function aggBy(rows: any[], key: string) {
   rows.forEach((r: any) => {
     const k = r[key] || 'Unknown';
     if (!map[k]) map[k] = { name: k, messages: 0, income: 0, expenses: 0, profit: 0, _mSum: 0, _mCnt: 0, idx: idx++ };
-    map[k].messages += Number(r.successful_sent ?? 0);
+    map[k].messages += Number(r.received_messages ?? 0);
     map[k].income   += Number(r.income ?? 0);
     map[k].expenses += Number(r.expenses ?? 0);
     map[k].profit   += Number(r.profit ?? 0);
@@ -372,7 +372,7 @@ function SaleYearTab({ rows, lastRefreshed }: SaleYearTabProps) {
     filtRows.forEach((r:any) => {
       const k = r[syDim] || 'Unknown';
       if (!m[k]) m[k] = { name: k, messages: 0, income: 0, expenses: 0, profit: 0, _mSum: 0, _mCnt: 0 };
-      m[k].messages += Number(r.successful_sent??0);
+      m[k].messages += Number(r.received_messages??0);
       m[k].income   += Number(r.income??0);
       m[k].expenses += Number(r.expenses??0);
       m[k].profit   += Number(r.profit??0);
@@ -399,7 +399,7 @@ function SaleYearTab({ rows, lastRefreshed }: SaleYearTabProps) {
     filtRows.forEach((r:any) => {
       const k = getSyXKey(r); if (!k) return;
       if (!m[k]) m[k] = { x: k, messages: 0, income: 0, expenses: 0, profit: 0, _mSum: 0, _mCnt: 0 };
-      m[k].messages += Number(r.successful_sent??0);
+      m[k].messages += Number(r.received_messages??0);
       m[k].income   += Number(r.income??0);
       m[k].expenses += Number(r.expenses??0);
       m[k].profit   += Number(r.profit??0);
@@ -414,7 +414,7 @@ function SaleYearTab({ rows, lastRefreshed }: SaleYearTabProps) {
     filtRows.forEach((r:any) => {
       const k = r.country || 'Unknown';
       if (!m[k]) m[k] = { country: k, messages: 0, expenses: 0, income: 0, profit: 0, _mSum: 0, _mCnt: 0 };
-      m[k].messages += Number(r.successful_sent??0);
+      m[k].messages += Number(r.received_messages??0);
       m[k].expenses += Number(r.expenses??0);
       m[k].income   += Number(r.income??0);
       m[k].profit   += Number(r.profit??0);
@@ -1282,7 +1282,7 @@ export default function SmsReportPage() {
       map[k].profit   += Number(r.profit ?? 0);
       map[k].income   += Number(r.income ?? 0);
       map[k].expenses += Number(r.expenses ?? 0);
-      map[k].messages += Number(r.successful_sent ?? 0);
+      map[k].messages += Number(r.received_messages ?? 0);
     });
     return Object.values(map).sort((a, b) => b.profit - a.profit).slice(0, 20)
       .map(r => ({ ...r, name: r.name.length > 18 ? r.name.slice(0, 16) + '…' : r.name }));
@@ -1300,8 +1300,8 @@ export default function SmsReportPage() {
       if (!map[co]) map[co] = [];
       const key = r.country || 'Unknown';
       const ex = map[co].find((x: any) => x.name === key);
-      if (ex) { ex.messages += Number(r.successful_sent ?? 0); ex.income += Number(r.income ?? 0); ex.profit += Number(r.profit ?? 0); }
-      else map[co].push({ name: key, messages: Number(r.successful_sent ?? 0), income: Number(r.income ?? 0), profit: Number(r.profit ?? 0) });
+      if (ex) { ex.messages += Number(r.received_messages ?? 0); ex.income += Number(r.income ?? 0); ex.profit += Number(r.profit ?? 0); }
+      else map[co].push({ name: key, messages: Number(r.received_messages ?? 0), income: Number(r.income ?? 0), profit: Number(r.profit ?? 0) });
     });
     Object.values(map).forEach(arr => arr.sort((a, b) => b.income - a.income));
     return map;
@@ -1319,8 +1319,8 @@ export default function SmsReportPage() {
       if (!map[ct]) map[ct] = [];
       const key = r.customer_company || 'Unknown';
       const ex = map[ct].find((x: any) => x.name === key);
-      if (ex) { ex.messages += Number(r.successful_sent ?? 0); ex.income += Number(r.income ?? 0); ex.profit += Number(r.profit ?? 0); }
-      else map[ct].push({ name: key, messages: Number(r.successful_sent ?? 0), income: Number(r.income ?? 0), profit: Number(r.profit ?? 0) });
+      if (ex) { ex.messages += Number(r.received_messages ?? 0); ex.income += Number(r.income ?? 0); ex.profit += Number(r.profit ?? 0); }
+      else map[ct].push({ name: key, messages: Number(r.received_messages ?? 0), income: Number(r.income ?? 0), profit: Number(r.profit ?? 0) });
     });
     Object.values(map).forEach(arr => arr.sort((a, b) => b.income - a.income));
     return map;
@@ -1350,8 +1350,8 @@ export default function SmsReportPage() {
   }, [p1Agg, p2Agg]);
 
   const compSorted = compSort.sort(compRows);
-  const p1T = { messages: p1Rows.reduce((s: number, r: any) => s + Number(r.successful_sent ?? 0), 0), income: p1Rows.reduce((s: number, r: any) => s + Number(r.income ?? 0), 0), profit: p1Rows.reduce((s: number, r: any) => s + Number(r.profit ?? 0), 0) };
-  const p2T = { messages: p2Rows.reduce((s: number, r: any) => s + Number(r.successful_sent ?? 0), 0), income: p2Rows.reduce((s: number, r: any) => s + Number(r.income ?? 0), 0), profit: p2Rows.reduce((s: number, r: any) => s + Number(r.profit ?? 0), 0) };
+  const p1T = { messages: p1Rows.reduce((s: number, r: any) => s + Number(r.received_messages ?? 0), 0), income: p1Rows.reduce((s: number, r: any) => s + Number(r.income ?? 0), 0), profit: p1Rows.reduce((s: number, r: any) => s + Number(r.profit ?? 0), 0) };
+  const p2T = { messages: p2Rows.reduce((s: number, r: any) => s + Number(r.received_messages ?? 0), 0), income: p2Rows.reduce((s: number, r: any) => s + Number(r.income ?? 0), 0), profit: p2Rows.reduce((s: number, r: any) => s + Number(r.profit ?? 0), 0) };
 
   /* ── sale - year (all rows grouped by month) ─────────────── */
   const yearKey  = yearDim === 'company' ? 'customer_company' : 'country';
@@ -1368,7 +1368,7 @@ export default function SmsReportPage() {
       if (!m || m.length < 7) return;
       if (!map[n]) map[n] = {};
       if (!map[n][m]) map[n][m] = { messages: 0, income: 0, profit: 0, _mSum: 0, _mCnt: 0 };
-      map[n][m].messages += Number(r.successful_sent ?? 0);
+      map[n][m].messages += Number(r.received_messages ?? 0);
       map[n][m].income   += Number(r.income ?? 0);
       map[n][m].profit   += Number(r.profit ?? 0);
       if (r.margin_pct != null) { map[n][m]._mSum += Number(r.margin_pct); map[n][m]._mCnt += 1; }
@@ -1406,7 +1406,7 @@ export default function SmsReportPage() {
     return mgrs.map(mgr => {
       const r1 = w1Rows.filter((r: any) => r.account_manager === mgr);
       const r2 = w2Rows.filter((r: any) => r.account_manager === mgr);
-      const sum = (rs: any[]) => ({ messages: rs.reduce((s, r) => s + Number(r.successful_sent ?? 0), 0), income: rs.reduce((s, r) => s + Number(r.income ?? 0), 0), profit: rs.reduce((s, r) => s + Number(r.profit ?? 0), 0) });
+      const sum = (rs: any[]) => ({ messages: rs.reduce((s, r) => s + Number(r.received_messages ?? 0), 0), income: rs.reduce((s, r) => s + Number(r.income ?? 0), 0), profit: rs.reduce((s, r) => s + Number(r.profit ?? 0), 0) });
       const t1 = sum(r1); const t2 = sum(r2);
       const custs = Array.from(new Set([...r1, ...r2].map((r: any) => r.customer_company).filter(Boolean))).sort();
       return { mgr, t1, t2, customers: custs.map(c => ({ name: c, t1: sum(r1.filter((r: any) => r.customer_company === c)), t2: sum(r2.filter((r: any) => r.customer_company === c)) })) };
@@ -1424,13 +1424,13 @@ export default function SmsReportPage() {
     mtdRows.forEach((r: any) => {
       const m = r.account_manager || 'Unassigned';
       if (!map[m]) map[m] = { name: m, messages: 0, income: 0, profit: 0, _mSum: 0, _mCnt: 0, customers: {} };
-      map[m].messages += Number(r.successful_sent ?? 0);
+      map[m].messages += Number(r.received_messages ?? 0);
       map[m].income   += Number(r.income ?? 0);
       map[m].profit   += Number(r.profit ?? 0);
       if (r.margin_pct != null) { map[m]._mSum += Number(r.margin_pct); map[m]._mCnt += 1; }
       const c = r.customer_company || 'Unknown';
       if (!map[m].customers[c]) map[m].customers[c] = { name: c, messages: 0, income: 0, profit: 0, _mSum: 0, _mCnt: 0 };
-      map[m].customers[c].messages += Number(r.successful_sent ?? 0);
+      map[m].customers[c].messages += Number(r.received_messages ?? 0);
       map[m].customers[c].income   += Number(r.income ?? 0);
       map[m].customers[c].profit   += Number(r.profit ?? 0);
       if (r.margin_pct != null) { map[m].customers[c]._mSum += Number(r.margin_pct); map[m].customers[c]._mCnt += 1; }
@@ -1555,7 +1555,7 @@ export default function SmsReportPage() {
             saleRows.forEach((r: any) => {
               const key = [r.mcc_mnc, r.customer_company, r.country, r.operator, r.customer_connection, r.account_manager].join('|');
               if (!m[key]) m[key] = { mcc_mnc: r.mcc_mnc || '—', customer_company: r.customer_company || '—', country: r.country || '—', operator: r.operator || '—', customer_connection: r.customer_connection || '—', account_manager: r.account_manager || '—', messages: 0, income: 0, profit: 0, _mSum: 0, _mCnt: 0 };
-              m[key].messages += Number(r.successful_sent ?? 0);
+              m[key].messages += Number(r.received_messages ?? 0);
               m[key].income   += Number(r.income ?? 0);
               m[key].profit   += Number(r.profit ?? 0);
               if (r.margin_pct != null) { m[key]._mSum += Number(r.margin_pct); m[key]._mCnt += 1; }
@@ -1619,7 +1619,7 @@ export default function SmsReportPage() {
             saleRows.forEach((r: any) => {
               const k = granOf(r); if (!k) return;
               if (!m[k]) m[k] = { x: k, messages: 0, income: 0, expenses: 0, profit: 0, _mSum: 0, _mCnt: 0 };
-              m[k].messages += Number(r.successful_sent ?? 0);
+              m[k].messages += Number(r.received_messages ?? 0);
               m[k].income   += Number(r.income ?? 0);
               m[k].expenses += Number(r.expenses ?? 0);
               m[k].profit   += Number(r.profit ?? 0);
