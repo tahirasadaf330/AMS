@@ -405,6 +405,11 @@ export const vcsBalanceApi = {
   getData: () => api.get('/reports/vcs-balance/data'),
 };
 
+// ── DEALS AUTOMATION REPORT ────────────────────────────────────
+export const dealsAutomationApi = {
+  getData: () => api.get('/reports/deals-automation/data'),
+};
+
 // ── SMS CREDIT LIMIT REPORT ───────────────────────────────────
 export const smsCreditLimitApi = {
   getData: () => api.get('/reports/sms-credit-limit/data'),
