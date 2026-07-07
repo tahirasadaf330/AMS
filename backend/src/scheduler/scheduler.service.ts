@@ -141,8 +141,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async triggerNow(datasetId: string): Promise<void> {
-    // Cancel any already-running refresh for this dataset
-    this.cancelRefresh(datasetId);
+    if (this.inFlight.has(datasetId)) {
+      this.logger.warn(`Dataset ${datasetId} is already refreshing — duplicate trigger ignored`);
+      return;
+    }
     const controller = new AbortController();
     this.inFlight.set(datasetId, controller);
     const dataset = await this.datasetsService.findOne(datasetId);

@@ -102,6 +102,10 @@ export class SchedulesController {
       ipAddress,
     });
 
+    if (this.schedulerService.isRefreshing(datasetId)) {
+      return { message: 'Already refreshing', datasetId };
+    }
+
     this.schedulerService.triggerNow(datasetId).catch(() => {});
     return { message: 'Refresh triggered', datasetId };
   }

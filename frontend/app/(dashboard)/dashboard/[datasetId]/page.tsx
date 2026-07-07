@@ -49,7 +49,10 @@ export default function DatasetDashboardPage() {
     const socket = getCurrentSocket();
     if (!socket) return;
     const done = (event: { dataset_id: string }) => {
-      if (event.dataset_id === datasetId) setIsRefreshing(false);
+      if (event.dataset_id === datasetId) {
+        setIsRefreshing(false);
+        refreshGuard.current = false;
+      }
     };
     socket.on('dataset:refreshed', done);
     socket.on('dataset:refresh_failed', done);
@@ -75,6 +78,7 @@ export default function DatasetDashboardPage() {
   const { data: conditions } = useConditions();
   const triggerRefresh = useTriggerRefresh();
   const cancelRefresh = useCancelRefresh();
+  const refreshGuard = React.useRef(false);
 
   // Get dataset from store (has real-time refresh info)
   const storeDataset = useDatasetStore((s) => s.getDataset(datasetId));
@@ -142,8 +146,13 @@ export default function DatasetDashboardPage() {
                 variant="secondary"
                 size="sm"
                 onClick={() => {
+                  if (refreshGuard.current || isRefreshing) return;
+                  refreshGuard.current = true;
                   setIsRefreshing(true);
-                  void triggerRefresh.mutateAsync(datasetId).catch(() => setIsRefreshing(false));
+                  void triggerRefresh.mutateAsync(datasetId).catch(() => {
+                    setIsRefreshing(false);
+                    refreshGuard.current = false;
+                  });
                 }}
                 isLoading={triggerRefresh.isPending}
                 disabled={isRefreshing}
@@ -157,7 +166,10 @@ export default function DatasetDashboardPage() {
                 variant="destructive"
                 size="sm"
                 onClick={() => {
-                  void cancelRefresh.mutateAsync(datasetId).finally(() => setIsRefreshing(false));
+                  void cancelRefresh.mutateAsync(datasetId).finally(() => {
+                    setIsRefreshing(false);
+                    refreshGuard.current = false;
+                  });
                 }}
                 isLoading={cancelRefresh.isPending}
               >
