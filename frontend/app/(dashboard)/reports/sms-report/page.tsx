@@ -139,12 +139,15 @@ const IC = {
   cal:   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
 };
 
-function Kpi({ color, label, value, sub, icon }: { color: string; label: string; value: string; sub?: React.ReactNode; icon: React.ReactNode }) {
+function Kpi({ color, label, value, sub, icon, loading }: { color: string; label: string; value: string; sub?: React.ReactNode; icon: React.ReactNode; loading?: boolean }) {
   return (
     <div className={`zk ${color}`}>
       <div className="zk-top"><span className="zk-lbl">{label}</span><span className="zk-ic">{icon}</span></div>
-      <div className="zk-val">{value}</div>
-      {sub && <div className="zk-sub">{sub}</div>}
+      {loading
+        ? <div className="zskel" style={{ height: 28, margin: '6px 0 4px', borderRadius: 6 }} />
+        : <div className="zk-val">{value}</div>
+      }
+      {sub && <div className="zk-sub" style={{ opacity: loading ? 0.4 : 1 }}>{sub}</div>}
     </div>
   );
 }
@@ -940,9 +943,12 @@ interface ComparisonTabProps {
 }
 
 function ComparisonTab({ p1Rows, p2Rows, p1Start, p1End, p2Start, p2End, fOp, fCtr, fCst, fCon, fMgr }: ComparisonTabProps) {
-  const [compMetric] = React.useState<CompMetric>('messages_p2');
+  const [chartMetric, setChartMetric] = React.useState<string>('messages');
   const [compXAxis,  setCompXAxis]  = React.useState<CompXAxis>('date');
-  const [compDimExt, setCompDimExt] = React.useState<CompDimExt>('mcc_mnc');
+  const [compDimExts, setCompDimExts] = React.useState<CompDimExt[]>(['company']);
+  const toggleDim = (key: CompDimExt) => setCompDimExts(prev =>
+    prev.includes(key) ? (prev.length > 1 ? prev.filter(k => k !== key) : prev) : [...prev, key]
+  );
 
   // Apply cross-filters to period rows
   const applyFilt = (rs:any[]) => rs.filter((r:any)=>{
@@ -956,22 +962,19 @@ function ComparisonTab({ p1Rows, p2Rows, p1Start, p1End, p2Start, p2End, fOp, fC
   const fp1 = React.useMemo(()=>applyFilt(p1Rows),[p1Rows,fOp,fCtr,fCst,fCon,fMgr]);
   const fp2 = React.useMemo(()=>applyFilt(p2Rows),[p2Rows,fOp,fCtr,fCst,fCon,fMgr]);
 
-  // Aggregate by selected dimension
+  // Aggregate by selected dimension(s) — composite key when multiple are chosen
   const tableRows = React.useMemo(() => {
-    const key = COMP_DIM_KEY[compDimExt];
+    const compKey = (r:any) => compDimExts.map(d => r[COMP_DIM_KEY[d]] || '—').join(' / ');
     const agg = (rs:any[]) => {
       const m:Record<string,any>={};
-      rs.forEach((r:any)=>{ const k=r[key]||'—'; if(!m[k])m[k]={messages:0,income:0,expenses:0,profit:0,_mSum:0,_mCnt:0}; m[k].messages+=Number(r.received_messages??0); m[k].income+=Number(r.income??0); m[k].expenses+=Number(r.expenses??0); m[k].profit+=Number(r.profit??0); if(r.margin_pct!=null){m[k]._mSum+=Number(r.margin_pct);m[k]._mCnt+=1;} });
+      rs.forEach((r:any)=>{ const k=compKey(r); if(!m[k])m[k]={messages:0,income:0,expenses:0,profit:0,_mSum:0,_mCnt:0}; m[k].messages+=Number(r.received_messages??0); m[k].income+=Number(r.income??0); m[k].expenses+=Number(r.expenses??0); m[k].profit+=Number(r.profit??0); if(r.margin_pct!=null){m[k]._mSum+=Number(r.margin_pct);m[k]._mCnt+=1;} });
       return m;
     };
     const a1=agg(fp1); const a2=agg(fp2);
-    // For the multi-column table, get first occurrence of each dim value for extra columns
-    const meta:Record<string,any>={};
-    [...fp1,...fp2].forEach((r:any)=>{ const k=r[key]||'—'; if(!meta[k]) meta[k]={ mcc_mnc:r.mcc_mnc||'', customer_company:r.customer_company||'', country:r.country||'', operator:r.operator||'', customer_connection:r.customer_connection||'', account_manager:r.account_manager||'' }; });
     const names=Array.from(new Set([...Object.keys(a1),...Object.keys(a2)]));
     const avgM=(g:any)=>g&&g._mCnt>0?g._mSum/g._mCnt:0;
-    return names.map((n,i)=>({ name:n, col:PAL[i%PAL.length], meta:meta[n]||{}, msg1:(a1[n]?.messages??0), inc1:(a1[n]?.income??0), exp1:(a1[n]?.expenses??0), prf1:(a1[n]?.profit??0), mar1:avgM(a1[n]), msg2:(a2[n]?.messages??0), inc2:(a2[n]?.income??0), exp2:(a2[n]?.expenses??0), prf2:(a2[n]?.profit??0), mar2:avgM(a2[n]) }));
-  }, [fp1, fp2, compDimExt]);
+    return names.map((n,i)=>({ name:n, col:PAL[i%PAL.length], msg1:(a1[n]?.messages??0), inc1:(a1[n]?.income??0), exp1:(a1[n]?.expenses??0), prf1:(a1[n]?.profit??0), mar1:avgM(a1[n]), msg2:(a2[n]?.messages??0), inc2:(a2[n]?.income??0), exp2:(a2[n]?.expenses??0), prf2:(a2[n]?.profit??0), mar2:avgM(a2[n]) }));
+  }, [fp1, fp2, compDimExts]);
 
   // Chart data
   const getXKey = React.useCallback((r:any)=>{
@@ -989,8 +992,9 @@ function ComparisonTab({ p1Rows, p2Rows, p1Start, p1End, p2Start, p2End, fOp, fC
     return Object.values(m).sort((a,b)=>String(a.x).localeCompare(String(b.x)));
   },[fp1,fp2,getXKey]);
 
-  const chartLabel = METRIC_BTNS.find(b=>b.key===compMetric)?.label??compMetric;
-  const isMsg = compMetric.startsWith('messages');
+  const CHART_METRIC_BTNS = [{key:'messages',label:'Messages'},{key:'profit',label:'Profit'},{key:'income',label:'Income'},{key:'expenses',label:'Expenses'}];
+  const chartLabel = CHART_METRIC_BTNS.find(b=>b.key===chartMetric)?.label ?? chartMetric;
+  const isMsg = chartMetric === 'messages';
   const fmtV  = (v:any)=>isMsg?fN(v):fN(Math.round(Number(v)));
   const bs    = (a:boolean)=>({ padding:'6px 10px',fontSize:12,fontWeight:700 as const,borderRadius:5,border:'1.5px solid',cursor:'pointer' as const,transition:'.12s', borderColor:a?'var(--turquoise)':'var(--lns)',background:a?'var(--turquoise)':'var(--sf2)',color:a?'#fff':'var(--inks)' });
 
@@ -998,7 +1002,7 @@ function ComparisonTab({ p1Rows, p2Rows, p1Start, p1End, p2Start, p2End, fOp, fC
   const tot2={msg:tableRows.reduce((s,r)=>s+r.msg2,0),inc:tableRows.reduce((s,r)=>s+r.inc2,0),exp:tableRows.reduce((s,r)=>s+r.exp2,0),prf:tableRows.reduce((s,r)=>s+r.prf2,0)};
 
   // ── P1/P2/Diff table helpers (Diff = P2 − P1) ──
-  const dimLabel = COMP_DIM_BTNS.find(b=>b.key===compDimExt)?.label ?? 'Dimension';
+  const dimLabel = compDimExts.map(d => COMP_DIM_BTNS.find(b=>b.key===d)?.label ?? d).join(' / ');
   const cellBase = { textAlign:'right' as const, fontVariantNumeric:'tabular-nums' as const, whiteSpace:'nowrap' as const };
   const stickyTd = { position:'sticky' as const, left:0, background:'var(--sf)', color:'var(--ink)', fontWeight:600 as const, textAlign:'left' as const };
   const money = (v:number)=>fN(Math.round(v));
@@ -1025,18 +1029,12 @@ function ComparisonTab({ p1Rows, p2Rows, p1Start, p1End, p2Start, p2End, fOp, fC
 
   return (
     <div>
-      {/* ── Two blocks: dimension + chart x-axis ── */}
+      {/* ── Dimension selector ── */}
       <div style={{display:'flex',gap:12,marginBottom:12,flexWrap:'wrap'}}>
-        <div className="zpnl" style={{padding:'10px 12px',flex:'1 1 58%',minWidth:300}}>
+        <div className="zpnl" style={{padding:'10px 12px',flex:'1 1 100%'}}>
           <div style={{fontSize:11,fontWeight:700,color:'var(--mu)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>Dimension</div>
           <div style={{display:'flex',gap:6}}>
-            {COMP_DIM_BTNS.map(b=><button key={b.key} onClick={()=>setCompDimExt(b.key)} style={{...bs(compDimExt===b.key),flex:1,whiteSpace:'nowrap'}}>{b.label}</button>)}
-          </div>
-        </div>
-        <div className="zpnl" style={{padding:'10px 12px',flex:'1 1 32%',minWidth:240}}>
-          <div style={{fontSize:11,fontWeight:700,color:'var(--mu)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>Chart X-Axis</div>
-          <div style={{display:'flex',gap:6}}>
-            {XAXIS_BTNS.map(b=><button key={b.key} onClick={()=>setCompXAxis(b.key)} style={{...bs(compXAxis===b.key),flex:1,whiteSpace:'nowrap'}}>{b.label}</button>)}
+            {COMP_DIM_BTNS.map(b=><button key={b.key} onClick={()=>toggleDim(b.key)} style={{...bs(compDimExts.includes(b.key)),flex:1,whiteSpace:'nowrap'}}>{b.label}</button>)}
           </div>
         </div>
       </div>
@@ -1092,17 +1090,28 @@ function ComparisonTab({ p1Rows, p2Rows, p1Start, p1End, p2Start, p2End, fOp, fC
 
       {/* Bar chart */}
       <div className="zpnl">
-        <PH title={`${chartLabel} by ${XAXIS_BTNS.find(b=>b.key===compXAxis)?.label}`} />
-        <div style={{height:280,padding:'10px 10px 8px'}}>
+        <div className="zph">
+          <h2>{chartLabel} (P1 vs P2) by {XAXIS_BTNS.find(b=>b.key===compXAxis)?.label}</h2>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',justifyContent:'flex-end'}}>
+            {CHART_METRIC_BTNS.map(b=><button key={b.key} onClick={()=>setChartMetric(b.key)} style={{...bs(chartMetric===b.key),whiteSpace:'nowrap'}}>{b.label}</button>)}
+          </div>
+        </div>
+        <div style={{height:280,padding:'0 10px 8px'}}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{top:4,right:12,bottom:0,left:0}}>
+            <BarChart data={chartData} margin={{top:4,right:12,bottom:0,left:0}} barGap={2} barCategoryGap="30%">
               <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false}/>
               <XAxis dataKey="x" {...AX} tickFormatter={(v:string)=>v.length>7?v.slice(5):v}/>
               <YAxis {...AX} width={58} tickFormatter={(v:number)=>v>=1000?`${(v/1000).toFixed(1)}K`:String(Math.round(v))}/>
-              <Tooltip {...TIP} formatter={(v:any)=>[fmtV(v),chartLabel]}/>
-              <Bar dataKey={compMetric} fill="#3498db" radius={[3,3,0,0]}/>
+              <Tooltip {...TIP} formatter={(v:any,n:string)=>[fmtV(v),n]}/>
+              <Legend iconType="square" iconSize={10} wrapperStyle={{fontSize:11,paddingTop:4}}/>
+              <Bar dataKey={`${chartMetric}_p1`} name={`P1 ${fDate(p1Start)}→${fDate(p1End)}`} fill="#1abc9c" radius={[3,3,0,0]}/>
+              <Bar dataKey={`${chartMetric}_p2`} name={`P2 ${fDate(p2Start)}→${fDate(p2End)}`} fill="#3498db" radius={[3,3,0,0]}/>
             </BarChart>
           </ResponsiveContainer>
+        </div>
+        {/* X-Axis selector */}
+        <div style={{display:'flex',gap:6,justifyContent:'center',padding:'8px 12px 12px'}}>
+          {XAXIS_BTNS.map(b=><button key={b.key} onClick={()=>setCompXAxis(b.key)} style={{...bs(compXAxis===b.key),whiteSpace:'nowrap'}}>{b.label}</button>)}
         </div>
       </div>
     </div>
@@ -1132,10 +1141,10 @@ export default function SmsReportPage() {
   const [error, setError]         = React.useState<string | null>(null);
 
   /* ── sale filters ────────────────────────────────────────── */
-  const [saleStart,    setSaleStart]    = React.useState(() => daysAgo(89));
+  const [saleStart,    setSaleStart]    = React.useState(yd);
   const [saleEnd,      setSaleEnd]      = React.useState(yd);
   const [saleYear,     setSaleYear]     = React.useState('');
-  const [saleDateMode, setSaleDateMode] = React.useState<'day'|'month'|'range'>('range');
+  const [saleDateMode, setSaleDateMode] = React.useState<'day'|'month'|'range'>('day');
   const [acctMgr,      setAcctMgr]      = React.useState('');
   const [coFilt,       setCoFilt]       = React.useState('');
   const [saleCntryFilt,  setSaleCntryFilt]  = React.useState('');
@@ -1146,9 +1155,9 @@ export default function SmsReportPage() {
   const [saleConnSearch, setSaleConnSearch] = React.useState('');
 
   /* ── comparison ─────────────────────────────────────────── */
-  const [p1Start, setP1Start] = React.useState(() => daysAgo(89));
-  const [p1End,   setP1End]   = React.useState(() => daysAgo(45));
-  const [p2Start, setP2Start] = React.useState(() => daysAgo(44));
+  const [p1Start, setP1Start] = React.useState(() => daysAgo(2));
+  const [p1End,   setP1End]   = React.useState(() => daysAgo(2));
+  const [p2Start, setP2Start] = React.useState(yd);
   const [p2End,   setP2End]   = React.useState(yd);
   const [cDim,    setCDim]    = React.useState<'company' | 'country' | 'operator'>('company');
   /* shared Comparison-tab filters — drive both the P1/P2 table and the weekly table */
@@ -1157,7 +1166,7 @@ export default function SmsReportPage() {
   const [cmpCst, setCmpCst] = React.useState('');
   const [cmpCon, setCmpCon] = React.useState('');
   const [cmpMgr, setCmpMgr] = React.useState('');
-  const [cmpMode, setCmpMode] = React.useState<'day'|'week'|'month'|'range'>('range');
+  const [cmpMode, setCmpMode] = React.useState<'day'|'week'|'month'|'range'>('day');
   // Day/Week/Month presets set P1 (older period) vs P2 (most recent complete period)
   const applyCmpMode = React.useCallback((mode: 'day'|'week'|'month'|'range') => {
     setCmpMode(mode);
@@ -1727,7 +1736,7 @@ export default function SmsReportPage() {
                     </select>
                   </div>
                   <div style={{ alignSelf: 'flex-end', display: 'flex', gap: 8 }}>
-                    <button className="zbt2" onClick={() => { setAcctMgr(''); setCoFilt(''); setSaleYear(''); setSaleDateMode('range'); setSaleStart(daysAgo(89)); setSaleEnd(yd()); setSaleCntryFilt(''); setSaleCustFilt(''); setSaleConnFilt(''); }}>Reset</button>
+                    <button className="zbt2" onClick={() => { setAcctMgr(''); setCoFilt(''); setSaleYear(''); setSaleDateMode('day'); setSaleStart(yd()); setSaleEnd(yd()); setSaleCntryFilt(''); setSaleCustFilt(''); setSaleConnFilt(''); }}>Reset</button>
                   </div>
                 </div>
               </div>
@@ -1871,8 +1880,8 @@ export default function SmsReportPage() {
               ]}
               onReset={() => {
                 setCmpOp(''); setCmpCtr(''); setCmpCst(''); setCmpCon(''); setCmpMgr('');
-                setCmpMode('range');
-                setP1Start(daysAgo(89)); setP1End(daysAgo(45)); setP2Start(daysAgo(44)); setP2End(yd());
+                setCmpMode('day');
+                setP1Start(daysAgo(2)); setP1End(daysAgo(2)); setP2Start(yd()); setP2End(yd());
               }}
               extra={
                 <div style={{ display: 'flex', gap: 20, flexBasis: '100%', flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -1952,18 +1961,18 @@ export default function SmsReportPage() {
           <>
             {/* ── Row 1: Yearly KPIs ── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 16 }}>
-              <Kpi color="kb" label={`Avg Messages per Day ${curYear}`}   icon={IC.msg}   value={fN(Math.round(yearTotMsgs / yearDayCount))}                        sub="current year" />
-              <Kpi color="kp" label={`Avg Profit per Day ${curYear}`}     icon={IC.trend} value={fN(Math.round(yearTotProfit / yearDayCount))}                       sub="current year" />
-              <Kpi color="kt" label={`Avg Income per Day ${curYear}`}     icon={IC.rev}   value={fN(Math.round(yearTotIncome / yearDayCount))}                       sub="current year" />
-              <Kpi color="kc" label={`Avg Profit Per Messages ${curYear}`} icon={IC.pct}  value={yearTotMsgs > 0 ? (yearTotProfit / yearTotMsgs).toFixed(2) : '—'} sub="current year" />
+              <Kpi color="kb" label={`Avg Messages per Day ${curYear}`}   icon={IC.msg}   value={fN(Math.round(yearTotMsgs / yearDayCount))}                        sub="current year" loading={loading} />
+              <Kpi color="kp" label={`Avg Profit per Day ${curYear}`}     icon={IC.trend} value={fN(Math.round(yearTotProfit / yearDayCount))}                       sub="current year" loading={loading} />
+              <Kpi color="kt" label={`Avg Income per Day ${curYear}`}     icon={IC.rev}   value={fN(Math.round(yearTotIncome / yearDayCount))}                       sub="current year" loading={loading} />
+              <Kpi color="kc" label={`Avg Profit Per Messages ${curYear}`} icon={IC.pct}  value={yearTotMsgs > 0 ? (yearTotProfit / yearTotMsgs).toFixed(2) : '—'} sub="current year" loading={loading} />
             </div>
 
             {/* ── Row 2: Current Month KPIs ── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
-              <Kpi color="kb" label="Avg Messages Current Month"       icon={IC.msg}   value={fN(Math.round(curMonthTotMsgs / curMonthDayCount))}                         sub="current month" />
-              <Kpi color="kp" label="Avg Profit Current Month"         icon={IC.trend} value={fN(Math.round(curMonthTotProfit / curMonthDayCount))}                       sub="current month" />
-              <Kpi color="kt" label="Avg Income Current Month"         icon={IC.rev}   value={fN(Math.round(curMonthTotIncome / curMonthDayCount))}                       sub="current month" />
-              <Kpi color="kc" label="Avg Profit per Message Current Month" icon={IC.pct} value={curMonthTotMsgs > 0 ? (curMonthTotProfit / curMonthTotMsgs).toFixed(2) : '—'} sub="current month" />
+              <Kpi color="kb" label="Avg Messages Current Month"       icon={IC.msg}   value={fN(Math.round(curMonthTotMsgs / curMonthDayCount))}                         sub="current month" loading={loading} />
+              <Kpi color="kp" label="Avg Profit Current Month"         icon={IC.trend} value={fN(Math.round(curMonthTotProfit / curMonthDayCount))}                       sub="current month" loading={loading} />
+              <Kpi color="kt" label="Avg Income Current Month"         icon={IC.rev}   value={fN(Math.round(curMonthTotIncome / curMonthDayCount))}                       sub="current month" loading={loading} />
+              <Kpi color="kc" label="Avg Profit per Message Current Month" icon={IC.pct} value={curMonthTotMsgs > 0 ? (curMonthTotProfit / curMonthTotMsgs).toFixed(2) : '—'} sub="current month" loading={loading} />
             </div>
 
             {/* ── Chart 1: Avg Profit per Day by Top 10 Company ── */}
