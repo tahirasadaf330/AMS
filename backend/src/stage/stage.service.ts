@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -14,7 +14,7 @@ export interface RefreshResult {
 }
 
 @Injectable()
-export class StageService {
+export class StageService implements OnModuleInit {
   private readonly logger = new Logger(StageService.name);
 
   constructor(
@@ -25,6 +25,22 @@ export class StageService {
     private datasourceExecutor: DatasourceExecutorService,
     private eventsGateway: EventsGateway,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    try {
+      const result = await this.dataSource.query(
+        `UPDATE dataset_refresh_log
+         SET status = 'failed', finished_at = NOW(), error = 'Interrupted by server restart'
+         WHERE status = 'running'`,
+      );
+      const affected = result[1] ?? 0;
+      if (affected > 0) {
+        this.logger.warn(`Cleaned up ${affected} stale running refresh log(s) from previous process`);
+      }
+    } catch (err) {
+      this.logger.error('Failed to clean up stale running refresh logs', err);
+    }
+  }
 
   /**
    * Refresh a dataset atomically:
