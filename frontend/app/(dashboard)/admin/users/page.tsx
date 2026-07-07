@@ -212,6 +212,8 @@ export default function AdminUsersPage() {
       }),
       setMembersMut.mutateAsync({ id: editingGroup.id, userIds: groupMembers }),
     ]);
+    // Refetch groups so member count is up-to-date after setMembers completes
+    void queryClient.invalidateQueries({ queryKey: ['admin', 'groups'] });
     setEditingGroup(null);
   };
 

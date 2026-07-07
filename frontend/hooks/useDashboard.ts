@@ -137,8 +137,11 @@ export function useUpdateGroup() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: { name?: string; description?: string; dataset_access?: string[]; report_access?: string[] } }) =>
       adminGroupsApi.update(id, data).then((r) => r.data as AdminGroup),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'groups'] });
+    onSuccess: (updatedGroup) => {
+      // Update cache immediately so re-opening edit dialog shows correct selections
+      queryClient.setQueryData<AdminGroup[]>(['admin', 'groups'], (old) =>
+        old ? old.map((g) => g.id === updatedGroup.id ? updatedGroup : g) : [updatedGroup],
+      );
       void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       addToast({ title: 'Group updated', variant: 'success' });
     },
