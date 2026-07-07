@@ -44,21 +44,26 @@ export default function DatasetDashboardPage() {
     return () => unsubscribeFromDataset(datasetId);
   }, [datasetId, token]);
 
-  // Clear isRefreshing when the backend signals completion (success or failure)
+  // Sync isRefreshing with backend WebSocket events — works for cron, manual, and other sessions
   React.useEffect(() => {
     const socket = getCurrentSocket();
     if (!socket) return;
-    const done = (event: { dataset_id: string }) => {
+    const onStarted = (event: { dataset_id: string }) => {
+      if (event.dataset_id === datasetId) setIsRefreshing(true);
+    };
+    const onDone = (event: { dataset_id: string }) => {
       if (event.dataset_id === datasetId) {
         setIsRefreshing(false);
         refreshGuard.current = false;
       }
     };
-    socket.on('dataset:refreshed', done);
-    socket.on('dataset:refresh_failed', done);
+    socket.on('dataset:refresh_started', onStarted);
+    socket.on('dataset:refreshed', onDone);
+    socket.on('dataset:refresh_failed', onDone);
     return () => {
-      socket.off('dataset:refreshed', done);
-      socket.off('dataset:refresh_failed', done);
+      socket.off('dataset:refresh_started', onStarted);
+      socket.off('dataset:refreshed', onDone);
+      socket.off('dataset:refresh_failed', onDone);
     };
   }, [datasetId, token]);
 

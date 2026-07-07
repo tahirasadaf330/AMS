@@ -5,7 +5,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Dataset } from '../common/entities/dataset.entity';
 import { DatasetRefreshLog } from '../common/entities/dataset-refresh-log.entity';
 import { DatasourceExecutorService } from '../datasources/datasource-executor.service';
-import { EventsGateway } from '../websocket/events.gateway';
+import { EventsGateway, DatasetRefreshStartedEvent } from '../websocket/events.gateway';
 
 export interface RefreshResult {
   rowCount: number;
@@ -54,6 +54,17 @@ export class StageService {
       logId = log.id;
     } catch (err) {
       this.logger.error(`Failed to create refresh log for ${dataset.id}`, err);
+    }
+
+    // Notify clients that a refresh has started (cron or manual)
+    try {
+      this.eventsGateway.emitDatasetRefreshStarted({
+        dataset_id: dataset.id,
+        dataset_name: dataset.name,
+        started_at: startedAt.toISOString(),
+      });
+    } catch (wsErr) {
+      this.logger.error('Failed to emit dataset refresh started event', wsErr);
     }
 
     let rows: Record<string, unknown>[] = [];

@@ -15,6 +15,12 @@ import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { JerasoftService } from '../datasources/jerasoft/jerasoft.service';
 
+export interface DatasetRefreshStartedEvent {
+  dataset_id: string;
+  dataset_name: string;
+  started_at: string;
+}
+
 export interface DatasetRefreshedEvent {
   dataset_id: string;
   dataset_name: string;
@@ -132,6 +138,11 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
       client.leave(`dataset:${data.dataset_id}`);
       this.logger.debug(`Client ${client.id} unsubscribed from dataset:${data.dataset_id}`);
     }
+  }
+
+  emitDatasetRefreshStarted(event: DatasetRefreshStartedEvent): void {
+    this.server.to(`dataset:${event.dataset_id}`).emit('dataset:refresh_started', event);
+    this.server.to('admin').emit('dataset:refresh_started', event);
   }
 
   emitDatasetRefreshed(event: DatasetRefreshedEvent): void {
