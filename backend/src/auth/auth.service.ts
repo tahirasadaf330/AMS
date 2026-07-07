@@ -6,8 +6,8 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -49,6 +49,7 @@ export class AuthService {
     private reportAccessRepo: Repository<UserReportAccess>,
     private jwtService: JwtService,
     private configService: ConfigService,
+    @InjectDataSource() private dataSource: DataSource,
   ) {}
 
   async login(
@@ -130,8 +131,27 @@ export class AuthService {
         this.datasetAccessRepo.find({ where: { userId: user.id } }),
         this.reportAccessRepo.find({ where: { userId: user.id } }),
       ]);
-      datasetAccessIds = datasetAccess.map((a) => a.datasetId);
-      reportAccessSlugs = reportAccess.map((r) => r.reportSlug);
+      let datasetIds = datasetAccess.map((a) => a.datasetId);
+      let reportSlugs = reportAccess.map((r) => r.reportSlug);
+
+      // Merge group permissions if user belongs to a group
+      if (user.groupId) {
+        const [groupDatasets, groupReports] = await Promise.all([
+          this.dataSource.query<{ dataset_id: string }[]>(
+            `SELECT dataset_id FROM group_dataset_access WHERE group_id = $1`,
+            [user.groupId],
+          ),
+          this.dataSource.query<{ report_slug: string }[]>(
+            `SELECT report_slug FROM group_report_access WHERE group_id = $1`,
+            [user.groupId],
+          ),
+        ]);
+        datasetIds = [...new Set([...datasetIds, ...groupDatasets.map((r) => r.dataset_id)])];
+        reportSlugs = [...new Set([...reportSlugs, ...groupReports.map((r) => r.report_slug)])];
+      }
+
+      datasetAccessIds = datasetIds;
+      reportAccessSlugs = reportSlugs;
     }
 
     return {

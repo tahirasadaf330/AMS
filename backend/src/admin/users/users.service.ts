@@ -27,6 +27,7 @@ export interface CreateUserDto {
   role: UserRole;
   datasetAccess?: string[];
   reportAccess?: string[];
+  groupId?: string | null;
 }
 
 export interface UpdateUserDto {
@@ -37,6 +38,7 @@ export interface UpdateUserDto {
   mustChangePassword?: boolean;
   datasetAccess?: string[];
   reportAccess?: string[];
+  groupId?: string | null;
 }
 
 @Injectable()
@@ -94,15 +96,18 @@ export class AdminUsersService implements OnModuleInit {
     }
   }
 
-  async findAll(): Promise<(Omit<User, 'passwordHash'> & { dataset_access: string[]; report_access: string[] })[]> {
+  async findAll(): Promise<(Omit<User, 'passwordHash'> & { dataset_access: string[]; report_access: string[]; group_name: string | null })[]> {
     try {
       const users = await this.userRepo.find({ order: { createdAt: 'DESC' } });
-      const [accesses, reportAccesses] = await Promise.all([
+      const [accesses, reportAccesses, groups] = await Promise.all([
         this.dataSource.query<{ user_id: string; dataset_id: string }[]>(
           `SELECT user_id, dataset_id FROM user_dataset_access`,
         ),
         this.dataSource.query<{ user_id: string; report_slug: string }[]>(
           `SELECT user_id, report_slug FROM user_report_access`,
+        ),
+        this.dataSource.query<{ id: string; name: string }[]>(
+          `SELECT id, name FROM user_groups`,
         ),
       ]);
 
@@ -120,10 +125,14 @@ export class AdminUsersService implements OnModuleInit {
         reportMap.set(r.user_id, list);
       }
 
+      const groupNameMap = new Map<string, string>();
+      for (const g of groups) groupNameMap.set(g.id, g.name);
+
       return users.map(({ passwordHash, ...u }) => ({
         ...(u as Omit<User, 'passwordHash'>),
         dataset_access: accessMap.get(u.id) ?? [],
         report_access:  reportMap.get(u.id)  ?? [],
+        group_name:     u.groupId ? (groupNameMap.get(u.groupId) ?? null) : null,
       }));
     } catch (err) {
       this.logger.error('Error finding users', err);
@@ -173,6 +182,7 @@ export class AdminUsersService implements OnModuleInit {
         mustChangePassword: true,
         failedLoginCount: 0,
         createdBy,
+        groupId: dto.groupId ?? null,
       });
 
       const saved = await this.userRepo.save(user);
@@ -231,13 +241,18 @@ export class AdminUsersService implements OnModuleInit {
     }
 
     try {
-      await this.userRepo.update(id, {
+      const patch: Partial<User> = {
         name: dto.name ?? user.name,
         email: dto.email ? dto.email.toLowerCase() : user.email,
         role: dto.role ?? user.role,
         isActive: dto.isActive ?? user.isActive,
         mustChangePassword: dto.mustChangePassword ?? user.mustChangePassword,
-      });
+      };
+      // Allow explicit null to clear group assignment
+      if ('groupId' in dto) {
+        patch.groupId = (dto.groupId as string | null | undefined) ?? null;
+      }
+      await this.userRepo.update(id, patch);
 
       // Accept both camelCase (bodyToCamel converted) and snake_case (raw body)
       const raw = dto as Record<string, unknown>;

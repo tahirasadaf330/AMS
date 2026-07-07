@@ -18,6 +18,18 @@ export interface User {
   last_login?: string;
   created_at: string;
   updated_at: string;
+  group_id?: string | null;
+  group_name?: string | null;
+}
+
+export interface AdminGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  user_count: number;
+  dataset_access: string[];
+  report_access: string[];
 }
 
 export interface AuthResponse {

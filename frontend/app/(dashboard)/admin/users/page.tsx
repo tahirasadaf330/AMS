@@ -2,7 +2,10 @@
 
 import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Edit2, UserX, ShieldCheck, Trash2, Lock } from 'lucide-react';
+import {
+  Plus, Edit2, UserX, ShieldCheck, Trash2, Lock,
+  Search, ChevronUp, ChevronDown, ChevronsUpDown, Users,
+} from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,32 +18,33 @@ import { Drawer } from '@/components/ui/drawer';
 import { StatusBadge } from '@/components/status-badge';
 import { SkeletonTable } from '@/components/ui/skeleton';
 import { adminUsersApi, adminReportsApi } from '@/lib/api';
-import { useDatasets } from '@/hooks/useDashboard';
+import {
+  useDatasets,
+  useAdminGroups,
+  useCreateGroup,
+  useUpdateGroup,
+  useDeleteGroup,
+  useSetGroupMembers,
+} from '@/hooks/useDashboard';
 import { useAuthStore } from '@/store/auth.store';
 import { useUIStore } from '@/store/ui.store';
 import { formatDatetime } from '@/lib/utils';
-import type { AdminUser, UserSession } from '@/types';
+import type { AdminUser, AdminGroup, UserSession } from '@/types';
 import type { BadgeProps } from '@/components/ui/badge';
 
+// ── Constants ─────────────────────────────────────────────────
 const ROLE_BADGE: Record<string, BadgeProps['variant']> = {
-  admin: 'purple',
-  full_rights: 'blue',
-  editor: 'green',
-  viewer: 'gray',
+  admin: 'purple', full_rights: 'blue', editor: 'green', viewer: 'gray',
 };
+const PAGE_SIZE = 20;
 
+// ── Local hooks ───────────────────────────────────────────────
 function useAdminUsers() {
   return useQuery({
     queryKey: ['admin', 'users'],
-    queryFn: async () => {
-      const { data } = await adminUsersApi.list();
-      return data;
-    },
+    queryFn: async () => { const { data } = await adminUsersApi.list(); return data; },
   });
 }
-
-// Reports available to grant are auto-discovered from the backend
-// (@ReportAccess decorators) — no hardcoded list to keep in sync.
 function useAvailableReports() {
   return useQuery({
     queryKey: ['admin', 'reports'],
@@ -51,399 +55,640 @@ function useAvailableReports() {
   });
 }
 
-interface UserFormData {
-  name: string;
-  email: string;
-  password: string;
-  role: string;
-  dataset_access: string[];
-  report_access: string[];
-  send_welcome_email: boolean;
+// ── SortTh ────────────────────────────────────────────────────
+function SortTh({ col, label, sortCol, sortDir, onSort }: {
+  col: string; label: string; sortCol: string; sortDir: 'asc' | 'desc';
+  onSort: (c: string) => void;
+}) {
+  const active = sortCol === col;
+  return (
+    <th
+      className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200"
+      onClick={() => onSort(col)}
+    >
+      <span className="flex items-center gap-1">
+        {label}
+        {active
+          ? sortDir === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
+          : <ChevronsUpDown className="h-3 w-3 opacity-40" />}
+      </span>
+    </th>
+  );
 }
 
-const defaultFormData: UserFormData = {
-  name: '',
-  email: '',
-  password: '',
-  role: 'viewer',
-  dataset_access: [],
-  report_access: [],
-  send_welcome_email: false,
+// ── Tab button ────────────────────────────────────────────────
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={[
+        'px-5 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors',
+        active
+          ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-white dark:bg-gray-900'
+          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200',
+      ].join(' ')}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── User form defaults ────────────────────────────────────────
+const defaultUserForm = {
+  name: '', email: '', password: '', role: 'viewer',
+  dataset_access: [] as string[], report_access: [] as string[],
+  send_welcome_email: false, group_id: '',
 };
 
+// ────────────────────────────────────────────────────────────────
 export default function AdminUsersPage() {
   const isAdmin = useAuthStore((s) => s.canAccess('admin'));
-  const { data: users, isLoading } = useAdminUsers();
-  const { data: availableReports = [] } = useAvailableReports();
+  const { data: users, isLoading: usersLoading } = useAdminUsers();
+  const { data: reports = [] } = useAvailableReports();
   const { data: datasets } = useDatasets();
+  const { data: groups = [], isLoading: groupsLoading } = useAdminGroups();
   const queryClient = useQueryClient();
   const addToast = useUIStore((s) => s.addToast);
 
-  const [showForm, setShowForm] = React.useState(false);
-  const [editingUser, setEditingUser] = React.useState<AdminUser | null>(null);
-  const [formData, setFormData] = React.useState<UserFormData>(defaultFormData);
-  const [deactivateTarget, setDeactivateTarget] = React.useState<AdminUser | null>(null);
-  const [deleteTarget, setDeleteTarget]         = React.useState<AdminUser | null>(null);
-  const [deleteConfirm, setDeleteConfirm]       = React.useState('');
-  const [drawerUser, setDrawerUser] = React.useState<AdminUser | null>(null);
-  const [sessions, setSessions] = React.useState<UserSession[]>([]);
-  const [sessionsLoading, setSessionsLoading] = React.useState(false);
-  const [accessDrawerUser, setAccessDrawerUser] = React.useState<AdminUser | null>(null);
-  const [accessFormData, setAccessFormData] = React.useState<{ dataset_access: string[]; report_access: string[] }>({ dataset_access: [], report_access: [] });
-  const [accessSaving, setAccessSaving] = React.useState(false);
+  const createGroup   = useCreateGroup();
+  const updateGroup   = useUpdateGroup();
+  const deleteGroup   = useDeleteGroup();
+  const setMembersMut = useSetGroupMembers();
 
-  const createMutation = useMutation({
-    mutationFn: async (data: UserFormData) =>
-      adminUsersApi.create({
-        name: data.name,
-        email: data.email,
-        password: data.password,
-        role: data.role,
-        dataset_access: data.dataset_access,
-        report_access: data.report_access,
-        send_welcome_email: data.send_welcome_email,
+  // ── Tab ───────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = React.useState<'users' | 'groups'>('users');
+
+  // ── Users table state ─────────────────────────────────────────
+  const [search, setSearch]           = React.useState('');
+  const [groupFilter, setGroupFilter] = React.useState('');
+  const [sortCol, setSortCol]         = React.useState('name');
+  const [sortDir, setSortDir]         = React.useState<'asc' | 'desc'>('asc');
+  const [page, setPage]               = React.useState(1);
+
+  React.useEffect(() => { setPage(1); }, [search, groupFilter, sortCol, sortDir]);
+
+  const handleSort = (col: string) => {
+    if (sortCol === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortCol(col); setSortDir('asc'); }
+  };
+
+  const displayed = React.useMemo(() => {
+    let rows = users ?? [];
+    const q = search.trim().toLowerCase();
+    if (q) rows = rows.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
+    if (groupFilter === '__none') rows = rows.filter((u) => !u.group_id);
+    else if (groupFilter) rows = rows.filter((u) => u.group_id === groupFilter);
+    return [...rows].sort((a, b) => {
+      let av: string | number = '', bv: string | number = '';
+      switch (sortCol) {
+        case 'name':       av = a.name;              bv = b.name;              break;
+        case 'email':      av = a.email;             bv = b.email;             break;
+        case 'role':       av = a.role;              bv = b.role;              break;
+        case 'group':      av = a.group_name ?? '';  bv = b.group_name ?? '';  break;
+        case 'status':     av = a.is_active ? 1 : 0; bv = b.is_active ? 1 : 0; break;
+        case 'last_login': av = a.last_login ?? '';  bv = b.last_login ?? '';  break;
+      }
+      if (av === bv) return 0;
+      if (av === '') return 1;
+      if (bv === '') return -1;
+      return (av < bv ? -1 : 1) * (sortDir === 'asc' ? 1 : -1);
+    });
+  }, [users, search, groupFilter, sortCol, sortDir]);
+
+  const pageRows   = displayed.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.ceil(displayed.length / PAGE_SIZE);
+
+  // ── User form (create / edit) ─────────────────────────────────
+  const [showUserForm, setShowUserForm]   = React.useState(false);
+  const [editingUser, setEditingUser]     = React.useState<AdminUser | null>(null);
+  const [userForm, setUserForm]           = React.useState(defaultUserForm);
+  const [deactivateTarget, setDeactivateTarget] = React.useState<AdminUser | null>(null);
+  const [deleteUserTarget, setDeleteUserTarget] = React.useState<AdminUser | null>(null);
+  const [deleteUserConfirm, setDeleteUserConfirm] = React.useState('');
+
+  // ── User detail drawer ────────────────────────────────────────
+  const [drawerUser, setDrawerUser]       = React.useState<AdminUser | null>(null);
+  const [sessions, setSessions]           = React.useState<UserSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = React.useState(false);
+
+  const loadSessions = async (userId: string) => {
+    setSessionsLoading(true);
+    try { const { data } = await adminUsersApi.getSessions(userId); setSessions(data); }
+    finally { setSessionsLoading(false); }
+  };
+
+  // ── Individual access drawer ──────────────────────────────────
+  const [accessUser, setAccessUser]       = React.useState<AdminUser | null>(null);
+  const [accessForm, setAccessForm]       = React.useState({ dataset_access: [] as string[], report_access: [] as string[] });
+  const [accessSaving, setAccessSaving]   = React.useState(false);
+
+  // ── Group form ────────────────────────────────────────────────
+  const [showCreateGroup, setShowCreateGroup] = React.useState(false);
+  const [newGroupName, setNewGroupName]       = React.useState('');
+  const [newGroupDesc, setNewGroupDesc]       = React.useState('');
+
+  const [editingGroup, setEditingGroup]   = React.useState<AdminGroup | null>(null);
+  const [groupForm, setGroupForm]         = React.useState({ name: '', description: '', dataset_access: [] as string[], report_access: [] as string[] });
+  const [groupMembers, setGroupMembers]   = React.useState<string[]>([]);
+  const [memberSearch, setMemberSearch]   = React.useState('');
+  const [deleteGroupTarget, setDeleteGroupTarget] = React.useState<AdminGroup | null>(null);
+
+  const openEditGroup = (g: AdminGroup) => {
+    setEditingGroup(g);
+    setGroupForm({ name: g.name, description: g.description ?? '', dataset_access: g.dataset_access, report_access: g.report_access });
+    setGroupMembers((users ?? []).filter((u) => u.group_id === g.id).map((u) => u.id));
+    setMemberSearch('');
+  };
+
+  const toggleGroupMember = (uid: string) =>
+    setGroupMembers((prev) => prev.includes(uid) ? prev.filter((x) => x !== uid) : [...prev, uid]);
+
+  const saveEditGroup = async () => {
+    if (!editingGroup) return;
+    await Promise.all([
+      updateGroup.mutateAsync({
+        id: editingGroup.id,
+        data: { name: groupForm.name, description: groupForm.description || undefined, dataset_access: groupForm.dataset_access, report_access: groupForm.report_access },
       }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-      addToast({ title: 'User created', variant: 'success' });
-      setShowForm(false);
-      setFormData(defaultFormData);
-    },
-    onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      addToast({ title: msg ?? 'Failed to create user', variant: 'destructive' });
-    },
+      setMembersMut.mutateAsync({ id: editingGroup.id, userIds: groupMembers }),
+    ]);
+    setEditingGroup(null);
+  };
+
+  // ── User mutations ────────────────────────────────────────────
+  const createUserMut = useMutation({
+    mutationFn: async (f: typeof defaultUserForm) =>
+      adminUsersApi.create({ name: f.name, email: f.email, password: f.password, role: f.role, dataset_access: f.dataset_access, report_access: f.report_access, send_welcome_email: f.send_welcome_email }),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }); addToast({ title: 'User created', variant: 'success' }); setShowUserForm(false); setUserForm(defaultUserForm); },
+    onError: (err: unknown) => { const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message; addToast({ title: msg ?? 'Failed to create user', variant: 'destructive' }); },
   });
 
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Partial<AdminUser> }) =>
-      adminUsersApi.update(id, data),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-      addToast({ title: 'User updated', variant: 'success' });
-      setEditingUser(null);
-    },
+  const updateUserMut = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => adminUsersApi.update(id, data as Partial<AdminUser>),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }); addToast({ title: 'User updated', variant: 'success' }); setEditingUser(null); },
     onError: () => addToast({ title: 'Failed to update user', variant: 'destructive' }),
   });
 
-  const accessMutation = useMutation({
+  const accessMut = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: { dataset_access: string[]; report_access: string[] } }) =>
       adminUsersApi.update(id, data as Partial<AdminUser>),
   });
 
-  const deactivateMutation = useMutation({
+  const deactivateMut = useMutation({
     mutationFn: async (id: string) => adminUsersApi.deactivate(id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-      addToast({ title: 'User deactivated', variant: 'success' });
-      setDeactivateTarget(null);
-    },
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }); addToast({ title: 'User deactivated', variant: 'success' }); setDeactivateTarget(null); },
     onError: () => addToast({ title: 'Failed to deactivate user', variant: 'destructive' }),
   });
 
-  const deleteMutation = useMutation({
+  const deleteUserMut = useMutation({
     mutationFn: async (id: string) => adminUsersApi.delete(id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-      addToast({ title: 'User permanently deleted', variant: 'success' });
-      setDeleteTarget(null);
-      setDeleteConfirm('');
-    },
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }); addToast({ title: 'User deleted', variant: 'success' }); setDeleteUserTarget(null); setDeleteUserConfirm(''); },
     onError: () => addToast({ title: 'Failed to delete user', variant: 'destructive' }),
   });
 
-  const deleteSessionMutation = useMutation({
-    mutationFn: async ({ userId, sessionId }: { userId: string; sessionId: string }) =>
-      adminUsersApi.deleteSession(userId, sessionId),
-    onSuccess: () => {
-      addToast({ title: 'Session revoked', variant: 'success' });
-      if (drawerUser) void loadSessions(drawerUser.id);
-    },
+  const delSessionMut = useMutation({
+    mutationFn: async ({ userId, sessionId }: { userId: string; sessionId: string }) => adminUsersApi.deleteSession(userId, sessionId),
+    onSuccess: () => { addToast({ title: 'Session revoked', variant: 'success' }); if (drawerUser) void loadSessions(drawerUser.id); },
   });
 
-  const loadSessions = async (userId: string) => {
-    setSessionsLoading(true);
-    try {
-      const { data } = await adminUsersApi.getSessions(userId);
-      setSessions(data);
-    } finally {
-      setSessionsLoading(false);
-    }
-  };
-
-  const openDrawer = (user: AdminUser) => {
-    setDrawerUser(user);
-    void loadSessions(user.id);
-  };
-
-  const openEdit = (user: AdminUser) => {
-    setEditingUser(user);
-    setFormData({
-      name: user.name,
-      email: user.email,
-      password: '',
-      role: user.role,
-      dataset_access: user.dataset_access ?? [],
-      report_access: user.report_access ?? [],
-      send_welcome_email: false,
-    });
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (editingUser) {
-      await updateMutation.mutateAsync({
-        id: editingUser.id,
-        data: {
-          name: formData.name,
-          role: formData.role as AdminUser['role'],
-          dataset_access: formData.dataset_access,
-          report_access: formData.report_access,
-        },
-      });
-    } else {
-      await createMutation.mutateAsync(formData);
-    }
-  };
-
-  const toggleDatasetAccess = (datasetId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      dataset_access: prev.dataset_access.includes(datasetId)
-        ? prev.dataset_access.filter((id) => id !== datasetId)
-        : [...prev.dataset_access, datasetId],
-    }));
-  };
-
-  const toggleReportAccess = (reportId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      report_access: prev.report_access.includes(reportId)
-        ? prev.report_access.filter((id) => id !== reportId)
-        : [...prev.report_access, reportId],
-    }));
-  };
-
-  const openAccessDrawer = (user: AdminUser) => {
-    setAccessDrawerUser(user);
-    setAccessFormData({
-      dataset_access: user.dataset_access ?? [],
-      report_access: user.report_access ?? [],
-    });
-  };
-
   const saveAccess = async () => {
-    if (!accessDrawerUser) return;
+    if (!accessUser) return;
     setAccessSaving(true);
     try {
-      await accessMutation.mutateAsync({
-        id: accessDrawerUser.id,
-        data: {
-          dataset_access: accessFormData.dataset_access,
-          report_access: accessFormData.report_access,
-        },
-      });
+      await accessMut.mutateAsync({ id: accessUser.id, data: accessForm });
       await queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       addToast({ title: 'Access updated', variant: 'success' });
-      setAccessDrawerUser(null);
-    } catch {
-      addToast({ title: 'Failed to update access', variant: 'destructive' });
-    } finally {
-      setAccessSaving(false);
+      setAccessUser(null);
+    } catch { addToast({ title: 'Failed to update access', variant: 'destructive' }); }
+    finally { setAccessSaving(false); }
+  };
+
+  const handleUserSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingUser) {
+      await updateUserMut.mutateAsync({
+        id: editingUser.id,
+        data: { name: userForm.name, role: userForm.role, dataset_access: userForm.dataset_access, report_access: userForm.report_access, groupId: userForm.group_id || null },
+      });
+    } else {
+      await createUserMut.mutateAsync(userForm);
     }
   };
 
-  if (!isAdmin) {
-    return (
-      <div className="flex items-center justify-center h-64 text-gray-500 text-sm">
-        Admin access required.
-      </div>
-    );
-  }
+  const openEditUser = (u: AdminUser) => {
+    setEditingUser(u);
+    setUserForm({ name: u.name, email: u.email, password: '', role: u.role, dataset_access: u.dataset_access ?? [], report_access: u.report_access ?? [], send_welcome_email: false, group_id: u.group_id ?? '' });
+  };
+
+  if (!isAdmin) return <div className="flex items-center justify-center h-64 text-gray-500 text-sm">Admin access required.</div>;
+
+  const sortProps = { sortCol, sortDir, onSort: handleSort };
+  const nonAdminUsers = (users ?? []).filter((u) => u.role !== 'admin');
+  const filteredForMember = nonAdminUsers.filter((u) => {
+    const q = memberSearch.trim().toLowerCase();
+    return !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+  });
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="User Management"
-        description="Manage user accounts and permissions"
+        description="Manage users and permission groups"
         actions={
-          <Button size="sm" onClick={() => { setEditingUser(null); setFormData(defaultFormData); setShowForm(true); }}>
-            <Plus className="h-4 w-4" />
-            New User
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setShowCreateGroup(true)}>
+              <Plus className="h-4 w-4" />
+              New Group
+            </Button>
+            <Button size="sm" onClick={() => { setEditingUser(null); setUserForm(defaultUserForm); setShowUserForm(true); }}>
+              <Plus className="h-4 w-4" />
+              New User
+            </Button>
+          </div>
         }
       />
 
-      {isLoading ? (
-        <SkeletonTable rows={5} cols={6} />
-      ) : (
-        <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Email</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Datasets / Reports</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Login</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(users ?? []).map((user) => (
-                <tr
-                  key={user.id}
-                  className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20 cursor-pointer"
-                  onClick={() => openDrawer(user)}
-                >
-                  <td className="px-4 py-3 text-gray-800 dark:text-gray-200 font-medium">{user.name}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{user.email}</td>
-                  <td className="px-4 py-3">
-                    <Badge variant={ROLE_BADGE[user.role] ?? 'default'}>
-                      {user.role === 'full_rights' ? 'Full Rights' : user.role}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
-                    {user.role === 'admin' ? (
-                      <span className="text-purple-600 dark:text-purple-400">All</span>
-                    ) : (
-                      <span>
-                        {(user.dataset_access ?? []).length} datasets · {(user.report_access ?? []).length} reports
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={user.is_active ? 'active' : 'inactive'} />
-                  </td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
-                    {user.last_login ? formatDatetime(user.last_login) : '—'}
-                  </td>
-                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-center gap-1">
-                      {user.is_protected ? (
-                        <span title="System admin — protected" className="flex items-center justify-center h-7 w-7">
-                          <Lock className="h-3.5 w-3.5 text-gray-400 dark:text-gray-500" />
-                        </span>
-                      ) : (
-                        <>
-                          <Button variant="ghost" size="icon-sm" onClick={() => openEdit(user)} title="Edit">
-                            <Edit2 className="h-3.5 w-3.5 text-blue-400" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => openAccessDrawer(user)}
-                            title="Manage Access"
-                            className={user.role === 'admin' ? 'invisible' : ''}
-                            tabIndex={user.role === 'admin' ? -1 : 0}
-                          >
-                            <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => setDeactivateTarget(user)}
-                            title="Deactivate"
-                            className={!user.is_active ? 'invisible' : ''}
-                            tabIndex={!user.is_active ? -1 : 0}
-                          >
-                            <UserX className="h-3.5 w-3.5 text-red-400" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => { setDeleteTarget(user); setDeleteConfirm(''); }}
-                            title="Delete permanently"
-                          >
-                            <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Tabs */}
+      <div className="flex gap-0 border-b border-gray-200 dark:border-gray-700">
+        <TabBtn active={activeTab === 'users'} onClick={() => setActiveTab('users')}>
+          Users{users ? ` (${users.length})` : ''}
+        </TabBtn>
+        <TabBtn active={activeTab === 'groups'} onClick={() => setActiveTab('groups')}>
+          Groups{groups.length > 0 ? ` (${groups.length})` : ''}
+        </TabBtn>
+      </div>
+
+      {/* ── USERS TAB ─────────────────────────────────────────── */}
+      {activeTab === 'users' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[200px] max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+              <Input placeholder="Search name or email…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-sm" />
+            </div>
+            <Select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} className="h-8 text-sm w-44">
+              <option value="">All Groups</option>
+              <option value="__none">No Group</option>
+              {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </Select>
+            <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">{displayed.length} of {users?.length ?? 0} users</span>
+          </div>
+
+          {usersLoading ? <SkeletonTable rows={5} cols={8} /> : (
+            <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                    <SortTh col="name"       label="Name"       {...sortProps} />
+                    <SortTh col="email"      label="Email"      {...sortProps} />
+                    <SortTh col="role"       label="Role"       {...sortProps} />
+                    <SortTh col="group"      label="Group"      {...sortProps} />
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Access</th>
+                    <SortTh col="status"     label="Status"     {...sortProps} />
+                    <SortTh col="last_login" label="Last Login" {...sortProps} />
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageRows.length === 0 ? (
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">No users match your filter.</td></tr>
+                  ) : pageRows.map((user) => (
+                    <tr key={user.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20 cursor-pointer" onClick={() => { setDrawerUser(user); void loadSessions(user.id); }}>
+                      <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{user.name}</td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{user.email}</td>
+                      <td className="px-4 py-3"><Badge variant={ROLE_BADGE[user.role] ?? 'default'}>{user.role === 'full_rights' ? 'Full Rights' : user.role}</Badge></td>
+                      <td className="px-4 py-3">
+                        {user.group_name
+                          ? <Badge variant="amber">{user.group_name}</Badge>
+                          : <span className="text-gray-400 dark:text-gray-600 text-xs">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
+                        {user.role === 'admin'
+                          ? <span className="text-purple-600 dark:text-purple-400">All</span>
+                          : <span>{(user.dataset_access ?? []).length}D · {(user.report_access ?? []).length}R</span>}
+                      </td>
+                      <td className="px-4 py-3"><StatusBadge status={user.is_active ? 'active' : 'inactive'} /></td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{user.last_login ? formatDatetime(user.last_login) : '—'}</td>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1">
+                          {user.is_protected ? (
+                            <span className="flex h-7 w-7 items-center justify-center"><Lock className="h-3.5 w-3.5 text-gray-400" /></span>
+                          ) : (
+                            <>
+                              <Button variant="ghost" size="icon-sm" onClick={() => openEditUser(user)} title="Edit user"><Edit2 className="h-3.5 w-3.5 text-blue-400" /></Button>
+                              {user.role !== 'admin' && (
+                                <Button variant="ghost" size="icon-sm" title="Individual access" onClick={() => { setAccessUser(user); setAccessForm({ dataset_access: user.dataset_access ?? [], report_access: user.report_access ?? [] }); }}>
+                                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                                </Button>
+                              )}
+                              {user.is_active && (
+                                <Button variant="ghost" size="icon-sm" onClick={() => setDeactivateTarget(user)} title="Deactivate"><UserX className="h-3.5 w-3.5 text-red-400" /></Button>
+                              )}
+                              <Button variant="ghost" size="icon-sm" onClick={() => { setDeleteUserTarget(user); setDeleteUserConfirm(''); }} title="Delete permanently"><Trash2 className="h-3.5 w-3.5 text-rose-600" /></Button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+              <span>Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, displayed.length)} of {displayed.length} users</span>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>← Prev</Button>
+                <span className="px-2">{page} / {totalPages}</span>
+                <Button variant="ghost" size="sm" disabled={page === totalPages} onClick={() => setPage((p) => p + 1)}>Next →</Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Create / Edit form */}
-      <Dialog open={showForm || !!editingUser} onClose={() => { setShowForm(false); setEditingUser(null); }} className="max-w-lg">
-        <DialogHeader
-          title={editingUser ? 'Edit User' : 'Create User'}
-          onClose={() => { setShowForm(false); setEditingUser(null); }}
-        />
+      {/* ── GROUPS TAB ────────────────────────────────────────── */}
+      {activeTab === 'groups' && (
+        <div className="space-y-4">
+          {groupsLoading ? <SkeletonTable rows={3} cols={6} /> : groups.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400 dark:text-gray-500">
+              <Users className="h-10 w-10 opacity-30" />
+              <p className="text-sm">No groups yet. Click <span className="font-medium text-gray-600 dark:text-gray-300">New Group</span> to create one.</p>
+            </div>
+          ) : (
+            <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Members</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Datasets</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Reports</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.map((g) => (
+                    <tr key={g.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20">
+                      <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{g.name}</td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs max-w-[240px] truncate">{g.description ?? <span className="text-gray-300 dark:text-gray-600">—</span>}</td>
+                      <td className="px-4 py-3 text-center font-medium text-gray-700 dark:text-gray-300">{g.user_count}</td>
+                      <td className="px-4 py-3 text-center text-gray-600 dark:text-gray-300">{g.dataset_access.length}</td>
+                      <td className="px-4 py-3 text-center text-gray-600 dark:text-gray-300">{g.report_access.length}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => openEditGroup(g)}>
+                            <Edit2 className="h-3.5 w-3.5 mr-1.5 text-blue-400" />
+                            Edit
+                          </Button>
+                          <Button variant="ghost" size="icon-sm" onClick={() => setDeleteGroupTarget(g)} title="Delete group">
+                            <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══ DIALOGS ══════════════════════════════════════════════ */}
+
+      {/* Create group */}
+      <Dialog open={showCreateGroup} onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); }} className="max-w-sm">
+        <DialogHeader title="Create Group" onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); }} />
         <DialogBody>
-          <form id="user-form" onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label required>Group Name</Label>
+              <Input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="e.g. Finance Team" autoFocus />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Input value={newGroupDesc} onChange={(e) => setNewGroupDesc(e.target.value)} placeholder="Optional" />
+            </div>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); }}>Cancel</Button>
+          <Button
+            disabled={!newGroupName.trim()}
+            isLoading={createGroup.isPending}
+            onClick={async () => {
+              await createGroup.mutateAsync({ name: newGroupName.trim(), description: newGroupDesc.trim() || undefined });
+              setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc('');
+              setActiveTab('groups');
+            }}
+          >
+            Create Group
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Edit group — name/description + permissions + members */}
+      <Dialog open={!!editingGroup} onClose={() => setEditingGroup(null)} className="max-w-2xl">
+        <DialogHeader title={`Edit Group: ${editingGroup?.name ?? ''}`} onClose={() => setEditingGroup(null)} />
+        <DialogBody>
+          <div className="space-y-5">
+
+            {/* Name + Description */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label required>Name</Label>
+                <Input value={groupForm.name} onChange={(e) => setGroupForm((p) => ({ ...p, name: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Description</Label>
+                <Input value={groupForm.description} onChange={(e) => setGroupForm((p) => ({ ...p, description: e.target.value }))} placeholder="Optional" />
+              </div>
+            </div>
+
+            {/* Permissions */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Permissions</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">Datasets</p>
+                  <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto p-2.5 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40">
+                    {(datasets ?? []).length === 0 && <p className="text-xs text-gray-400">No datasets</p>}
+                    {(datasets ?? []).map((d) => (
+                      <label key={d.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                        <input type="checkbox"
+                          checked={groupForm.dataset_access.includes(d.id)}
+                          onChange={() => setGroupForm((p) => ({
+                            ...p,
+                            dataset_access: p.dataset_access.includes(d.id)
+                              ? p.dataset_access.filter((x) => x !== d.id)
+                              : [...p.dataset_access, d.id],
+                          }))}
+                          className="rounded border-gray-300 dark:border-gray-600 text-blue-600"
+                        />
+                        <span className="truncate">{d.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">Reports</p>
+                  <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto p-2.5 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40">
+                    {reports.map((r) => (
+                      <label key={r.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                        <input type="checkbox"
+                          checked={groupForm.report_access.includes(r.id)}
+                          onChange={() => setGroupForm((p) => ({
+                            ...p,
+                            report_access: p.report_access.includes(r.id)
+                              ? p.report_access.filter((x) => x !== r.id)
+                              : [...p.report_access, r.id],
+                          }))}
+                          className="rounded border-gray-300 dark:border-gray-600 text-emerald-600"
+                        />
+                        <span className="truncate">{r.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Members */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                Members <span className="font-normal normal-case text-gray-400 ml-1">({groupMembers.length} selected)</span>
+              </p>
+              <div className="relative mb-2">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                <Input placeholder="Search users…" value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} className="pl-8 h-8 text-sm" />
+              </div>
+              <div className="flex flex-col gap-0.5 max-h-52 overflow-y-auto p-2.5 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40">
+                {filteredForMember.length === 0 && <p className="text-xs text-gray-400 py-3 text-center">No users found.</p>}
+                {filteredForMember.map((u) => {
+                  const inThis  = groupMembers.includes(u.id);
+                  const otherGrp = !inThis && u.group_id && u.group_name ? u.group_name : null;
+                  return (
+                    <label key={u.id} className="flex items-center gap-2.5 cursor-pointer rounded px-1.5 py-1.5 hover:bg-white dark:hover:bg-gray-700/40">
+                      <input type="checkbox" checked={inThis} onChange={() => toggleGroupMember(u.id)}
+                        className="rounded border-gray-300 dark:border-gray-600 text-blue-600 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{u.name}</span>
+                        <span className="text-xs text-gray-400 dark:text-gray-500 ml-1.5">{u.email}</span>
+                      </div>
+                      {otherGrp && (
+                        <span className="text-xs text-amber-500 dark:text-amber-400 flex-shrink-0 ml-2">in {otherGrp}</span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setEditingGroup(null)}>Cancel</Button>
+          <Button isLoading={updateGroup.isPending || setMembersMut.isPending} disabled={!groupForm.name.trim()} onClick={() => void saveEditGroup()}>
+            Save Group
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Delete group */}
+      <Dialog open={!!deleteGroupTarget} onClose={() => setDeleteGroupTarget(null)} className="max-w-sm">
+        <DialogHeader title="Delete Group" onClose={() => setDeleteGroupTarget(null)} />
+        <DialogBody>
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            Delete <span className="font-medium text-gray-800 dark:text-gray-100">{deleteGroupTarget?.name}</span>?
+            {(deleteGroupTarget?.user_count ?? 0) > 0 && (
+              <> <span className="text-amber-600 dark:text-amber-400">{deleteGroupTarget?.user_count} member(s) will lose this group's access.</span></>
+            )}
+          </p>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button variant="ghost" onClick={() => setDeleteGroupTarget(null)}>Cancel</Button>
+            <Button variant="destructive" isLoading={deleteGroup.isPending}
+              onClick={async () => { if (!deleteGroupTarget) return; await deleteGroup.mutateAsync(deleteGroupTarget.id); setDeleteGroupTarget(null); }}>
+              Delete
+            </Button>
+          </div>
+        </DialogBody>
+      </Dialog>
+
+      {/* Create / Edit user */}
+      <Dialog open={showUserForm || !!editingUser} onClose={() => { setShowUserForm(false); setEditingUser(null); }} className="max-w-lg">
+        <DialogHeader title={editingUser ? 'Edit User' : 'Create User'} onClose={() => { setShowUserForm(false); setEditingUser(null); }} />
+        <DialogBody>
+          <form id="user-form" onSubmit={(e) => void handleUserSubmit(e)} className="space-y-4">
             <div className="space-y-1.5">
               <Label required>Full Name</Label>
-              <Input value={formData.name} onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))} />
+              <Input value={userForm.name} onChange={(e) => setUserForm((p) => ({ ...p, name: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
               <Label required>Email</Label>
-              <Input type="email" value={formData.email} onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))} disabled={!!editingUser} />
+              <Input type="email" value={userForm.email} onChange={(e) => setUserForm((p) => ({ ...p, email: e.target.value }))} disabled={!!editingUser} />
             </div>
             {!editingUser && (
               <div className="space-y-1.5">
                 <Label required>Temporary Password</Label>
-                <Input type="password" value={formData.password} onChange={(e) => setFormData((p) => ({ ...p, password: e.target.value }))} />
+                <Input type="password" value={userForm.password} onChange={(e) => setUserForm((p) => ({ ...p, password: e.target.value }))} />
                 <p className="text-xs text-gray-500">Min 10 chars · uppercase · lowercase · number · special character</p>
               </div>
             )}
-            <div className="space-y-1.5">
-              <Label>Role</Label>
-              {editingUser?.is_protected ? (
-                <div className="flex items-center gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-500 dark:text-gray-400">
-                  <Lock className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>Admin — system admin role cannot be changed</span>
-                </div>
-              ) : (
-                <Select value={formData.role} onChange={(e) => setFormData((p) => ({ ...p, role: e.target.value }))}>
-                  <option value="viewer">Viewer</option>
-                  <option value="editor">Editor</option>
-                  <option value="full_rights">Full Rights</option>
-                  <option value="admin">Admin</option>
-                </Select>
-              )}
-            </div>
-            {formData.role !== 'admin' && (
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Access</Label>
+                <Label>Role</Label>
+                {editingUser?.is_protected ? (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-500">
+                    <Lock className="h-3.5 w-3.5 flex-shrink-0" />Protected admin
+                  </div>
+                ) : (
+                  <Select value={userForm.role} onChange={(e) => setUserForm((p) => ({ ...p, role: e.target.value }))}>
+                    <option value="viewer">Viewer</option>
+                    <option value="editor">Editor</option>
+                    <option value="full_rights">Full Rights</option>
+                    <option value="admin">Admin</option>
+                  </Select>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Group</Label>
+                <Select value={userForm.group_id} onChange={(e) => setUserForm((p) => ({ ...p, group_id: e.target.value }))}>
+                  <option value="">No Group</option>
+                  {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </Select>
+              </div>
+            </div>
+            {userForm.role !== 'admin' && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                  Individual Access <span className="font-normal normal-case text-gray-400">(adds on top of group)</span>
+                </p>
                 <div className="grid grid-cols-2 gap-3">
-                  {/* Datasets */}
                   <div>
-                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Datasets</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">Datasets</p>
                     <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto p-2 rounded border border-gray-200 dark:border-gray-700">
-                      {(datasets ?? []).length === 0 && (
-                        <p className="text-xs text-gray-400 dark:text-gray-500">No datasets</p>
-                      )}
+                      {(datasets ?? []).length === 0 && <p className="text-xs text-gray-400">No datasets</p>}
                       {(datasets ?? []).map((d) => (
                         <label key={d.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
-                          <input
-                            type="checkbox"
-                            checked={formData.dataset_access.includes(d.id)}
-                            onChange={() => toggleDatasetAccess(d.id)}
-                            className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-blue-600"
-                          />
+                          <input type="checkbox" checked={userForm.dataset_access.includes(d.id)}
+                            onChange={() => setUserForm((p) => ({ ...p, dataset_access: p.dataset_access.includes(d.id) ? p.dataset_access.filter((x) => x !== d.id) : [...p.dataset_access, d.id] }))}
+                            className="rounded border-gray-300 dark:border-gray-600 text-blue-600" />
                           <span className="truncate">{d.name}</span>
                         </label>
                       ))}
                     </div>
                   </div>
-                  {/* Reports */}
                   <div>
-                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Reports</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">Reports</p>
                     <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto p-2 rounded border border-gray-200 dark:border-gray-700">
-                      {availableReports.map((r) => (
+                      {reports.map((r) => (
                         <label key={r.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
-                          <input
-                            type="checkbox"
-                            checked={formData.report_access.includes(r.id)}
-                            onChange={() => toggleReportAccess(r.id)}
-                            className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-emerald-600"
-                          />
+                          <input type="checkbox" checked={userForm.report_access.includes(r.id)}
+                            onChange={() => setUserForm((p) => ({ ...p, report_access: p.report_access.includes(r.id) ? p.report_access.filter((x) => x !== r.id) : [...p.report_access, r.id] }))}
+                            className="rounded border-gray-300 dark:border-gray-600 text-emerald-600" />
                           <span className="truncate">{r.name}</span>
                         </label>
                       ))}
@@ -453,71 +698,54 @@ export default function AdminUsersPage() {
               </div>
             )}
             {!editingUser && (
-              <Toggle
-                checked={!!formData.send_welcome_email}
-                onChange={(v) => setFormData((p) => ({ ...p, send_welcome_email: v }))}
-                label="Send welcome email"
-              />
+              <Toggle checked={!!userForm.send_welcome_email} onChange={(v) => setUserForm((p) => ({ ...p, send_welcome_email: v }))} label="Send welcome email" />
             )}
           </form>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => { setShowForm(false); setEditingUser(null); }}>Cancel</Button>
-          <Button type="submit" form="user-form" isLoading={createMutation.isPending || updateMutation.isPending}>
+          <Button variant="ghost" onClick={() => { setShowUserForm(false); setEditingUser(null); }}>Cancel</Button>
+          <Button type="submit" form="user-form" isLoading={createUserMut.isPending || updateUserMut.isPending}>
             {editingUser ? 'Save Changes' : 'Create User'}
           </Button>
         </DialogFooter>
       </Dialog>
 
-      {/* Deactivate confirmation */}
+      {/* Deactivate user */}
       <Dialog open={!!deactivateTarget} onClose={() => setDeactivateTarget(null)} className="max-w-sm">
         <DialogHeader title="Deactivate User" onClose={() => setDeactivateTarget(null)} />
         <DialogBody>
           <p className="text-sm text-gray-600 dark:text-gray-300">
-            Deactivate <span className="font-medium text-gray-800 dark:text-gray-100">{deactivateTarget?.name}</span>?
-            They will no longer be able to log in.
+            Deactivate <span className="font-medium text-gray-800 dark:text-gray-100">{deactivateTarget?.name}</span>? They will no longer be able to log in.
           </p>
           <div className="flex justify-end gap-3 mt-4">
             <Button variant="ghost" onClick={() => setDeactivateTarget(null)}>Cancel</Button>
-            <Button
-              variant="destructive"
-              onClick={() => deactivateTarget && void deactivateMutation.mutateAsync(deactivateTarget.id)}
-              isLoading={deactivateMutation.isPending}
-            >
+            <Button variant="destructive" isLoading={deactivateMut.isPending}
+              onClick={() => deactivateTarget && void deactivateMut.mutateAsync(deactivateTarget.id)}>
               Deactivate
             </Button>
           </div>
         </DialogBody>
       </Dialog>
 
-      {/* Delete confirmation */}
-      <Dialog open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setDeleteConfirm(''); }} className="max-w-sm">
-        <DialogHeader title="Delete User Permanently" onClose={() => { setDeleteTarget(null); setDeleteConfirm(''); }} />
+      {/* Delete user */}
+      <Dialog open={!!deleteUserTarget} onClose={() => { setDeleteUserTarget(null); setDeleteUserConfirm(''); }} className="max-w-sm">
+        <DialogHeader title="Delete User Permanently" onClose={() => { setDeleteUserTarget(null); setDeleteUserConfirm(''); }} />
         <DialogBody>
           <div className="space-y-4">
             <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30">
               <Trash2 className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
               <p className="text-sm text-red-700 dark:text-red-300">
-                This will permanently delete <span className="font-bold">{deleteTarget?.name}</span> and all their data. This action cannot be undone.
+                Permanently deletes <span className="font-bold">{deleteUserTarget?.name}</span> and all their data. Cannot be undone.
               </p>
             </div>
             <div className="space-y-1.5">
-              <Label>Type <span className="font-mono font-bold text-gray-800 dark:text-gray-200">{deleteTarget?.name}</span> to confirm</Label>
-              <Input
-                value={deleteConfirm}
-                onChange={(e) => setDeleteConfirm(e.target.value)}
-                placeholder={deleteTarget?.name}
-                autoComplete="off"
-              />
+              <Label>Type <span className="font-mono font-bold text-gray-800 dark:text-gray-200">{deleteUserTarget?.name}</span> to confirm</Label>
+              <Input value={deleteUserConfirm} onChange={(e) => setDeleteUserConfirm(e.target.value)} placeholder={deleteUserTarget?.name} autoComplete="off" />
             </div>
             <div className="flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => { setDeleteTarget(null); setDeleteConfirm(''); }}>Cancel</Button>
-              <Button
-                variant="destructive"
-                onClick={() => deleteTarget && void deleteMutation.mutateAsync(deleteTarget.id)}
-                isLoading={deleteMutation.isPending}
-                disabled={deleteConfirm !== deleteTarget?.name}
-              >
+              <Button variant="ghost" onClick={() => { setDeleteUserTarget(null); setDeleteUserConfirm(''); }}>Cancel</Button>
+              <Button variant="destructive" disabled={deleteUserConfirm !== deleteUserTarget?.name} isLoading={deleteUserMut.isPending}
+                onClick={() => deleteUserTarget && void deleteUserMut.mutateAsync(deleteUserTarget.id)}>
                 Delete Permanently
               </Button>
             </div>
@@ -525,86 +753,46 @@ export default function AdminUsersPage() {
         </DialogBody>
       </Dialog>
 
-      {/* Manage Access drawer */}
-      <Drawer
-        open={!!accessDrawerUser}
-        onClose={() => setAccessDrawerUser(null)}
-        title={`Access — ${accessDrawerUser?.name ?? ''}`}
-        description={accessDrawerUser?.email}
-      >
+      {/* Individual access drawer (no group needed) */}
+      <Drawer open={!!accessUser} onClose={() => setAccessUser(null)} title={`Access — ${accessUser?.name ?? ''}`} description={accessUser?.email}>
         <div className="p-6 space-y-6">
-          {accessDrawerUser && (
+          {accessUser && (
             <>
-              {/* Datasets */}
+              <p className="text-xs text-gray-500 dark:text-gray-400 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded p-2.5">
+                These are <span className="font-medium">individual grants</span> — they stack on top of any group permissions. No group required.
+              </p>
               <div>
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-                  <span>Datasets</span>
-                  <span className="text-xs font-normal text-gray-400 dark:text-gray-500">
-                    {accessFormData.dataset_access.length} of {(datasets ?? []).length} granted
-                  </span>
-                </h3>
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Datasets ({accessForm.dataset_access.length})</h3>
                 <div className="space-y-2">
                   {(datasets ?? []).map((d) => {
-                    const checked = accessFormData.dataset_access.includes(d.id);
+                    const chk = accessForm.dataset_access.includes(d.id);
                     return (
                       <label key={d.id} className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30">
                         <span className="text-sm text-gray-700 dark:text-gray-300">{d.name}</span>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => setAccessFormData((prev) => ({
-                            ...prev,
-                            dataset_access: checked
-                              ? prev.dataset_access.filter((id) => id !== d.id)
-                              : [...prev.dataset_access, d.id],
-                          }))}
-                          className="rounded border-gray-300 dark:border-gray-600 text-blue-600"
-                        />
+                        <input type="checkbox" checked={chk} onChange={() => setAccessForm((p) => ({ ...p, dataset_access: chk ? p.dataset_access.filter((id) => id !== d.id) : [...p.dataset_access, d.id] }))} className="rounded border-gray-300 dark:border-gray-600 text-blue-600" />
                       </label>
                     );
                   })}
-                  {(datasets ?? []).length === 0 && (
-                    <p className="text-xs text-gray-400 dark:text-gray-500">No datasets configured.</p>
-                  )}
+                  {(datasets ?? []).length === 0 && <p className="text-xs text-gray-400">No datasets configured.</p>}
                 </div>
               </div>
-
-              {/* Reports */}
               <div>
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-                  <span>Reports</span>
-                  <span className="text-xs font-normal text-gray-400 dark:text-gray-500">
-                    {accessFormData.report_access.length} of {availableReports.length} granted
-                  </span>
-                </h3>
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Reports ({accessForm.report_access.length})</h3>
                 <div className="space-y-2">
-                  {availableReports.map((r) => {
-                    const checked = accessFormData.report_access.includes(r.id);
+                  {reports.map((r) => {
+                    const chk = accessForm.report_access.includes(r.id);
                     return (
                       <label key={r.id} className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30">
                         <span className="text-sm text-gray-700 dark:text-gray-300">{r.name}</span>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => setAccessFormData((prev) => ({
-                            ...prev,
-                            report_access: checked
-                              ? prev.report_access.filter((id) => id !== r.id)
-                              : [...prev.report_access, r.id],
-                          }))}
-                          className="rounded border-gray-300 dark:border-gray-600 text-emerald-600"
-                        />
+                        <input type="checkbox" checked={chk} onChange={() => setAccessForm((p) => ({ ...p, report_access: chk ? p.report_access.filter((id) => id !== r.id) : [...p.report_access, r.id] }))} className="rounded border-gray-300 dark:border-gray-600 text-emerald-600" />
                       </label>
                     );
                   })}
                 </div>
               </div>
-
               <div className="flex justify-end gap-3 pt-2">
-                <Button variant="ghost" onClick={() => setAccessDrawerUser(null)}>Cancel</Button>
-                <Button onClick={() => void saveAccess()} isLoading={accessSaving}>
-                  Save Access
-                </Button>
+                <Button variant="ghost" onClick={() => setAccessUser(null)}>Cancel</Button>
+                <Button onClick={() => void saveAccess()} isLoading={accessSaving}>Save Access</Button>
               </div>
             </>
           )}
@@ -617,88 +805,43 @@ export default function AdminUsersPage() {
           {drawerUser && (
             <>
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Role</p>
-                  <Badge variant={ROLE_BADGE[drawerUser.role] ?? 'default'}>
-                    {drawerUser.role === 'full_rights' ? 'Full Rights' : drawerUser.role}
-                  </Badge>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Status</p>
-                  <StatusBadge status={drawerUser.is_active ? 'active' : 'inactive'} />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Created</p>
-                  <p className="text-gray-700 dark:text-gray-300">{formatDatetime(drawerUser.created_at)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Last Login</p>
-                  <p className="text-gray-700 dark:text-gray-300">{drawerUser.last_login ? formatDatetime(drawerUser.last_login) : '—'}</p>
-                </div>
+                <div><p className="text-xs text-gray-400 mb-0.5">Role</p><Badge variant={ROLE_BADGE[drawerUser.role] ?? 'default'}>{drawerUser.role === 'full_rights' ? 'Full Rights' : drawerUser.role}</Badge></div>
+                <div><p className="text-xs text-gray-400 mb-0.5">Status</p><StatusBadge status={drawerUser.is_active ? 'active' : 'inactive'} /></div>
+                {drawerUser.group_name && <div><p className="text-xs text-gray-400 mb-0.5">Group</p><Badge variant="amber">{drawerUser.group_name}</Badge></div>}
+                <div><p className="text-xs text-gray-400 mb-0.5">Created</p><p className="text-gray-700 dark:text-gray-300">{formatDatetime(drawerUser.created_at)}</p></div>
+                <div><p className="text-xs text-gray-400 mb-0.5">Last Login</p><p className="text-gray-700 dark:text-gray-300">{drawerUser.last_login ? formatDatetime(drawerUser.last_login) : '—'}</p></div>
               </div>
-
-              {/* Access summary */}
               {drawerUser.role !== 'admin' && (
                 <div>
-                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Access</h3>
-                  <div className="space-y-2 text-xs">
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Individual Access</h3>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="rounded border border-gray-200 dark:border-gray-700 p-3">
-                      <p className="font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Datasets ({(drawerUser.dataset_access ?? []).length})</p>
-                      {(drawerUser.dataset_access ?? []).length === 0 ? (
-                        <p className="text-gray-400 dark:text-gray-500">No datasets granted</p>
-                      ) : (
+                      <p className="font-medium text-gray-400 uppercase tracking-wide mb-1.5">Datasets ({(drawerUser.dataset_access ?? []).length})</p>
+                      {(drawerUser.dataset_access ?? []).length === 0 ? <p className="text-gray-400">None</p> : (
                         <div className="flex flex-wrap gap-1.5">
-                          {(drawerUser.dataset_access ?? []).map((id) => {
-                            const ds = (datasets ?? []).find((d) => d.id === id);
-                            return ds ? (
-                              <span key={id} className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{ds.name}</span>
-                            ) : null;
-                          })}
+                          {(drawerUser.dataset_access ?? []).map((id) => { const ds = (datasets ?? []).find((d) => d.id === id); return ds ? <span key={id} className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{ds.name}</span> : null; })}
                         </div>
                       )}
                     </div>
                     <div className="rounded border border-gray-200 dark:border-gray-700 p-3">
-                      <p className="font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Reports ({(drawerUser.report_access ?? []).length})</p>
-                      {(drawerUser.report_access ?? []).length === 0 ? (
-                        <p className="text-gray-400 dark:text-gray-500">No reports granted</p>
-                      ) : (
+                      <p className="font-medium text-gray-400 uppercase tracking-wide mb-1.5">Reports ({(drawerUser.report_access ?? []).length})</p>
+                      {(drawerUser.report_access ?? []).length === 0 ? <p className="text-gray-400">None</p> : (
                         <div className="flex flex-wrap gap-1.5">
-                          {(drawerUser.report_access ?? []).map((slug) => {
-                            const rpt = availableReports.find((r) => r.id === slug);
-                            return rpt ? (
-                              <span key={slug} className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">{rpt.name}</span>
-                            ) : null;
-                          })}
+                          {(drawerUser.report_access ?? []).map((slug) => { const rpt = reports.find((r) => r.id === slug); return rpt ? <span key={slug} className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">{rpt.name}</span> : null; })}
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
               )}
-
-              {/* Active sessions */}
               <div>
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Active Sessions</h3>
-                {sessionsLoading ? (
-                  <p className="text-xs text-gray-400 dark:text-gray-500">Loading...</p>
-                ) : sessions.length === 0 ? (
-                  <p className="text-xs text-gray-400 dark:text-gray-500">No active sessions</p>
-                ) : (
+                {sessionsLoading ? <p className="text-xs text-gray-400">Loading…</p> : sessions.length === 0 ? <p className="text-xs text-gray-400">No active sessions</p> : (
                   <div className="space-y-2">
-                    {sessions.map((session) => (
-                      <div key={session.id} className="flex items-start justify-between rounded border border-gray-200 dark:border-gray-700 p-3 text-xs">
-                        <div>
-                          <p className="text-gray-700 dark:text-gray-300 font-medium">{session.device}</p>
-                          <p className="text-gray-400 dark:text-gray-500">{session.ip}</p>
-                          <p className="text-gray-400 dark:text-gray-500">{formatDatetime(session.login_time)}</p>
-                        </div>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => void deleteSessionMutation.mutateAsync({ userId: drawerUser.id, sessionId: session.id })}
-                        >
-                          Revoke
-                        </Button>
+                    {sessions.map((s) => (
+                      <div key={s.id} className="flex items-start justify-between rounded border border-gray-200 dark:border-gray-700 p-3 text-xs">
+                        <div><p className="font-medium text-gray-700 dark:text-gray-300">{s.device}</p><p className="text-gray-400">{s.ip}</p><p className="text-gray-400">{formatDatetime(s.login_time)}</p></div>
+                        <Button variant="destructive" size="sm" onClick={() => void delSessionMut.mutateAsync({ userId: drawerUser.id, sessionId: s.id })}>Revoke</Button>
                       </div>
                     ))}
                   </div>

@@ -1,8 +1,8 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { dashboardApi, schedulesApi } from '@/lib/api';
-import type { DashboardDataParams } from '@/types';
+import { dashboardApi, schedulesApi, adminGroupsApi } from '@/lib/api';
+import type { DashboardDataParams, AdminGroup } from '@/types';
 import { useUIStore } from '@/store/ui.store';
 
 // ── Query keys ────────────────────────────────────────────────
@@ -99,6 +99,81 @@ export function useTriggerRefresh() {
         variant: 'destructive',
       });
     },
+  });
+}
+
+// ── useAdminGroups ────────────────────────────────────────────
+export function useAdminGroups() {
+  return useQuery({
+    queryKey: ['admin', 'groups'],
+    queryFn: async () => {
+      const { data } = await adminGroupsApi.list();
+      return data as AdminGroup[];
+    },
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useCreateGroup() {
+  const queryClient = useQueryClient();
+  const addToast = useUIStore((s) => s.addToast);
+  return useMutation({
+    mutationFn: (data: { name: string; description?: string }) =>
+      adminGroupsApi.create(data).then((r) => r.data as AdminGroup),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'groups'] });
+      addToast({ title: 'Group created', variant: 'success' });
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      addToast({ title: msg ?? 'Failed to create group', variant: 'destructive' });
+    },
+  });
+}
+
+export function useUpdateGroup() {
+  const queryClient = useQueryClient();
+  const addToast = useUIStore((s) => s.addToast);
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { name?: string; description?: string; dataset_access?: string[]; report_access?: string[] } }) =>
+      adminGroupsApi.update(id, data).then((r) => r.data as AdminGroup),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'groups'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      addToast({ title: 'Group updated', variant: 'success' });
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      addToast({ title: msg ?? 'Failed to update group', variant: 'destructive' });
+    },
+  });
+}
+
+export function useDeleteGroup() {
+  const queryClient = useQueryClient();
+  const addToast = useUIStore((s) => s.addToast);
+  return useMutation({
+    mutationFn: (id: string) => adminGroupsApi.delete(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'groups'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      addToast({ title: 'Group deleted', variant: 'success' });
+    },
+    onError: () => addToast({ title: 'Failed to delete group', variant: 'destructive' }),
+  });
+}
+
+export function useSetGroupMembers() {
+  const queryClient = useQueryClient();
+  const addToast = useUIStore((s) => s.addToast);
+  return useMutation({
+    mutationFn: ({ id, userIds }: { id: string; userIds: string[] }) =>
+      adminGroupsApi.setMembers(id, userIds),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'groups'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+    onError: () => addToast({ title: 'Failed to update members', variant: 'destructive' }),
   });
 }
 

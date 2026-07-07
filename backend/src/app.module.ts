@@ -15,6 +15,7 @@ import { NotificationLog } from "./common/entities/notification-log.entity";
 import { Setting } from "./common/entities/setting.entity";
 import { AuditLog } from "./common/entities/audit-log.entity";
 import { ExternalDataSource } from "./common/entities/data-source.entity";
+import { UserGroup } from "./common/entities/user-group.entity";
 
 import { AuthModule } from "./auth/auth.module";
 import { AuditModule } from "./audit/audit.module";
@@ -43,6 +44,7 @@ import { PrepaymentClModule } from "./reports/prepayment-cl/prepayment-cl.module
 import { ReportsRegistryModule } from "./admin/reports/reports-registry.module";
 import { MtEdrModule } from "./reports/mt-edr/mt-edr.module";
 import { SmsReportModule } from "./reports/sms-report/sms-report.module";
+import { AdminGroupsModule } from "./admin/groups/groups.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -72,6 +74,7 @@ import { SmsReportModule } from "./reports/sms-report/sms-report.module";
           Setting,
           AuditLog,
           ExternalDataSource,
+          UserGroup,
         ],
         synchronize: false,
         autoLoadEntities: true,
@@ -112,6 +115,7 @@ import { SmsReportModule } from "./reports/sms-report/sms-report.module";
     MtEdrModule,
     SmsReportModule,
     ReportsRegistryModule,
+    AdminGroupsModule,
   ],
 })
 export class AppModule {}

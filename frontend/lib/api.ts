@@ -228,6 +228,26 @@ export const adminUsersApi = {
     api.delete(`/admin/users/${userId}/sessions/${sessionId}`),
 };
 
+// ── ADMIN — GROUPS ────────────────────────────────────────────
+export const adminGroupsApi = {
+  list: () => api.get('/admin/groups'),
+
+  create: (data: { name: string; description?: string }) =>
+    api.post('/admin/groups', data),
+
+  update: (id: string, data: {
+    name?: string;
+    description?: string;
+    dataset_access?: string[];
+    report_access?: string[];
+  }) => api.patch(`/admin/groups/${id}`, data),
+
+  setMembers: (id: string, userIds: string[]) =>
+    api.put(`/admin/groups/${id}/members`, { userIds }),
+
+  delete: (id: string) => api.delete(`/admin/groups/${id}`),
+};
+
 // ── ADMIN — REPORTS REGISTRY ──────────────────────────────────
 // Auto-discovered list of grantable reports (from backend @ReportAccess decorators)
 export interface ReportInfo {
