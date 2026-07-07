@@ -10,7 +10,7 @@ import { EventsGateway, DatasetRefreshStartedEvent } from '../websocket/events.g
 export interface RefreshResult {
   rowCount: number;
   durationMs: number;
-  rows: Record<string, unknown>[];
+  rows: Record<string, unknown>[];  // empty when streaming (large datasets)
 }
 
 @Injectable()
@@ -83,15 +83,12 @@ export class StageService implements OnModuleInit {
       this.logger.error('Failed to emit dataset refresh started event', wsErr);
     }
 
-    let rows: Record<string, unknown>[] = [];
-
     // Guard: validate stage table name before any SQL interpolation
     if (!/^[a-z_][a-z0-9_]{0,127}$/.test(dataset.stageTableName)) {
       throw new Error(`Invalid stage table name: ${dataset.stageTableName}`);
     }
 
     try {
-      // Step 1: Query source database — null dataSourceId means Jerasoft builtin
       this.logger.log(`Refreshing dataset: ${dataset.name} (${dataset.id})`);
 
       // Incremental mode: fetch incremental config directly from DB to avoid TypeORM column-mapping issues
@@ -107,7 +104,6 @@ export class StageService implements OnModuleInit {
 
       let sql = dataset.sqlQuery;
       if (isIncremental) {
-        // Check whether the stage table already has data
         let hasData = false;
         try {
           const [cnt] = await this.dataSource.query(
@@ -129,30 +125,25 @@ export class StageService implements OnModuleInit {
         sql = sql.replace(/\{\{LOOKBACK_DATE\}\}/g, lookbackDate);
       }
 
-      // Safety net: if placeholder survived, replace with initial date before hitting source DB
       if (sql.includes('{{LOOKBACK_DATE}}')) {
         this.logger.warn(`{{LOOKBACK_DATE}} still present after processing — using ${initialDate}`);
         sql = sql.replace(/\{\{LOOKBACK_DATE\}\}/g, initialDate);
       }
 
+      // Ensure stage table exists before streaming (DDL must run outside a transaction)
+      await this.ensureStageTable(dataset.stageTableName, dataset.columnMetadata, []);
+
       if (signal?.aborted) throw new Error('Refresh cancelled');
-      const result = await this.datasourceExecutor.query(dataset.dataSourceId ?? 'jerasoft', sql, signal);
-      rows = result.rows;
 
-      // Sanitize row keys: map Jerasoft column names to safe PostgreSQL column names
-      // The stage table uses snake_case lower column names
-      const sanitizedRows = rows.map((row) => this.sanitizeRowKeys(row));
-
-      // Ensure stage table exists — auto-create if missing
-      await this.ensureStageTable(dataset.stageTableName, dataset.columnMetadata, sanitizedRows);
-
-      // Step 2-5: Atomic delete + insert in AMS PG
+      // Open PG transaction for the whole delete + insert cycle
       const queryRunner = this.dataSource.createQueryRunner();
       await queryRunner.connect();
       await queryRunner.startTransaction();
 
+      let totalRows = 0;
+
       try {
-        // Step 3: Delete rows — incremental deletes only the lookback window; full refresh clears all
+        // Delete phase
         if (isIncremental && lookbackDate) {
           await queryRunner.query(
             `DELETE FROM ${dataset.stageTableName} WHERE "date" >= $1::date`,
@@ -164,20 +155,22 @@ export class StageService implements OnModuleInit {
           );
         }
 
-        // Step 4: Insert new rows in batches
-        if (sanitizedRows.length > 0) {
-          const batchSize = 500;
-          for (let i = 0; i < sanitizedRows.length; i += batchSize) {
-            const batch = sanitizedRows.slice(i, i + batchSize);
-            const { sql, params } = this.buildInsertSql(dataset.stageTableName, batch);
-            await queryRunner.query(sql, params);
-          }
-        }
+        // Stream INSERT: rows arrive in batches of 500, never all in memory at once
+        await this.datasourceExecutor.queryStream(
+          dataset.dataSourceId ?? 'jerasoft',
+          sql,
+          async (rawBatch) => {
+            const batch = rawBatch.map((row) => this.sanitizeRowKeys(row));
+            const { sql: insertSql, params } = this.buildInsertSql(dataset.stageTableName, batch);
+            await queryRunner.query(insertSql, params);
+            totalRows += batch.length;
+          },
+          500,
+          signal,
+        );
 
-        // Step 5: Commit
         await queryRunner.commitTransaction();
       } catch (err) {
-        // ROLLBACK on any error
         await queryRunner.rollbackTransaction();
         throw err;
       } finally {
@@ -186,13 +179,12 @@ export class StageService implements OnModuleInit {
 
       const durationMs = Date.now() - startMs;
 
-      // Step 6: Update log
       if (logId) {
         try {
           await this.refreshLogRepo.update(logId, {
             finishedAt: new Date(),
             status: 'success',
-            rowCount: rows.length,
+            rowCount: totalRows,
             durationMs,
           });
         } catch (logErr) {
@@ -200,25 +192,21 @@ export class StageService implements OnModuleInit {
         }
       }
 
-      // Step 7: Emit WebSocket event
       try {
         this.eventsGateway.emitDatasetRefreshed({
           dataset_id: dataset.id,
           dataset_name: dataset.name,
           refreshed_at: new Date().toISOString(),
-          row_count: rows.length,
+          row_count: totalRows,
           duration_ms: durationMs,
         });
       } catch (wsErr) {
         this.logger.error('Failed to emit dataset refreshed event', wsErr);
       }
 
-      this.logger.log(
-        `Dataset ${dataset.name} refreshed: ${rows.length} rows in ${durationMs}ms`,
-      );
+      this.logger.log(`Dataset ${dataset.name} refreshed: ${totalRows} rows in ${durationMs}ms`);
 
-      // Return sanitized rows for condition evaluation
-      return { rowCount: rows.length, durationMs, rows: sanitizedRows };
+      return { rowCount: totalRows, durationMs, rows: [] };
     } catch (err) {
       const durationMs = Date.now() - startMs;
       const errorMsg = err instanceof Error ? err.message : String(err);

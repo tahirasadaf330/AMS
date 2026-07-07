@@ -110,6 +110,93 @@ export class DatasourceExecutorService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Stream query results row-by-row, calling onBatch for every batchSize rows.
+   * For MSSQL this avoids loading millions of rows into JS heap at once.
+   * For PostgreSQL it falls back to a regular query and calls onBatch in chunks.
+   */
+  async queryStream(
+    dataSourceId: string,
+    sql: string,
+    onBatch: (rows: Record<string, unknown>[]) => Promise<void>,
+    batchSize = 500,
+    signal?: AbortSignal,
+  ): Promise<{ totalRows: number }> {
+    const pool = await this.getPool(dataSourceId);
+
+    if (pool.type === 'postgresql') {
+      if (signal?.aborted) throw new Error('Refresh cancelled');
+      const result = await (pool.pool as PgPool).query(sql);
+      for (let i = 0; i < result.rows.length; i += batchSize) {
+        if (signal?.aborted) throw new Error('Refresh cancelled');
+        await onBatch(result.rows.slice(i, i + batchSize) as Record<string, unknown>[]);
+      }
+      return { totalRows: result.rows.length };
+    }
+
+    // MSSQL — stream rows to keep memory bounded to one batch at a time
+    if (signal?.aborted) throw new Error('Refresh cancelled');
+    const request = (pool.pool as mssql.ConnectionPool).request();
+    request.stream = true;
+
+    return new Promise<{ totalRows: number }>((resolve, reject) => {
+      let batch: Record<string, unknown>[] = [];
+      let totalRows = 0;
+      let settled = false;
+
+      const fail = (err: Error) => {
+        if (!settled) {
+          settled = true;
+          try { request.cancel(); } catch { /* ignore */ }
+          reject(err);
+        }
+      };
+
+      if (signal) {
+        signal.addEventListener('abort', () => fail(new Error('Refresh cancelled')), { once: true });
+      }
+
+      request.on('row', (row: Record<string, unknown>) => {
+        if (settled) return;
+        batch.push(row);
+        totalRows++;
+        if (batch.length >= batchSize) {
+          const toFlush = batch;
+          batch = [];
+          request.pause();
+          onBatch(toFlush)
+            .then(() => { if (!settled) request.resume(); })
+            .catch((err) => fail(err instanceof Error ? err : new Error(String(err))));
+        }
+      });
+
+      request.on('error', (err: Error) => {
+        const msg = err?.message ?? '';
+        if (msg === 'Canceled' || msg.toLowerCase().includes('cancel')) {
+          fail(new Error('Refresh cancelled'));
+        } else {
+          fail(err);
+        }
+      });
+
+      request.on('done', () => {
+        if (settled) return;
+        if (batch.length > 0) {
+          const remaining = batch;
+          batch = [];
+          onBatch(remaining)
+            .then(() => { if (!settled) { settled = true; resolve({ totalRows }); } })
+            .catch((err) => fail(err instanceof Error ? err : new Error(String(err))));
+        } else {
+          settled = true;
+          resolve({ totalRows });
+        }
+      });
+
+      request.query(sql);
+    });
+  }
+
   async testConnectionConfig(config: {
     type: 'postgresql' | 'mssql';
     host: string;
