@@ -311,14 +311,14 @@ export class SmsReportService implements OnModuleInit {
       const sqlChanged  = existing.sqlQuery !== SEED_SQL;
       const metaChanged = JSON.stringify(existing.columnMetadata) !== JSON.stringify(SEED_COLUMNS);
       const nameChanged = existing.name !== DATASET_NAME;
-      const incrChanged = existing.incrementalLookbackDays !== 7 || existing.incrementalInitialDate !== '2026-07-01';
+      const incrChanged = existing.incrementalLookbackDays !== 7 || existing.incrementalInitialDate !== '2026-01-01';
       if (sqlChanged || metaChanged || nameChanged || incrChanged) {
         await this.datasetRepo.update(existing.id, {
           name:                    DATASET_NAME,
           sqlQuery:                SEED_SQL,
           columnMetadata:          SEED_COLUMNS as any,
           incrementalLookbackDays: 7,
-          incrementalInitialDate:  '2026-07-01',
+          incrementalInitialDate:  '2026-01-01',
         });
         this.logger.log('Updated SMS Report dataset name, SQL and column metadata');
       }
@@ -345,7 +345,7 @@ export class SmsReportService implements OnModuleInit {
         isActive:                true,
         createdBy:               null,
         incrementalLookbackDays: 7,
-        incrementalInitialDate:  '2026-07-01',
+        incrementalInitialDate:  '2026-01-01',
       }),
     );
     this._datasetId = saved.id;
