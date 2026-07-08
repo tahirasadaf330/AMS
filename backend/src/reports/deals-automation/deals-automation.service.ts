@@ -190,20 +190,20 @@ export class DealsAutomationService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     try {
-      await this.ensureDealsDatasource();
-      await this.ensureDatasetRecord();
+      const datasourceId = await this.ensureDealsDatasource();
+      await this.ensureDatasetRecord(datasourceId);
       await this.ensureStageTable();
     } catch (err) {
       this.logger.error('Deals Automation dataset seed failed', err);
     }
   }
 
-  private async ensureDealsDatasource(): Promise<void> {
+  private async ensureDealsDatasource(): Promise<string> {
     const existing = await this.dsRepo.findOne({ where: { name: DATASOURCE } });
-    if (existing) return;
+    if (existing) return existing.id;
 
     this.logger.log(`Creating '${DATASOURCE}' external datasource…`);
-    await this.dsRepo.save(
+    const created = await this.dsRepo.save(
       this.dsRepo.create({
         name:      DATASOURCE,
         type:      'postgresql',
@@ -218,9 +218,10 @@ export class DealsAutomationService implements OnModuleInit {
       } as any),
     );
     this.logger.log(`'${DATASOURCE}' datasource created`);
+    return created.id;
   }
 
-  private async ensureDatasetRecord(): Promise<void> {
+  private async ensureDatasetRecord(datasourceId: string): Promise<void> {
     const existing = await this.datasetRepo.findOne({ where: { stageTableName: STAGE } });
 
     if (existing) {
@@ -228,13 +229,15 @@ export class DealsAutomationService implements OnModuleInit {
       const sqlChanged  = existing.sqlQuery !== SEED_SQL;
       const metaChanged = JSON.stringify(existing.columnMetadata) !== JSON.stringify(SEED_COLUMNS);
       const nameChanged = existing.name !== DATASET_NAME;
-      if (sqlChanged || metaChanged || nameChanged) {
+      const dsChanged   = existing.dataSourceId !== datasourceId;
+      if (sqlChanged || metaChanged || nameChanged || dsChanged) {
         await this.datasetRepo.update(existing.id, {
           name:           DATASET_NAME,
           sqlQuery:       SEED_SQL,
           columnMetadata: SEED_COLUMNS as any,
+          dataSourceId,
         });
-        this.logger.log('Updated Deals Automation dataset name, SQL and column metadata');
+        this.logger.log('Updated Deals Automation dataset SQL, metadata and datasource link');
       }
       return;
     }
