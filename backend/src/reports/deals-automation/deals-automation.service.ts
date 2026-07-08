@@ -203,20 +203,19 @@ export class DealsAutomationService implements OnModuleInit {
     if (existing) return existing.id;
 
     this.logger.log(`Creating '${DATASOURCE}' external datasource…`);
-    const created = await this.dsRepo.save(
-      this.dsRepo.create({
-        name:      DATASOURCE,
-        type:      'postgresql',
-        host:      this.config.get<string>('DEALS_DB_HOST', '10.10.8.195'),
-        port:      this.config.get<number>('DEALS_DB_PORT', 5432),
-        db:        this.config.get<string>('DEALS_DB_NAME', 'deals_dashboard'),
-        username:  this.config.get<string>('DEALS_DB_USER', 'readonly_bilal'),
-        password:  this.credentialsService.encrypt(this.config.get<string>('DEALS_DB_PASS', '')),
-        sslMode:   'prefer',
-        isActive:  true,
-        createdBy: null,
-      } as any),
-    );
+    const entity = this.dsRepo.create({
+      name:      DATASOURCE,
+      type:      'postgresql',
+      host:      this.config.get<string>('DEALS_DB_HOST', '10.10.8.195'),
+      port:      this.config.get<number>('DEALS_DB_PORT', 5432),
+      db:        this.config.get<string>('DEALS_DB_NAME', 'deals_dashboard'),
+      username:  this.config.get<string>('DEALS_DB_USER', 'readonly_bilal'),
+      password:  this.credentialsService.encrypt(this.config.get<string>('DEALS_DB_PASS', '')),
+      sslMode:   'prefer',
+      isActive:  true,
+      createdBy: null,
+    } as any) as ExternalDataSource;
+    const created: ExternalDataSource = await this.dsRepo.save(entity);
     this.logger.log(`'${DATASOURCE}' datasource created`);
     return created.id;
   }
@@ -235,7 +234,7 @@ export class DealsAutomationService implements OnModuleInit {
           name:           DATASET_NAME,
           sqlQuery:       SEED_SQL,
           columnMetadata: SEED_COLUMNS as any,
-          dataSourceId,
+          dataSourceId: datasourceId,
         });
         this.logger.log('Updated Deals Automation dataset SQL, metadata and datasource link');
       }
