@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Dataset } from '../../common/entities/dataset.entity';
@@ -182,15 +183,39 @@ export class DealsAutomationService implements OnModuleInit {
     private readonly datasetRepo: Repository<Dataset>,
     @InjectRepository(ExternalDataSource)
     private readonly dsRepo: Repository<ExternalDataSource>,
+    private readonly config: ConfigService,
   ) {}
 
   async onModuleInit(): Promise<void> {
     try {
+      await this.ensureDealsDatasource();
       await this.ensureDatasetRecord();
       await this.ensureStageTable();
     } catch (err) {
       this.logger.error('Deals Automation dataset seed failed', err);
     }
+  }
+
+  private async ensureDealsDatasource(): Promise<void> {
+    const existing = await this.dsRepo.findOne({ where: { name: DATASOURCE } });
+    if (existing) return;
+
+    this.logger.log(`Creating '${DATASOURCE}' external datasource…`);
+    await this.dsRepo.save(
+      this.dsRepo.create({
+        name:      DATASOURCE,
+        type:      'postgresql',
+        host:      this.config.get<string>('DEALS_DB_HOST', '10.10.8.195'),
+        port:      this.config.get<number>('DEALS_DB_PORT', 5432),
+        database:  this.config.get<string>('DEALS_DB_NAME', 'deals_dashboard'),
+        username:  this.config.get<string>('DEALS_DB_USER', 'readonly_bilal'),
+        password:  this.config.get<string>('DEALS_DB_PASS', ''),
+        sslMode:   'prefer',
+        isActive:  true,
+        createdBy: null,
+      } as any),
+    );
+    this.logger.log(`'${DATASOURCE}' datasource created`);
   }
 
   private async ensureDatasetRecord(): Promise<void> {
