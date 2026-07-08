@@ -207,7 +207,7 @@ export class DealsAutomationService implements OnModuleInit {
         type:      'postgresql',
         host:      this.config.get<string>('DEALS_DB_HOST', '10.10.8.195'),
         port:      this.config.get<number>('DEALS_DB_PORT', 5432),
-        database:  this.config.get<string>('DEALS_DB_NAME', 'deals_dashboard'),
+        db:        this.config.get<string>('DEALS_DB_NAME', 'deals_dashboard'),
         username:  this.config.get<string>('DEALS_DB_USER', 'readonly_bilal'),
         password:  this.config.get<string>('DEALS_DB_PASS', ''),
         sslMode:   'prefer',
