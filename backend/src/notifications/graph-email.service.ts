@@ -131,7 +131,7 @@ export class GraphEmailService {
     appUrl?: string;
   }): Promise<void> {
     const { token, senderEmail } = await this.getAccessToken();
-    const appUrl = (params.appUrl || this.configService.get<string>('APP_URL', 'http://ams.voipsystem.org:3000')).replace(/\/$/, '');
+    const appUrl = (params.appUrl || this.configService.get<string>('APP_URL', 'http://ams.voipsystem.org')).replace(/\/$/, '');
     const html = this.buildWelcomeHtml({ ...params, appUrl });
 
     const payload = {

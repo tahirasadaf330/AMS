@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import {
-  AreaChart, Area, BarChart, Bar, LineChart, Line,
+  AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import { smsReportApi } from '@/lib/api';
@@ -904,7 +904,7 @@ function ProfitDataTab({ rows, lastRefreshed }: ProfitTabProps) {
       />
 
       <BiProfitTable  title="Current Month Data (Till Yesterday)" range={`${fDate(mtdStart)} → ${fDate(mtdEnd)}`} data={mtdByMgr} sort={mtdSort} />
-      <MgrProfitTable title="Account Manager Profit Data" range={fDate(ydEnd)} data={ydByMgr} sort={ydSort} />
+      <MgrProfitTable title="Account Manager Profit Data (Yesterday)" range={fDate(ydEnd)} data={ydByMgr} sort={ydSort} />
     </div>
   );
 }
@@ -934,6 +934,41 @@ const XAXIS_BTNS: {key: CompXAxis; label: string}[] = [
   {key:'date',label:'Date'},{key:'week_of_month',label:'Week of Month'},
   {key:'month',label:'Month'},{key:'week_of_year',label:'Week of Year'},
 ];
+
+/* ── Comparison pie helper ───────────────────────────────── */
+function CmpPie({ rows, groupField, label }: { rows: any[]; groupField: string; label: string }) {
+  const data = React.useMemo(() => {
+    const map: Record<string, number> = {};
+    rows.forEach((r: any) => { const c = r[groupField]; if (!c) return; map[c] = (map[c] || 0) + Number(r.profit ?? 0); });
+    const sorted = Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    const tot = sorted.reduce((s, [, v]) => s + v, 0);
+    return sorted.map(([fullName, value], i) => ({ fullName, name: fullName.length > 22 ? fullName.slice(0, 20) + '…' : fullName, value, pct: tot ? value / tot * 100 : 0, fill: PAL[i % PAL.length] })).filter(d => d.value > 0);
+  }, [rows, groupField]);
+
+  if (!data.length) return <div style={{ padding: 20, color: 'var(--mu)', fontSize: 13 }}>No data.</div>;
+
+  return (
+    <div style={{ display: 'flex', gap: 20, alignItems: 'center', padding: '12px 18px 16px', minWidth: 0 }}>
+      <div style={{ flexShrink: 0 }}>
+        <PieChart width={200} height={200}>
+          <Pie data={data} dataKey="value" innerRadius={55} outerRadius={90} paddingAngle={2} startAngle={90} endAngle={-270} strokeWidth={0}>
+            {data.map((e, i) => <Cell key={i} fill={e.fill} />)}
+          </Pie>
+          <Tooltip {...TIP} formatter={(v: any, _: any, p: any) => [`${fR(v)} (${p.payload.pct.toFixed(1)}%)`, label]} />
+        </PieChart>
+      </div>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
+        {data.map((d, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: d.fill, flexShrink: 0 }} />
+            <span title={d.fullName} style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--inks)' }}>{d.name}</span>
+            <b style={{ flexShrink: 0, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{d.pct.toFixed(1)}%</b>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface ComparisonTabProps {
   p1Rows: any[]; p2Rows: any[];
@@ -1001,6 +1036,7 @@ function ComparisonTab({ p1Rows, p2Rows, p1Start, p1End, p2Start, p2End, fOp, fC
   const tot1={msg:tableRows.reduce((s,r)=>s+r.msg1,0),inc:tableRows.reduce((s,r)=>s+r.inc1,0),exp:tableRows.reduce((s,r)=>s+r.exp1,0),prf:tableRows.reduce((s,r)=>s+r.prf1,0)};
   const tot2={msg:tableRows.reduce((s,r)=>s+r.msg2,0),inc:tableRows.reduce((s,r)=>s+r.inc2,0),exp:tableRows.reduce((s,r)=>s+r.exp2,0),prf:tableRows.reduce((s,r)=>s+r.prf2,0)};
 
+
   // ── P1/P2/Diff table helpers (Diff = P2 − P1) ──
   const dimLabel = compDimExts.map(d => COMP_DIM_BTNS.find(b=>b.key===d)?.label ?? d).join(' / ');
   const cellBase = { textAlign:'right' as const, fontVariantNumeric:'tabular-nums' as const, whiteSpace:'nowrap' as const };
@@ -1027,8 +1063,54 @@ function ComparisonTab({ p1Rows, p2Rows, p1Start, p1End, p2Start, p2End, fOp, fC
     { label:'Margin %', p1:'mar1', p2:'mar2', d:'marD' },
   ];
 
+  const pieField = 'customer_company';
+  const pieGroupLabel = 'Customer';
+
   return (
     <div>
+
+      {/* ── P1 / P2 summary cards ── */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+        {([
+          {rows:fp1,start:p1Start,end:p1End,color:'#6b8fa3'},
+          {rows:fp2,start:p2Start,end:p2End,color:'#3498db'},
+        ] as const).map(({rows,start,end,color},pi)=>{
+          const msgs = rows.reduce((s:number,r:any)=>s+Number(r.received_messages??0),0);
+          const inc  = rows.reduce((s:number,r:any)=>s+Number(r.income??0),0);
+          const prf  = rows.reduce((s:number,r:any)=>s+Number(r.profit??0),0);
+          const mar  = avgMarginOf(rows);
+          return (
+            <div key={pi} style={{borderRadius:10,padding:'16px 20px',background:color,color:'#fff',boxShadow:'0 4px 0 rgba(0,0,0,.18)'}}>
+              <div style={{fontSize:12,fontWeight:700,opacity:.88,marginBottom:12}}>{fDate(start)}{start!==end?` → ${fDate(end)}`:''}</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px 24px'}}>
+                <div><div style={{fontSize:10.5,fontWeight:700,letterSpacing:'.08em',textTransform:'uppercase',opacity:.78}}>Messages</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:600,fontSize:22,marginTop:4,fontVariantNumeric:'tabular-nums'}}>{fN(msgs)}</div></div>
+                <div><div style={{fontSize:10.5,fontWeight:700,letterSpacing:'.08em',textTransform:'uppercase',opacity:.78}}>Income</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:600,fontSize:22,marginTop:4}}>{fM(inc)}</div></div>
+                <div><div style={{fontSize:10.5,fontWeight:700,letterSpacing:'.08em',textTransform:'uppercase',opacity:.78}}>Profit</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:600,fontSize:22,marginTop:4}}>{fM(prf)}</div></div>
+                <div><div style={{fontSize:10.5,fontWeight:700,letterSpacing:'.08em',textTransform:'uppercase',opacity:.78}}>Margin</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:600,fontSize:22,marginTop:4}}>{fP(mar)}</div></div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Profit Share pie charts ── */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:12}}>
+        <div className="zpnl">
+          <div className="zph">
+            <h2>Profit Share — Top 10 {pieGroupLabel}</h2>
+            <span className="ztag">{fDate(p1Start)}{p1Start!==p1End?` → ${fDate(p1End)}`:''}</span>
+          </div>
+          <CmpPie rows={fp1} groupField={pieField} label="Profit" />
+        </div>
+        <div className="zpnl">
+          <div className="zph">
+            <h2>Profit Share — Top 10 {pieGroupLabel}</h2>
+            <span className="ztag">{fDate(p2Start)}{p2Start!==p2End?` → ${fDate(p2End)}`:''}</span>
+          </div>
+          <CmpPie rows={fp2} groupField={pieField} label="Profit" />
+        </div>
+      </div>
+
       {/* ── Dimension selector ── */}
       <div style={{display:'flex',gap:12,marginBottom:12,flexWrap:'wrap'}}>
         <div className="zpnl" style={{padding:'10px 12px',flex:'1 1 100%'}}>
@@ -1114,6 +1196,8 @@ function ComparisonTab({ p1Rows, p2Rows, p1Start, p1End, p2Start, p2End, fOp, fC
           {XAXIS_BTNS.map(b=><button key={b.key} onClick={()=>setCompXAxis(b.key)} style={{...bs(compXAxis===b.key),whiteSpace:'nowrap'}}>{b.label}</button>)}
         </div>
       </div>
+
+
     </div>
   );
 }
@@ -1141,10 +1225,10 @@ export default function SmsReportPage() {
   const [error, setError]         = React.useState<string | null>(null);
 
   /* ── sale filters ────────────────────────────────────────── */
-  const [saleStart,    setSaleStart]    = React.useState(yd);
-  const [saleEnd,      setSaleEnd]      = React.useState(yd);
+  const [saleStart,    setSaleStart]    = React.useState(monthStart);
+  const [saleEnd,      setSaleEnd]      = React.useState(() => { const d = new Date(); return monthEnd(`${d.getFullYear()}-${zp(d.getMonth()+1)}`); });
   const [saleYear,     setSaleYear]     = React.useState('');
-  const [saleDateMode, setSaleDateMode] = React.useState<'day'|'month'|'range'>('day');
+  const [saleDateMode, setSaleDateMode] = React.useState<'day'|'month'|'range'>('month');
   const [acctMgr,      setAcctMgr]      = React.useState('');
   const [coFilt,       setCoFilt]       = React.useState('');
   const [saleCntryFilt,  setSaleCntryFilt]  = React.useState('');
@@ -1194,7 +1278,8 @@ export default function SmsReportPage() {
   const [saleTrend, setSaleTrend] = React.useState<'messages'|'profit'|'income'|'expenses'|'ppm'>('messages');
   const [saleGran,  setSaleGran]  = React.useState<'date'|'week_of_month'|'month'|'week_of_year'|'year'>('date');
   const [ovSel,     setOvSel]     = React.useState<string>(''); // Overview: highlighted company
-  const [ovGran,    setOvGran]    = React.useState<'day'|'month'|'year'>('day'); // Overview x-axis granularity
+  const [ovGran,    setOvGran]    = React.useState<'day'|'week'|'month'|'year'>('day');
+  const [ovGroupBy, setOvGroupBy] = React.useState<'customer'|'am'>('customer');
 
   /* ── sale-year ───────────────────────────────────────────── */
   const [yearDim, setYearDim] = React.useState<'company' | 'country'>('company');
@@ -1231,7 +1316,7 @@ export default function SmsReportPage() {
     }
   }, []);
 
-  React.useEffect(() => { load(daysAgo(89), yd(), '', ''); }, []);
+  React.useEffect(() => { load(`${new Date().getFullYear()}-01-01`, iso(new Date()), '', ''); }, []);
   useDatasetSocket(datasetId ?? undefined, () => load(saleStart, saleEnd, acctMgr, coFilt));
 
   /* ── today info ──────────────────────────────────────────── */
@@ -1466,57 +1551,87 @@ export default function SmsReportPage() {
   /* ── overview KPIs ───────────────────────────────────────── */
   const curYearStr = String(curYear);
   const yearRows2026 = React.useMemo(() => rows.filter((r: any) => String(r.date ?? '').startsWith(curYearStr)), [rows, curYearStr]);
-  const yearDates2026 = React.useMemo(() => Array.from(new Set(yearRows2026.map((r: any) => String(r.date ?? '').slice(0, 10)).filter(Boolean))), [yearRows2026]);
-  const yearDayCount  = yearDates2026.length || 1;
-  const yearTotMsgs   = yearRows2026.reduce((s: number, r: any) => s + Number(r.successful_sent ?? 0), 0);
+  const yearTotMsgs   = yearRows2026.reduce((s: number, r: any) => s + Number(r.received_messages ?? 0), 0);
   const yearTotProfit = yearRows2026.reduce((s: number, r: any) => s + Number(r.profit ?? 0), 0);
   const yearTotIncome = yearRows2026.reduce((s: number, r: any) => s + Number(r.income ?? 0), 0);
+  // Use calendar days from Jan 1 to latest date (matches Power BI denominator)
+  const yearDayCount = latestDate
+    ? Math.round((new Date(latestDate + 'T00:00:00').getTime() - new Date(`${curYear}-01-01T00:00:00`).getTime()) / 86400000) + 1
+    : 1;
 
   const curMonthRows  = React.useMemo(() => rows.filter((r: any) => {
     const d = String(r.date ?? '').slice(0, 7);
     return d === `${curYear}-${zp(curMonth + 1)}`;
   }), [rows, curYear, curMonth]);
-  const curMonthDates = React.useMemo(() => Array.from(new Set(curMonthRows.map((r: any) => String(r.date ?? '').slice(0, 10)).filter(Boolean))), [curMonthRows]);
-  const curMonthDayCount  = curMonthDates.length || 1;
-  const curMonthTotMsgs   = curMonthRows.reduce((s: number, r: any) => s + Number(r.successful_sent ?? 0), 0);
+  const curMonthTotMsgs   = curMonthRows.reduce((s: number, r: any) => s + Number(r.received_messages ?? 0), 0);
   const curMonthTotProfit = curMonthRows.reduce((s: number, r: any) => s + Number(r.profit ?? 0), 0);
   const curMonthTotIncome = curMonthRows.reduce((s: number, r: any) => s + Number(r.income ?? 0), 0);
+  // Use day-of-month of latest date as denominator (matches Power BI)
+  const curMonthDayCount = latestDate && latestDate.startsWith(`${curYear}-${zp(curMonth + 1)}`)
+    ? new Date(latestDate + 'T00:00:00').getDate()
+    : (curMonthRows.length ? new Date(curMonthRows[curMonthRows.length - 1].date + 'T00:00:00').getDate() : 1);
 
   /* ── overview charts ─────────────────────────────────────── */
-  const top10Cos = React.useMemo(() => {
+  const top10Keys = React.useMemo(() => {
+    const field = ovGroupBy === 'am' ? 'account_manager' : 'customer_company';
     const map: Record<string, number> = {};
     yearRows2026.forEach((r: any) => {
-      const c = r.customer_company; if (!c) return;
+      const c = r[field]; if (!c) return;
       map[c] = (map[c] || 0) + Number(r.profit ?? 0);
     });
     return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([n]) => n);
-  }, [yearRows2026]);
+  }, [yearRows2026, ovGroupBy]);
 
-  const ovBucket = React.useCallback((d: string) => ovGran === 'year' ? d.slice(0, 4) : ovGran === 'month' ? d.slice(0, 7) : d.slice(0, 10), [ovGran]);
+  const ovBucket = React.useCallback((d: string) => {
+    if (ovGran === 'year') return d.slice(0, 4);
+    if (ovGran === 'month') return d.slice(0, 7);
+    if (ovGran === 'week') {
+      const dt = new Date(d.slice(0, 10) + 'T00:00:00');
+      if (isNaN(dt.getTime())) return d.slice(0, 10);
+      const day = dt.getDay() || 7;
+      dt.setDate(dt.getDate() + 4 - day);
+      const yearStart = new Date(dt.getFullYear(), 0, 1);
+      const weekNo = Math.ceil(((dt.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+      return `${dt.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+    }
+    return d.slice(0, 10);
+  }, [ovGran]);
 
-  const profitByDayCo = React.useMemo(() => {
-    const map: Record<string, any> = {};
-    yearRows2026.forEach((r: any) => {
-      const d = ovBucket(String(r.date ?? ''));
-      const c = r.customer_company;
-      if (!d || !top10Cos.includes(c)) return;
-      if (!map[d]) { map[d] = { date: d }; top10Cos.forEach(co => { map[d][co] = 0; }); }
-      map[d][c] = (map[d][c] || 0) + Number(r.profit ?? 0);
-    });
-    return Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
-  }, [yearRows2026, top10Cos, ovBucket]);
-
-  const msgsByDayCo = React.useMemo(() => {
-    const map: Record<string, any> = {};
-    yearRows2026.forEach((r: any) => {
-      const d = ovBucket(String(r.date ?? ''));
-      const c = r.customer_company;
-      if (!d || !top10Cos.includes(c)) return;
-      if (!map[d]) { map[d] = { date: d }; top10Cos.forEach(co => { map[d][co] = 0; }); }
-      map[d][c] = (map[d][c] || 0) + Number(r.successful_sent ?? 0);
-    });
-    return Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
-  }, [yearRows2026, top10Cos, ovBucket]);
+  const ovChartData = React.useMemo(() => {
+    const groupField = ovGroupBy === 'am' ? 'account_manager' : 'customer_company';
+    const build = (metricField: string, isAvg = false) => {
+      const sumMap: Record<string, any> = {};
+      const cntMap: Record<string, Record<string, number>> = {};
+      yearRows2026.forEach((r: any) => {
+        const d = ovBucket(String(r.date ?? ''));
+        const c = r[groupField];
+        if (!d || !top10Keys.includes(c)) return;
+        if (!sumMap[d]) {
+          sumMap[d] = { date: d };
+          top10Keys.forEach(k => { sumMap[d][k] = 0; });
+          if (isAvg) { cntMap[d] = {}; top10Keys.forEach(k => { cntMap[d][k] = 0; }); }
+        }
+        const v = Number(r[metricField]);
+        if (!isNaN(v)) {
+          sumMap[d][c] = (sumMap[d][c] || 0) + v;
+          if (isAvg) cntMap[d][c] = (cntMap[d][c] || 0) + 1;
+        }
+      });
+      if (isAvg) {
+        Object.keys(sumMap).forEach(d => {
+          top10Keys.forEach(c => { if ((cntMap[d]?.[c] ?? 0) > 0) sumMap[d][c] = sumMap[d][c] / cntMap[d][c]; });
+        });
+      }
+      return Object.values(sumMap).sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
+    };
+    return {
+      profit:   build('profit'),
+      messages: build('received_messages'),
+      income:   build('income'),
+      expenses: build('expenses'),
+      margin:   build('margin_pct', true),
+    };
+  }, [yearRows2026, top10Keys, ovBucket, ovGroupBy]);
 
 
   /* ══════════════════════════════════════════════════════════
@@ -1604,14 +1719,6 @@ export default function SmsReportPage() {
           const granLabel = GRANS.find(g => g.key === saleGran)?.label ?? 'Date';
           const fmtMetric = (v: any) => pieMetric === 'messages' ? fN(v) : pieMetric === 'margin_pct' ? fP(v) : fN(Math.round(Number(v)));
           const dimKeyMap: Record<string, string> = { country: 'country', customer: 'customer_company', operator: 'operator', mcc_mnc: 'mcc_mnc', connection: 'customer_connection', account_manager: 'account_manager' };
-
-          const donutOf = (dimKey: string) => {
-            const a = aggBy(saleRows, dimKey).map((r: any) => ({ name: r.name, value: Number(r[pieMetric] ?? 0) })).filter((d: any) => d.value > 0).sort((a: any, b: any) => b.value - a.value).slice(0, 10);
-            const tot = a.reduce((s: number, d: any) => s + d.value, 0);
-            return a.map((d: any, i: number) => ({ ...d, fill: PAL[i % PAL.length], pct: tot ? d.value / tot * 100 : 0 }));
-          };
-          const donutCountry = donutOf('country');
-          const donutDim     = donutOf(dimKeyMap[barDim]);
 
           const barRows = aggBy(saleRows, dimKeyMap[barDim]).map((r: any) => ({ name: r.name, value: Number(r[pieMetric] ?? 0) })).sort((a: any, b: any) => b.value - a.value).slice(0, 20).map((r: any) => ({ ...r, name: r.name.length > 18 ? r.name.slice(0, 16) + '…' : r.name }));
 
@@ -1711,8 +1818,9 @@ export default function SmsReportPage() {
                       {(['day', 'month', 'range'] as const).map(m => (
                         <button key={m} disabled={!!saleYear} onClick={() => {
                           setSaleDateMode(m);
-                          if (m === 'day') { const d = iso(new Date()); setSaleStart(d); setSaleEnd(d); }
-                          else if (m === 'month') { const mm = (saleEnd || yd()).slice(0, 7); setSaleStart(`${mm}-01`); setSaleEnd(monthEnd(mm)); }
+                          if (m === 'day') { const d = iso(new Date()); setSaleStart(d); setSaleEnd(d); setSaleGran('date'); }
+                          else if (m === 'month') { const mm = (saleEnd || yd()).slice(0, 7); setSaleStart(`${mm}-01`); setSaleEnd(monthEnd(mm)); setSaleGran('date'); }
+                          else if (m === 'range') { setSaleGran('week_of_year'); }
                         }} style={{ padding: '8px 12px', fontSize: 12, fontWeight: 700, borderRadius: 6, border: '1.5px solid', cursor: saleYear ? 'not-allowed' : 'pointer', opacity: saleYear ? 0.5 : 1, borderColor: saleDateMode === m ? 'var(--turquoise)' : 'var(--lns)', background: saleDateMode === m ? 'var(--turquoise)' : 'var(--sf2)', color: saleDateMode === m ? '#fff' : 'var(--inks)' }}>{m[0].toUpperCase() + m.slice(1)}</button>
                       ))}
                     </div>
@@ -1736,7 +1844,7 @@ export default function SmsReportPage() {
                     </select>
                   </div>
                   <div style={{ alignSelf: 'flex-end', display: 'flex', gap: 8 }}>
-                    <button className="zbt2" onClick={() => { setAcctMgr(''); setCoFilt(''); setSaleYear(''); setSaleDateMode('day'); setSaleStart(yd()); setSaleEnd(yd()); setSaleCntryFilt(''); setSaleCustFilt(''); setSaleConnFilt(''); }}>Reset</button>
+                    <button className="zbt2" onClick={() => { setAcctMgr(''); setCoFilt(''); setSaleYear(''); setSaleDateMode('month'); setSaleStart(monthStart()); setSaleEnd(monthEnd(`${new Date().getFullYear()}-${zp(new Date().getMonth()+1)}`)); setSaleGran('date'); setSaleCntryFilt(''); setSaleCustFilt(''); setSaleConnFilt(''); }}>Reset</button>
                   </div>
                 </div>
               </div>
@@ -1760,12 +1868,6 @@ export default function SmsReportPage() {
                       <div style={axLbl}>X‑Axis · Dimension</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>{DIMS.map(b => <button key={b.key} onClick={() => setBarDim(b.key)} style={tbtn(barDim === b.key)}>{b.label}</button>)}</div>
                     </div>
-                  </div>
-
-                  {/* Zamani-style donuts — metric by Country / by dimension */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                    <Donut title={`${metricCfg.label} by Country`} data={donutCountry} />
-                    <Donut title={`${metricCfg.label} by ${dimLabel}`} data={donutDim} />
                   </div>
 
                   {/* Bar chart: metric (Y) by dimension (X) */}
@@ -1869,53 +1971,53 @@ export default function SmsReportPage() {
         ════════════════════════════════════════════════ */}
         {tab === 'comparison' && (
           <>
-            {/* Unified filter bar — dropdowns + P1/P2 + W1/W2, drives both tables */}
-            <InlineFilters
-              filters={[
-                { label: 'Operator',            value: cmpOp,  options: cmpOpts.ops,  onChange: setCmpOp },
-                { label: 'Country',             value: cmpCtr, options: cmpOpts.ctrs, onChange: setCmpCtr },
-                { label: 'Customer',            value: cmpCst, options: cmpOpts.csts, onChange: setCmpCst },
-                { label: 'Customer Connection', value: cmpCon, options: cmpOpts.cons, onChange: setCmpCon },
-                { label: 'Account Manager',     value: cmpMgr, options: cmpOpts.mgrs, onChange: setCmpMgr },
-              ]}
-              onReset={() => {
-                setCmpOp(''); setCmpCtr(''); setCmpCst(''); setCmpCon(''); setCmpMgr('');
-                setCmpMode('day');
-                setP1Start(daysAgo(2)); setP1End(daysAgo(2)); setP2Start(yd()); setP2End(yd());
-              }}
-              extra={
-                <div style={{ display: 'flex', gap: 20, flexBasis: '100%', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '0 0 auto' }}>
-                    <label style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--mu)' }}>Compare By</label>
-                    <div style={{ display: 'flex', gap: 5 }}>
-                      {(['day', 'week', 'month', 'range'] as const).map(m => (
-                        <button key={m} onClick={() => applyCmpMode(m)} style={{ padding: '8px 12px', fontSize: 12, fontWeight: 700, borderRadius: 6, border: '1.5px solid', cursor: 'pointer', whiteSpace: 'nowrap', borderColor: cmpMode === m ? 'var(--turquoise)' : 'var(--lns)', background: cmpMode === m ? 'var(--turquoise)' : 'var(--sf2)', color: cmpMode === m ? '#fff' : 'var(--inks)' }}>{m[0].toUpperCase() + m.slice(1)}</button>
-                      ))}
-                    </div>
+            {/* Unified filter bar — two explicit rows */}
+            <div className="zpnl" style={{ marginBottom: 14, padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Row 1: dropdowns — equal-width, single line */}
+              <div style={{ display: 'flex', gap: 13, alignItems: 'flex-end' }}>
+                {[
+                  { label: 'Operator',            value: cmpOp,  options: cmpOpts.ops,  onChange: setCmpOp },
+                  { label: 'Country',             value: cmpCtr, options: cmpOpts.ctrs, onChange: setCmpCtr },
+                  { label: 'Customer',            value: cmpCst, options: cmpOpts.csts, onChange: setCmpCst },
+                  { label: 'Customer Connection', value: cmpCon, options: cmpOpts.cons, onChange: setCmpCon },
+                  { label: 'Account Manager',     value: cmpMgr, options: cmpOpts.mgrs, onChange: setCmpMgr },
+                ].map(f => (
+                  <div key={f.label} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--mu)', whiteSpace: 'nowrap' }}>{f.label}</label>
+                    <select className="zsl" value={f.value} onChange={e => f.onChange(e.target.value)} style={{ width: '100%' }}>
+                      <option value="">All {f.label}</option>
+                      {f.options.map((o: string) => <option key={o} value={o}>{o}</option>)}
+                    </select>
                   </div>
-                  {(cmpMode === 'range' || cmpMode === 'week') && (
-                    <>
-                      <div className="zff"><label>P1 From</label><input className="zdi" type="date" value={p1Start} onChange={e => setP1Start(e.target.value)} /></div>
-                      <div className="zff"><label>P1 To</label><input className="zdi" type="date" value={p1End} onChange={e => setP1End(e.target.value)} /></div>
-                      <div className="zff"><label>P2 From</label><input className="zdi" type="date" value={p2Start} onChange={e => setP2Start(e.target.value)} /></div>
-                      <div className="zff"><label>P2 To</label><input className="zdi" type="date" value={p2End} onChange={e => setP2End(e.target.value)} /></div>
-                    </>
-                  )}
-                  {cmpMode === 'day' && (
-                    <>
-                      <div className="zff"><label>P1 — Day</label><input className="zdi" type="date" value={p1Start} onChange={e => { setP1Start(e.target.value); setP1End(e.target.value); }} /></div>
-                      <div className="zff"><label>P2 — Day</label><input className="zdi" type="date" value={p2Start} onChange={e => { setP2Start(e.target.value); setP2End(e.target.value); }} /></div>
-                    </>
-                  )}
-                  {cmpMode === 'month' && (
-                    <>
-                      <div className="zff"><label>P1 — Month</label><input className="zdi" type="month" value={p1Start.slice(0, 7)} onChange={e => { const m = e.target.value; if (m) { setP1Start(`${m}-01`); setP1End(monthEnd(m)); } }} /></div>
-                      <div className="zff"><label>P2 — Month</label><input className="zdi" type="month" value={p2Start.slice(0, 7)} onChange={e => { const m = e.target.value; if (m) { setP2Start(`${m}-01`); setP2End(monthEnd(m)); } }} /></div>
-                    </>
-                  )}
+                ))}
+              </div>
+              {/* Row 2: Compare By + date pickers + Reset — single line */}
+              <div style={{ display: 'flex', gap: 13, alignItems: 'flex-end', flexWrap: 'nowrap' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+                  <label style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--mu)' }}>Compare By</label>
+                  <div style={{ display: 'flex', gap: 5 }}>
+                    {(['day', 'week', 'month', 'range'] as const).map(m => (
+                      <button key={m} onClick={() => applyCmpMode(m)} style={{ padding: '8px 12px', fontSize: 12, fontWeight: 700, borderRadius: 6, border: '1.5px solid', cursor: 'pointer', whiteSpace: 'nowrap', borderColor: cmpMode === m ? 'var(--turquoise)' : 'var(--lns)', background: cmpMode === m ? 'var(--turquoise)' : 'var(--sf2)', color: cmpMode === m ? '#fff' : 'var(--inks)' }}>{m[0].toUpperCase() + m.slice(1)}</button>
+                    ))}
+                  </div>
                 </div>
-              }
-            />
+                {(cmpMode === 'range' || cmpMode === 'week') && (<>
+                  <div className="zff" style={{ flex: '0 0 auto' }}><label>P1 From</label><input className="zdi" type="date" value={p1Start} onChange={e => setP1Start(e.target.value)} /></div>
+                  <div className="zff" style={{ flex: '0 0 auto' }}><label>P1 To</label><input className="zdi" type="date" value={p1End} onChange={e => setP1End(e.target.value)} /></div>
+                  <div className="zff" style={{ flex: '0 0 auto' }}><label>P2 From</label><input className="zdi" type="date" value={p2Start} onChange={e => setP2Start(e.target.value)} /></div>
+                  <div className="zff" style={{ flex: '0 0 auto' }}><label>P2 To</label><input className="zdi" type="date" value={p2End} onChange={e => setP2End(e.target.value)} /></div>
+                </>)}
+                {cmpMode === 'day' && (<>
+                  <div className="zff" style={{ flex: '0 0 auto' }}><label>P1 — Day</label><input className="zdi" type="date" value={p1Start} onChange={e => { setP1Start(e.target.value); setP1End(e.target.value); }} /></div>
+                  <div className="zff" style={{ flex: '0 0 auto' }}><label>P2 — Day</label><input className="zdi" type="date" value={p2Start} onChange={e => { setP2Start(e.target.value); setP2End(e.target.value); }} /></div>
+                </>)}
+                {cmpMode === 'month' && (<>
+                  <div className="zff" style={{ flex: '0 0 auto' }}><label>P1 — Month</label><input className="zdi" type="month" value={p1Start.slice(0, 7)} onChange={e => { const m = e.target.value; if (m) { setP1Start(`${m}-01`); setP1End(monthEnd(m)); } }} /></div>
+                  <div className="zff" style={{ flex: '0 0 auto' }}><label>P2 — Month</label><input className="zdi" type="month" value={p2Start.slice(0, 7)} onChange={e => { const m = e.target.value; if (m) { setP2Start(`${m}-01`); setP2End(monthEnd(m)); } }} /></div>
+                </>)}
+                <button className="zbt2" style={{ alignSelf: 'flex-end', flexShrink: 0 }} onClick={() => { setCmpOp(''); setCmpCtr(''); setCmpCst(''); setCmpCon(''); setCmpMgr(''); setCmpMode('day'); setP1Start(daysAgo(2)); setP1End(daysAgo(2)); setP2Start(yd()); setP2End(yd()); }}>Reset</button>
+              </div>
+            </div>
             <ComparisonTab
               p1Rows={p1Rows} p2Rows={p2Rows}
               p1Start={p1Start} p1End={p1End} p2Start={p2Start} p2End={p2End}
@@ -1928,21 +2030,24 @@ export default function SmsReportPage() {
             OVERVIEW TAB  (matches Power BI SMS Overview Dashboard)
         ════════════════════════════════════════════════ */}
         {tab === 'overview' && (() => {
-          // clicking a company highlights its line and dims the rest
           const lineProps = (c: string) => ({ strokeOpacity: ovSel && ovSel !== c ? 0.12 : 1, strokeWidth: ovSel === c ? 3.4 : 1.6 });
-          const ovTick = (v: string) => { const p = v.split('-'); if (ovGran === 'year') return v; if (ovGran === 'month') return `${MNS[Number(p[1]) - 1]} '${p[0].slice(2)}`; return `${MNS[Number(p[1]) - 1]} ${p[2]}`; };
           const ovBtn = (active: boolean): React.CSSProperties => ({ padding: '5px 11px', fontSize: 12, fontWeight: 700, borderRadius: 5, border: '1.5px solid', cursor: 'pointer', transition: '.12s', borderColor: active ? 'var(--turquoise)' : 'var(--lns)', background: active ? 'var(--turquoise)' : 'var(--sf2)', color: active ? '#fff' : 'var(--inks)' });
+          const ovTick = (v: string) => {
+            if (ovGran === 'year') return v;
+            if (ovGran === 'week') return v.split('-')[1] ?? v;
+            if (ovGran === 'month') { const p = v.split('-'); return `${MNS[Number(p[1]) - 1]} '${p[0].slice(2)}`; }
+            const p = v.split('-'); return `${MNS[Number(p[1]) - 1]} ${p[2]}`;
+          };
+          const granLabel  = ovGran === 'week' ? 'Week' : ovGran === 'month' ? 'Month' : ovGran === 'year' ? 'Year' : 'Day';
+          const groupLabel = ovGroupBy === 'am' ? 'Account Manager' : 'Customer Company';
+          const chartTitle = (metric: string) => `Avg ${metric} per ${granLabel} ${curYear} by Top 10 ${groupLabel}`;
+
           const OvHeader = ({ title }: { title: string }) => (
-            <div className="zph">
-              <h2>{title}</h2>
-              <div style={{ display: 'flex', gap: 5 }}>
-                {(['day', 'month', 'year'] as const).map(g => <button key={g} onClick={() => setOvGran(g)} style={ovBtn(ovGran === g)}>{g[0].toUpperCase() + g.slice(1)}</button>)}
-              </div>
-            </div>
+            <div className="zph"><h2>{title}</h2></div>
           );
           const OvLegend = () => (
             <div style={{ fontSize: 11, padding: '4px 18px 8px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {top10Cos.map((c, i) => {
+              {top10Keys.map((c, i) => {
                 const active = ovSel === c;
                 return (
                   <span key={c} onClick={() => setOvSel(active ? '' : c)} title={c}
@@ -1950,68 +2055,80 @@ export default function SmsReportPage() {
                       background: active ? PAL[i % PAL.length] : 'transparent', color: active ? '#fff' : 'var(--inks)',
                       opacity: ovSel && !active ? 0.45 : 1, fontWeight: active ? 700 : 500, transition: '.12s' }}>
                     <span style={{ width: 10, height: 10, borderRadius: 2, background: PAL[i % PAL.length], display: 'inline-block' }} />
-                    {c.length > 20 ? c.slice(0, 18) + '…' : c}
+                    {c.length > 22 ? c.slice(0, 20) + '…' : c}
                   </span>
                 );
               })}
               {ovSel && <span onClick={() => setOvSel('')} style={{ cursor: 'pointer', color: 'var(--alizarin)', fontWeight: 700, marginLeft: 4 }}>✕ clear</span>}
             </div>
           );
+
+          const OvChart = ({ data, title, fmt, yFmt }: { data: any[]; title: string; fmt: (v: any, n: string) => [string, string]; yFmt: (v: number) => string }) => (
+            data.length > 0 ? (
+              <div className="zpnl" style={{ marginBottom: 16 }}>
+                <OvHeader title={title} />
+                <OvLegend />
+                <div style={{ height: 320, padding: '12px 12px 8px' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+                      <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
+                      <XAxis dataKey="date" {...AX} tickFormatter={ovTick} />
+                      <YAxis {...AX} width={60} tickFormatter={yFmt} />
+                      <Tooltip {...TIP} formatter={fmt} labelFormatter={(v: string) => v} />
+                      {top10Keys.map((c, i) => <Line key={c} type="monotone" dataKey={c} stroke={PAL[i % PAL.length]} {...lineProps(c)} dot={false} activeDot={{ r: 3 }} />)}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            ) : null
+          );
+
+          const kFmt  = (v: number) => v >= 1e6 ? `$${(v/1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(1)}K` : `$${Math.round(v)}`;
+          const mFmt  = (v: number) => v >= 1e6 ? `${(v/1e6).toFixed(2)}M` : v >= 1e3 ? `${(v/1e3).toFixed(0)}K` : String(Math.round(v));
+          const pFmt  = (v: number) => `${v.toFixed(1)}%`;
+
           return (
           <>
             {/* ── Row 1: Yearly KPIs ── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 16 }}>
-              <Kpi color="kb" label={`Avg Messages per Day ${curYear}`}   icon={IC.msg}   value={fN(Math.round(yearTotMsgs / yearDayCount))}                        sub="current year" loading={loading} />
-              <Kpi color="kp" label={`Avg Profit per Day ${curYear}`}     icon={IC.trend} value={fN(Math.round(yearTotProfit / yearDayCount))}                       sub="current year" loading={loading} />
-              <Kpi color="kt" label={`Avg Income per Day ${curYear}`}     icon={IC.rev}   value={fN(Math.round(yearTotIncome / yearDayCount))}                       sub="current year" loading={loading} />
-              <Kpi color="kc" label={`Avg Profit Per Messages ${curYear}`} icon={IC.pct}  value={yearTotMsgs > 0 ? (yearTotProfit / yearTotMsgs).toFixed(2) : '—'} sub="current year" loading={loading} />
+              <Kpi color="kb" label={`Avg Messages per Day ${curYear}`}    icon={IC.msg}   value={fN(Math.round(yearTotMsgs / yearDayCount))}                        sub="current year" loading={loading} />
+              <Kpi color="kp" label={`Avg Profit per Day ${curYear}`}      icon={IC.trend} value={fN(Math.round(yearTotProfit / yearDayCount))}                       sub="current year" loading={loading} />
+              <Kpi color="kt" label={`Avg Income per Day ${curYear}`}      icon={IC.rev}   value={fN(Math.round(yearTotIncome / yearDayCount))}                       sub="current year" loading={loading} />
+              <Kpi color="kc" label={`Avg Profit Per Messages ${curYear}`} icon={IC.pct}   value={yearTotMsgs > 0 ? (yearTotProfit / yearTotMsgs).toFixed(2) : '—'} sub="current year" loading={loading} />
             </div>
 
             {/* ── Row 2: Current Month KPIs ── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
-              <Kpi color="kb" label="Avg Messages Current Month"       icon={IC.msg}   value={fN(Math.round(curMonthTotMsgs / curMonthDayCount))}                         sub="current month" loading={loading} />
-              <Kpi color="kp" label="Avg Profit Current Month"         icon={IC.trend} value={fN(Math.round(curMonthTotProfit / curMonthDayCount))}                       sub="current month" loading={loading} />
-              <Kpi color="kt" label="Avg Income Current Month"         icon={IC.rev}   value={fN(Math.round(curMonthTotIncome / curMonthDayCount))}                       sub="current month" loading={loading} />
-              <Kpi color="kc" label="Avg Profit per Message Current Month" icon={IC.pct} value={curMonthTotMsgs > 0 ? (curMonthTotProfit / curMonthTotMsgs).toFixed(2) : '—'} sub="current month" loading={loading} />
+              <Kpi color="kb" label="Avg Messages Current Month"              icon={IC.msg}   value={fN(Math.round(curMonthTotMsgs / curMonthDayCount))}                           sub="current month" loading={loading} />
+              <Kpi color="kp" label="Avg Profit Current Month"                icon={IC.trend} value={fN(Math.round(curMonthTotProfit / curMonthDayCount))}                         sub="current month" loading={loading} />
+              <Kpi color="kt" label="Avg Income Current Month"                icon={IC.rev}   value={fN(Math.round(curMonthTotIncome / curMonthDayCount))}                         sub="current month" loading={loading} />
+              <Kpi color="kc" label="Avg Profit per Message Current Month"    icon={IC.pct}   value={curMonthTotMsgs > 0 ? (curMonthTotProfit / curMonthTotMsgs).toFixed(2) : '—'} sub="current month" loading={loading} />
             </div>
 
-            {/* ── Chart 1: Avg Profit per Day by Top 10 Company ── */}
-            {profitByDayCo.length > 0 && (
-              <div className="zpnl" style={{ marginBottom: 16 }}>
-                <OvHeader title={`Avg Profit per Day ${curYear} by Date and Top 10 Customer Company`} />
-                <OvLegend />
-                <div style={{ height: 320, padding: '12px 12px 8px' }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={profitByDayCo} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-                      <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
-                      <XAxis dataKey="date" {...AX} tickFormatter={ovTick} />
-                      <YAxis {...AX} width={55} tickFormatter={(v: number) => v >= 1000 ? `${(v/1000).toFixed(1)}K` : String(Math.round(v))} />
-                      <Tooltip {...TIP} formatter={(v: any, n: string) => [fR(v), n]} labelFormatter={(v: string) => v} />
-                      {top10Cos.map((c, i) => <Line key={c} type="monotone" dataKey={c} stroke={PAL[i % PAL.length]} {...lineProps(c)} dot={false} activeDot={{ r: 3 }} />)}
-                    </LineChart>
-                  </ResponsiveContainer>
+            {/* ── Shared control panel ── */}
+            <div className="zpnl" style={{ marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '14px 18px', gap: 0 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--mu)', marginRight: 4 }}>Group By</span>
+                  {([['customer', 'Customer'], ['am', 'Account Manager']] as [string, string][]).map(([k, l]) => (
+                    <button key={k} onClick={() => { setOvGroupBy(k as 'customer'|'am'); setOvSel(''); }} style={ovBtn(ovGroupBy === k)}>{l}</button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', borderLeft: '1px solid var(--ln)', paddingLeft: 24 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--mu)', marginRight: 4 }}>Granularity</span>
+                  {(['day', 'week', 'month', 'year'] as const).map(g => (
+                    <button key={g} onClick={() => setOvGran(g)} style={ovBtn(ovGran === g)}>{g[0].toUpperCase() + g.slice(1)}</button>
+                  ))}
                 </div>
               </div>
-            )}
+            </div>
 
-            {/* ── Chart 2: Avg Messages per Day by Top 10 Company ── */}
-            {msgsByDayCo.length > 0 && (
-              <div className="zpnl">
-                <OvHeader title={`Avg Messages per Day ${curYear} by Date and Top 10 Customer Company`} />
-                <OvLegend />
-                <div style={{ height: 320, padding: '12px 12px 8px' }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={msgsByDayCo} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-                      <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
-                      <XAxis dataKey="date" {...AX} tickFormatter={ovTick} />
-                      <YAxis {...AX} width={55} tickFormatter={(v: number) => v >= 1000000 ? `${(v/1000000).toFixed(2)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : String(Math.round(v))} />
-                      <Tooltip {...TIP} formatter={(v: any, n: string) => [fN(v), n]} labelFormatter={(v: string) => v} />
-                      {top10Cos.map((c, i) => <Line key={c} type="monotone" dataKey={c} stroke={PAL[i % PAL.length]} {...lineProps(c)} dot={false} activeDot={{ r: 3 }} />)}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
+            {/* ── Charts 1–5 ── */}
+            <OvChart data={ovChartData.messages} title={chartTitle('Messages')}  fmt={(v, n) => [fN(v), n]}  yFmt={mFmt} />
+            <OvChart data={ovChartData.profit}   title={chartTitle('Profit')}    fmt={(v, n) => [fR(v), n]}  yFmt={kFmt} />
+            <OvChart data={ovChartData.income}   title={chartTitle('Income')}    fmt={(v, n) => [fR(v), n]}  yFmt={kFmt} />
+            <OvChart data={ovChartData.expenses} title={chartTitle('Expenses')}  fmt={(v, n) => [fR(v), n]}  yFmt={kFmt} />
+            <OvChart data={ovChartData.margin}   title={chartTitle('Margin %')}  fmt={(v, n) => [fP(v), n]}  yFmt={pFmt} />
           </>
           );
         })()}
