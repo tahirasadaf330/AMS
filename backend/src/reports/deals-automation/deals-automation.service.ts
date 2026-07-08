@@ -4,6 +4,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Dataset } from '../../common/entities/dataset.entity';
 import { ExternalDataSource } from '../../common/entities/data-source.entity';
+import { CredentialsService } from '../../credentials/credentials.service';
 
 const STAGE        = 'stage_deals_automation';
 const DATASET_NAME = 'Deals Automation';
@@ -184,6 +185,7 @@ export class DealsAutomationService implements OnModuleInit {
     @InjectRepository(ExternalDataSource)
     private readonly dsRepo: Repository<ExternalDataSource>,
     private readonly config: ConfigService,
+    private readonly credentialsService: CredentialsService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -209,7 +211,7 @@ export class DealsAutomationService implements OnModuleInit {
         port:      this.config.get<number>('DEALS_DB_PORT', 5432),
         db:        this.config.get<string>('DEALS_DB_NAME', 'deals_dashboard'),
         username:  this.config.get<string>('DEALS_DB_USER', 'readonly_bilal'),
-        password:  this.config.get<string>('DEALS_DB_PASS', ''),
+        password:  this.credentialsService.encrypt(this.config.get<string>('DEALS_DB_PASS', '')),
         sslMode:   'prefer',
         isActive:  true,
         createdBy: null,
