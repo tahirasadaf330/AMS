@@ -214,8 +214,8 @@ export class DealsAutomationService implements OnModuleInit {
       sslMode:   'prefer',
       isActive:  true,
       createdBy: null,
-    } as any) as ExternalDataSource;
-    const created: ExternalDataSource = await this.dsRepo.save(entity);
+    } as any) as unknown as ExternalDataSource;
+    const created = await this.dsRepo.save(entity) as unknown as ExternalDataSource;
     this.logger.log(`'${DATASOURCE}' datasource created`);
     return created.id;
   }
