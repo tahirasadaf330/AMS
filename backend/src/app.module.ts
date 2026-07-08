@@ -45,6 +45,7 @@ import { ReportsRegistryModule } from "./admin/reports/reports-registry.module";
 import { MtEdrModule } from "./reports/mt-edr/mt-edr.module";
 import { SmsReportModule } from "./reports/sms-report/sms-report.module";
 import { AdminGroupsModule } from "./admin/groups/groups.module";
+import { DealsAutomationModule } from "./reports/deals-automation/deals-automation.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -114,6 +115,7 @@ import { AdminGroupsModule } from "./admin/groups/groups.module";
     PrepaymentClModule,
     MtEdrModule,
     SmsReportModule,
+    DealsAutomationModule,
     ReportsRegistryModule,
     AdminGroupsModule,
   ],
