@@ -46,6 +46,7 @@ import { MtEdrModule } from "./reports/mt-edr/mt-edr.module";
 import { SmsReportModule } from "./reports/sms-report/sms-report.module";
 import { AdminGroupsModule } from "./admin/groups/groups.module";
 import { DealsAutomationModule } from "./reports/deals-automation/deals-automation.module";
+import { AppleTrafficModule } from "./reports/apple-traffic/apple-traffic.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -116,6 +117,7 @@ import { DealsAutomationModule } from "./reports/deals-automation/deals-automati
     MtEdrModule,
     SmsReportModule,
     DealsAutomationModule,
+    AppleTrafficModule,
     ReportsRegistryModule,
     AdminGroupsModule,
   ],

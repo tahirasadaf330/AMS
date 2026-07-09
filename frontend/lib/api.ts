@@ -430,6 +430,11 @@ export const dealsAutomationApi = {
   getData: () => api.get('/reports/deals-automation/data'),
 };
 
+// ── APPLE TRAFFIC REPORT ──────────────────────────────────────
+export const appleTrafficApi = {
+  getData: () => api.get('/reports/apple-traffic/data'),
+};
+
 // ── SMS CREDIT LIMIT REPORT ───────────────────────────────────
 export const smsCreditLimitApi = {
   getData: () => api.get('/reports/sms-credit-limit/data'),
