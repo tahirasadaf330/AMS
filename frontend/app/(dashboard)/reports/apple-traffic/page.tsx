@@ -243,7 +243,7 @@ export default function AppleTrafficPage() {
       const bmap = histBuckets.get(k)!;
       bmap.set(r.bucket, (bmap.get(r.bucket) ?? 0) + r.msg_count);
     }
-    const keys = new Set([...liveMap.keys(), ...histBuckets.keys()]);
+    const keys = new Set([...Array.from(liveMap.keys()), ...Array.from(histBuckets.keys())]);
     return Array.from(keys).map((k) => {
       const buckets = histBuckets.get(k);
       const histAvg = buckets && buckets.size
@@ -268,7 +268,7 @@ export default function AppleTrafficPage() {
       const bmap = histBuckets.get(k)!;
       bmap.set(r.bucket, (bmap.get(r.bucket) ?? 0) + r.msg_count);
     }
-    const keys = new Set([...liveMap.keys(), ...histBuckets.keys()]);
+    const keys = new Set([...Array.from(liveMap.keys()), ...Array.from(histBuckets.keys())]);
     return Array.from(keys).map((k) => {
       const buckets = histBuckets.get(k);
       const histAvg = buckets && buckets.size
