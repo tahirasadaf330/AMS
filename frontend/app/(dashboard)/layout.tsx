@@ -103,7 +103,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto p-6 bg-[#ecf0f1] dark:bg-[#1b2733]">
           {children}
         </main>
       </div>

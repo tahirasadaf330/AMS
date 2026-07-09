@@ -7,6 +7,9 @@ import { ExternalDataSource } from '../../common/entities/data-source.entity';
 const STAGE_LIVE = 'stage_apple_traffic_live';
 const STAGE_HIST = 'stage_apple_traffic_hist';
 
+// Column names below must match what StageService.sanitizeRowKeys() produces:
+// non-alphanumeric chars → '_', then lowercase. MSSQL returns original PascalCase
+// names unless aliased. Keep aliases only for computed/aggregated columns.
 const LIVE_SQL = `
 SELECT
     mt.TerminatedMsisdn,
@@ -21,10 +24,10 @@ const HIST_SQL = `
 SELECT
     CONVERT(VARCHAR(23),
         DATEADD(MINUTE, DATEDIFF(MINUTE, 0, mt.SubmitDateTime) / 5 * 5, 0),
-    126) AS bucket,
+    126)                                AS bucket,
     mt.MccMnc,
     mt.TerminatedSenderId,
-    COUNT(*)                          AS msg_count,
+    COUNT(*)                            AS msg_count,
     COUNT(DISTINCT mt.TerminatedMsisdn) AS unique_msisdn
 FROM SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
 WHERE mt.SubmitDateTime >= DATEADD(DAY, -5, GETUTCDATE())
@@ -34,17 +37,20 @@ GROUP BY
     mt.TerminatedSenderId
 `;
 
+// Keys match sanitizeRowKeys output: lowercase, non-alphanumeric → '_'
+// PascalCase MSSQL names: TerminatedMsisdn→terminatedmsisdn, MccMnc→mccmnc, etc.
+// Computed aliases (bucket, msg_count, unique_msisdn) are already lowercase.
 const LIVE_COLUMNS = [
-  { key: 'terminated_msisdn',   label: 'MSISDN',      type: 'text'      },
-  { key: 'terminated_sender_id', label: 'Sender ID',  type: 'text'      },
-  { key: 'mcc_mnc',             label: 'MCC-MNC',     type: 'text'      },
-  { key: 'submit_datetime',     label: 'Submit Time', type: 'timestamp' },
+  { key: 'terminatedmsisdn',   label: 'MSISDN',      type: 'text'      },
+  { key: 'terminatedsenderid', label: 'Sender ID',   type: 'text'      },
+  { key: 'mccmnc',             label: 'MCC-MNC',     type: 'text'      },
+  { key: 'submitdatetime',     label: 'Submit Time', type: 'timestamp' },
 ];
 
 const HIST_COLUMNS = [
-  { key: 'bucket',              label: 'Bucket',       type: 'timestamp' },
-  { key: 'mcc_mnc',            label: 'MCC-MNC',      type: 'text'      },
-  { key: 'terminated_sender_id', label: 'Sender ID',  type: 'text'      },
+  { key: 'bucket',             label: 'Bucket',       type: 'timestamp' },
+  { key: 'mccmnc',             label: 'MCC-MNC',      type: 'text'      },
+  { key: 'terminatedsenderid', label: 'Sender ID',    type: 'text'      },
   { key: 'msg_count',          label: 'Messages',     type: 'numeric'   },
   { key: 'unique_msisdn',      label: 'Unique MSISDN', type: 'numeric'  },
 ];
@@ -186,30 +192,41 @@ export class AppleTrafficService implements OnModuleInit {
 
   async getData(): Promise<any> {
     const [liveRows, histRows, liveRefresh, histRefresh] = await Promise.all([
-      this.dataSource.query(`SELECT * FROM ${STAGE_LIVE} ORDER BY submit_datetime DESC`).catch(() => []),
-      this.dataSource.query(`SELECT * FROM ${STAGE_HIST} ORDER BY bucket DESC`).catch(() => []),
-      this.dataSource.query(`SELECT MAX(refreshed_at) AS ts FROM ${STAGE_LIVE}`).catch(() => [{}]),
-      this.dataSource.query(`SELECT MAX(refreshed_at) AS ts FROM ${STAGE_HIST}`).catch(() => [{}]),
+      this.dataSource.query(`SELECT * FROM ${STAGE_LIVE} ORDER BY refreshed_at DESC`)
+        .catch((e: any) => { this.logger.error('live query failed:', e.message); return []; }),
+      this.dataSource.query(`SELECT * FROM ${STAGE_HIST} ORDER BY bucket DESC`)
+        .catch((e: any) => { this.logger.error('hist query failed:', e.message); return []; }),
+      this.dataSource.query(`SELECT MAX(refreshed_at) AS ts FROM ${STAGE_LIVE}`)
+        .catch((e: any) => { this.logger.error('live refresh query failed:', e.message); return [{}]; }),
+      this.dataSource.query(`SELECT MAX(refreshed_at) AS ts FROM ${STAGE_HIST}`)
+        .catch((e: any) => { this.logger.error('hist refresh query failed:', e.message); return [{}]; }),
     ]);
+
+    const toIso = (v: any): string | null => {
+      if (!v) return null;
+      if (v instanceof Date) return v.toISOString();
+      if (typeof v === 'string') return v;
+      return String(v);
+    };
 
     return {
       liveDatasetId:    this._liveDatasetId,
       histDatasetId:    this._histDatasetId,
       live:             liveRows.map((r: any) => ({
-        terminated_msisdn:    r.terminated_msisdn    ?? null,
-        terminated_sender_id: r.terminated_sender_id ?? null,
-        mcc_mnc:              r.mcc_mnc              ?? null,
-        submit_datetime:      r.submit_datetime       ?? null,
+        terminated_msisdn:    r.terminatedmsisdn    ?? null,
+        terminated_sender_id: r.terminatedsenderid  ?? null,
+        mcc_mnc:              r.mccmnc              ?? null,
+        submit_datetime:      r.submitdatetime      ?? null,
       })),
       hist:             histRows.map((r: any) => ({
-        bucket:               r.bucket               ?? null,
-        mcc_mnc:              r.mcc_mnc              ?? null,
-        terminated_sender_id: r.terminated_sender_id ?? null,
-        msg_count:            Number(r.msg_count     ?? 0),
+        bucket:               r.bucket              ?? null,
+        mcc_mnc:              r.mccmnc              ?? null,
+        terminated_sender_id: r.terminatedsenderid  ?? null,
+        msg_count:            Number(r.msg_count    ?? 0),
         unique_msisdn:        Number(r.unique_msisdn ?? 0),
       })),
-      liveRefreshedAt:  liveRefresh[0]?.ts ?? null,
-      histRefreshedAt:  histRefresh[0]?.ts ?? null,
+      liveRefreshedAt:  toIso(liveRefresh[0]?.ts),
+      histRefreshedAt:  toIso(histRefresh[0]?.ts),
     };
   }
 }
