@@ -111,7 +111,7 @@ function BreakdownTable({
   const thClass = 'py-2 pr-3 font-semibold cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 whitespace-nowrap';
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+    <div className="bg-white dark:bg-[#22303f] rounded-xl border border-[#e4e9ec] dark:border-[#2f4151] p-5">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{title}</h2>
         <span className="text-xs text-gray-400 dark:text-gray-500">{rows.length} entries</span>
@@ -323,19 +323,19 @@ export default function AppleTrafficPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+        <div className="bg-white dark:bg-[#22303f] rounded-xl border border-[#e4e9ec] dark:border-[#2f4151] p-5">
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Current (last 5 min)</p>
           <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">{liveCount.toLocaleString()}</p>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">messages</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+        <div className="bg-white dark:bg-[#22303f] rounded-xl border border-[#e4e9ec] dark:border-[#2f4151] p-5">
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">5-Day Avg per 5-min</p>
           <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
             {avgPerBucket !== null ? Math.round(avgPerBucket).toLocaleString() : '—'}
           </p>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">messages</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+        <div className="bg-white dark:bg-[#22303f] rounded-xl border border-[#e4e9ec] dark:border-[#2f4151] p-5">
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">vs Historical Avg</p>
           <p className={`text-3xl font-bold ${ratioColor(ratio)}`}>
             {ratio !== null ? `${ratio}%` : '—'}
@@ -347,7 +347,7 @@ export default function AppleTrafficPage() {
       </div>
 
       {/* Trend Chart */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <div className="bg-white dark:bg-[#22303f] rounded-xl border border-[#e4e9ec] dark:border-[#2f4151] p-5">
         <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
           5-Day Historical Volume (5-min buckets)
         </h2>

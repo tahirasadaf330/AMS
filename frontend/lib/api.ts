@@ -208,12 +208,13 @@ export const adminUsersApi = {
   create: (data: {
     name: string;
     email: string;
-    password: string;
     role: string;
     dataset_access: string[];
     report_access?: string[];
     send_welcome_email?: boolean;
-  }) => api.post<AdminUser>('/admin/users', data),
+  }) =>
+    // temp_password is generated server-side and returned exactly once
+    api.post<AdminUser & { temp_password: string }>('/admin/users', data),
 
   update: (id: string, data: Partial<AdminUser>) =>
     api.put<AdminUser>(`/admin/users/${id}`, data),

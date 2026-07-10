@@ -24,6 +24,10 @@ const ROLE_BADGE_VARIANT: Record<string, BadgeProps['variant']> = {
 function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, token, clearAuth } = useAuthStore();
+  // Auth state is rehydrated from local/session storage on the client only —
+  // render nothing until mounted so SSR and first client render agree.
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => { setMounted(true); }, []);
   const setDatasets = useDatasetStore((s) => s.setDatasets);
   const { theme, toggleTheme } = useUIStore();
 
@@ -45,12 +49,12 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     if (datasets) setDatasets(datasets);
   }, [datasets, setDatasets]);
 
-  // Auth guard
+  // Auth guard — only after mount, once persisted auth has been rehydrated
   React.useEffect(() => {
-    if (!token) {
+    if (mounted && !token) {
       router.push('/login');
     }
-  }, [token, router]);
+  }, [mounted, token, router]);
 
   const handleLogout = async () => {
     try {
@@ -62,7 +66,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     router.push('/login');
   };
 
-  if (!user) return null;
+  if (!mounted || !user) return null;
 
   const roleLabel =
     user.role === 'full_rights' ? 'Full Rights' : user.role.charAt(0).toUpperCase() + user.role.slice(1);
