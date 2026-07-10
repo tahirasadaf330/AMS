@@ -94,7 +94,7 @@ function BreakdownTable({
   rows: BreakdownRow[];
   labelHeader: string;
 }) {
-  const [sortCol, setSortCol] = useState<TableCol>('histAvg');
+  const [sortCol, setSortCol] = useState<TableCol>('current');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState(0);
 
