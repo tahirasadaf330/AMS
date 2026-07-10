@@ -24,11 +24,12 @@ interface HistRow {
   unique_msisdn: number;
 }
 
+// Keys arrive snake_cased by the backend's global SnakeCaseInterceptor.
 interface ApiData {
   live: LiveRow[];
   hist: HistRow[];
-  liveRefreshedAt: string | null;
-  histRefreshedAt: string | null;
+  live_refreshed_at: string | null;
+  hist_refreshed_at: string | null;
 }
 
 type SortDir = 'asc' | 'desc';
@@ -307,14 +308,14 @@ export default function AppleTrafficPage() {
             <span className="h-2 w-2 rounded-full bg-green-500 flex-shrink-0" />
             <span className="text-xs font-semibold text-green-700 dark:text-green-400">Live</span>
             <span className="text-xs text-green-700 dark:text-green-300 tabular-nums font-medium">
-              {fmtTs(data?.liveRefreshedAt)}
+              {fmtTs(data?.live_refreshed_at)}
             </span>
           </div>
           <div className="flex items-center gap-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5">
             <span className="h-2 w-2 rounded-full bg-blue-500 flex-shrink-0" />
             <span className="text-xs font-semibold text-blue-700 dark:text-blue-400">Historical</span>
             <span className="text-xs text-blue-700 dark:text-blue-300 tabular-nums font-medium">
-              {fmtTs(data?.histRefreshedAt)}
+              {fmtTs(data?.hist_refreshed_at)}
             </span>
           </div>
         </div>

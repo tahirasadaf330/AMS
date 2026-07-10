@@ -216,7 +216,7 @@ export default function DealsAutomationPage() {
     setLoading(true);
     setError(null);
     dealsAutomationApi.getData()
-      .then(r => { setData(r.data); setDatasetId(r.data?.datasetId ?? null); })
+      .then(r => { setData(r.data); setDatasetId(r.data?.dataset_id ?? null); })
       .catch((err: any) => setError(err?.response?.data?.message ?? err?.message ?? 'Failed to load data'))
       .finally(() => setLoading(false));
   }, []);
@@ -256,8 +256,10 @@ export default function DealsAutomationPage() {
     });
   }, [data, dir, hidePaused, manager, search, sort]);
 
+  // API responses pass through the backend's global SnakeCaseInterceptor,
+  // so all keys arrive in snake_case (total_rows, last_refreshed, …).
   const s = data?.summary;
-  const lastRefreshed: string | null = data?.lastRefreshed ?? null;
+  const lastRefreshed: string | null = data?.last_refreshed ?? null;
   const srt: SortState = { key: sort.key, dir: sort.dir, set: handleSort };
   const isOut = dir === 'OUTBOUND';
 
@@ -289,11 +291,11 @@ export default function DealsAutomationPage() {
 
         {/* KPI strip */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 14, flexShrink: 0 }}>
-          <Kpi color="kd" label="Line Items"      icon={IC.deal}  value={fN(s?.totalRows)}    sub={`${fN(s?.inbound)} in · ${fN(s?.outbound)} out`} />
-          <Kpi color="kc" label="≥ 80% Utilised"  icon={IC.gauge} value={fN(s?.over80)}       sub="volume alert" />
-          <Kpi color="kr" label="≥ 100% Utilised" icon={IC.gauge} value={fN(s?.over100)}      sub="fully consumed" />
-          <Kpi color="kp" label="Rate Mismatch"   icon={IC.scale} value={fN(s?.rateMismatch)} sub="live ≠ approved" />
-          <Kpi color="kb" label="Expiring ≤ 7d"   icon={IC.clock} value={fN(s?.nearExpiry)}   sub="approaching end" />
+          <Kpi color="kd" label="Line Items"      icon={IC.deal}  value={fN(s?.total_rows)}    sub={`${fN(s?.inbound)} in · ${fN(s?.outbound)} out`} />
+          <Kpi color="kc" label="≥ 80% Utilised"  icon={IC.gauge} value={fN(s?.over80)}        sub="volume alert" />
+          <Kpi color="kr" label="≥ 100% Utilised" icon={IC.gauge} value={fN(s?.over100)}       sub="fully consumed" />
+          <Kpi color="kp" label="Rate Mismatch"   icon={IC.scale} value={fN(s?.rate_mismatch)} sub="live ≠ approved" />
+          <Kpi color="kb" label="Expiring ≤ 7d"   icon={IC.clock} value={fN(s?.near_expiry)}   sub="approaching end" />
         </div>
 
         {/* Table panel */}
