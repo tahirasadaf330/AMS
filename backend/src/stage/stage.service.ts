@@ -130,6 +130,22 @@ export class StageService implements OnModuleInit {
         sql = sql.replace(/\{\{LOOKBACK_DATE\}\}/g, initialDate);
       }
 
+      // Configurable traffic window: {{WINDOW_MINUTES}} → datasets.window_minutes
+      // (default 10, restricted to 10/15/20). Set in Admin → Datasets and honoured
+      // by every refresh path (cron, admin manual, viewer "Refresh Now").
+      if (sql.includes('{{WINDOW_MINUTES}}')) {
+        const ALLOWED = [10, 15, 20];
+        const DEFAULT = 10;
+        const [wRow] = await this.dataSource.query(
+          `SELECT window_minutes FROM datasets WHERE id = $1`,
+          [dataset.id],
+        ).catch(() => [null]);
+        const raw = Number(wRow?.window_minutes);
+        const windowMinutes = ALLOWED.includes(raw) ? raw : DEFAULT;
+        sql = sql.replace(/\{\{WINDOW_MINUTES\}\}/g, String(windowMinutes));
+        this.logger.log(`Traffic window for ${dataset.name}: ${windowMinutes} minutes`);
+      }
+
       // Ensure stage table exists before streaming (DDL must run outside a transaction)
       await this.ensureStageTable(dataset.stageTableName, dataset.columnMetadata, []);
 

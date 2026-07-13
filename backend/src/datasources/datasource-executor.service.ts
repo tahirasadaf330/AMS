@@ -367,6 +367,10 @@ export class DatasourceExecutorService implements OnModuleDestroy {
       (existing.pool as PgPool).end().catch(() => {});
     }
 
+    // Hard server-side cap so a pathological query (e.g. the voice-traffic
+    // pairing join spilling to disk during a traffic burst) fails cleanly
+    // instead of hanging forever, holding a stage-table lock and a pool slot.
+    const statementTimeoutMs = this.config.get<number>('JERASOFT_STATEMENT_TIMEOUT_MS', 120000);
     const pool = new PgPool({
       host,
       port,
@@ -376,6 +380,7 @@ export class DatasourceExecutorService implements OnModuleDestroy {
       max: 5,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
+      statement_timeout: statementTimeoutMs,
       ssl: sslMode === 'disable' ? false : { rejectUnauthorized: false },
     });
     pool.on('error', (err) => {

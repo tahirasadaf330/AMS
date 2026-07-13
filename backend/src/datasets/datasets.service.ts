@@ -25,12 +25,21 @@ export interface CreateDatasetDto {
   schedule_cron?: string;
   is_active?: boolean;
   create_stage_table?: boolean;
+  // The main.ts middleware camelCases incoming request bodies, so the value
+  // actually arrives as `windowMinutes`. Both keys are declared for safety.
+  window_minutes?: number | null;
+  windowMinutes?: number | null;
 }
 
 export interface UpdateDatasetDto extends Partial<CreateDatasetDto> {
   schedule_start_date?: string | null;
   schedule_end_date?: string | null;
 }
+
+// Traffic-window sizes (minutes) accepted for datasets that use the
+// {{WINDOW_MINUTES}} placeholder (e.g. Voice Live Traffic).
+const ALLOWED_WINDOWS = [10, 15, 20];
+const DEFAULT_WINDOW = 10;
 
 @Injectable()
 export class DatasetsService {
@@ -144,6 +153,19 @@ export class DatasetsService {
         this.logger.log(`SQL changed for dataset "${dataset.name}" — new columns will be added on next refresh`);
       }
 
+      // window_minutes lives on the datasets table but not on the TypeORM entity
+      // (keeps it out of every dataset SELECT). Persist it with a guarded raw write.
+      // The middleware camelCases the body, so the value arrives as `windowMinutes`.
+      const rawWindow = dto.windowMinutes ?? dto.window_minutes;
+      if (rawWindow !== undefined && rawWindow !== null) {
+        const w = Number(rawWindow);
+        const windowMinutes = ALLOWED_WINDOWS.includes(w) ? w : DEFAULT_WINDOW;
+        await this.dataSource.query(
+          `UPDATE datasets SET window_minutes = $1 WHERE id = $2`,
+          [windowMinutes, id],
+        ).catch((err: Error) => this.logger.error(`Failed to persist window_minutes for ${id}: ${err.message}`));
+      }
+
       return this.findOne(id);
     } catch (err) {
       this.logger.error('Error updating dataset', err);
@@ -174,7 +196,10 @@ export class DatasetsService {
     dataSourceId?: string,
   ): Promise<{ valid: boolean; error?: string; columns?: Array<{ key: string; label: string; type: string }> }> {
     try {
-      const result = await this.datasourceExecutor.validateQuery(dataSourceId ?? 'jerasoft', sql);
+      // Substitute runtime placeholders with a representative value so the query
+      // is executable during validation (the real value is applied on refresh).
+      const resolvedSql = sql.replace(/\{\{WINDOW_MINUTES\}\}/g, String(DEFAULT_WINDOW));
+      const result = await this.datasourceExecutor.validateQuery(dataSourceId ?? 'jerasoft', resolvedSql);
       const columns = result.fields.map((f) => ({
         key: f.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''),
         label: f.name,

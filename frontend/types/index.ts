@@ -85,6 +85,8 @@ export interface Dataset {
   created_at: string;
   updated_at: string;
   last_refresh?: DatasetLastRefresh;
+  /** Traffic window (minutes) for datasets whose SQL uses {{WINDOW_MINUTES}}. */
+  window_minutes?: number | null;
 }
 
 // ── Dashboard Data ───────────────────────────────────────────

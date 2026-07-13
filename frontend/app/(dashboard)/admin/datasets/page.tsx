@@ -39,6 +39,10 @@ function useAdminDatasets() {
   });
 }
 
+// A dataset supports a configurable traffic window when its SQL contains this token.
+const WINDOW_PLACEHOLDER = '{{WINDOW_MINUTES}}';
+const WINDOW_OPTIONS = [10, 15, 20];
+
 interface DatasetFormData {
   name: string;
   description: string;
@@ -50,6 +54,7 @@ interface DatasetFormData {
   is_active: boolean;
   column_metadata: ColumnMeta[];
   create_stage_table: boolean;
+  window_minutes: number;
 }
 
 const defaultForm: DatasetFormData = {
@@ -63,6 +68,7 @@ const defaultForm: DatasetFormData = {
   is_active: true,
   column_metadata: [],
   create_stage_table: true,
+  window_minutes: 10,
 };
 
 export default function AdminDatasetsPage() {
@@ -95,6 +101,7 @@ export default function AdminDatasetsPage() {
         is_active: data.is_active,
         column_metadata: data.column_metadata,
         create_stage_table: data.create_stage_table,
+        ...(data.sql_query.includes(WINDOW_PLACEHOLDER) ? { window_minutes: data.window_minutes } : {}),
         updated_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
       } as any),
@@ -154,6 +161,7 @@ export default function AdminDatasetsPage() {
       is_active: dataset.is_active,
       column_metadata: dataset.column_metadata ?? [],
       create_stage_table: false,
+      window_minutes: dataset.window_minutes ?? 10,
     });
     setValidateResult(null);
     setShowForm(true);
@@ -205,6 +213,7 @@ export default function AdminDatasetsPage() {
           schedule_cron: formData.schedule_cron,
           is_active: formData.is_active,
           column_metadata: formData.column_metadata,
+          ...(formData.sql_query.includes(WINDOW_PLACEHOLDER) ? { window_minutes: formData.window_minutes } : {}),
         } as any,
       });
     } else {
@@ -416,6 +425,28 @@ export default function AdminDatasetsPage() {
                 <p className="text-xs text-gray-500">{getCronHumanReadable(formData.schedule_cron)}</p>
               </div>
             </div>
+
+            {/* Traffic window — only for datasets that use the {{WINDOW_MINUTES}} placeholder */}
+            {formData.sql_query.includes(WINDOW_PLACEHOLDER) && (
+              <div className="rounded-lg border border-blue-200 dark:border-blue-800/60 p-3 space-y-1.5 bg-blue-50/60 dark:bg-blue-900/15">
+                <Label>Traffic Window</Label>
+                <div className="grid grid-cols-2 gap-4 items-center">
+                  <Select
+                    value={String(formData.window_minutes)}
+                    onChange={(e) => setFormData((p) => ({ ...p, window_minutes: Number(e.target.value) }))}
+                  >
+                    {WINDOW_OPTIONS.map((m) => (
+                      <option key={m} value={m}>Last {m} minutes</option>
+                    ))}
+                  </Select>
+                  <p className="text-xs text-gray-500">
+                    Each refresh fetches records from the last{' '}
+                    <span className="font-medium text-gray-700 dark:text-gray-300">{formData.window_minutes} minutes</span>.
+                    Applies to the scheduled run and every manual refresh.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {!editingDataset && (
               <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-1.5 bg-gray-50 dark:bg-gray-800/40">
