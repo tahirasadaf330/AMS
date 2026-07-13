@@ -315,8 +315,15 @@ export default function AdminDatasetsPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Input value={formData.description} onChange={(e) => setFormData((p) => ({ ...p, description: e.target.value }))} />
+              <Label required>Description</Label>
+              <Input
+                value={formData.description}
+                onChange={(e) => setFormData((p) => ({ ...p, description: e.target.value }))}
+                placeholder="What this data is, its source, and refresh window"
+              />
+              {!formData.description.trim() && (
+                <p className="text-xs text-red-500 dark:text-red-400">Required — describe what this dataset contains.</p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -353,47 +360,66 @@ export default function AdminDatasetsPage() {
             {/* Column metadata */}
             {(formData.column_metadata ?? []).length > 0 && (
               <div className="space-y-1.5">
-                <Label>Column Configuration</Label>
-                <div className="space-y-1 max-h-48 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 p-2">
-                  {formData.column_metadata.map((col, i) => (
-                    <div key={col.key} className="flex items-center gap-2 text-sm">
-                      <code className="text-blue-400 text-xs w-32 truncate font-mono">{col.key}</code>
-                      <Input
-                        value={col.label}
-                        onChange={(e) => setFormData((p) => ({
-                          ...p,
-                          column_metadata: p.column_metadata.map((c, ci) =>
-                            ci === i ? { ...c, label: e.target.value } : c
-                          ),
-                        }))}
-                        className="flex-1 h-7 text-xs"
-                      />
-                      <Select
-                        value={col.type}
-                        onChange={(e) => setFormData((p) => ({
-                          ...p,
-                          column_metadata: p.column_metadata.map((c, ci) =>
-                            ci === i ? { ...c, type: e.target.value as ColumnMeta['type'] } : c
-                          ),
-                        }))}
-                        className="w-24 h-7 text-xs"
-                      >
-                        <option value="text">Text</option>
-                        <option value="numeric">Numeric</option>
-                        <option value="date">Date</option>
-                      </Select>
-                      <Toggle
-                        checked={!!col.visible}
-                        onChange={(v) => setFormData((p) => ({
-                          ...p,
-                          column_metadata: p.column_metadata.map((c, ci) =>
-                            ci === i ? { ...c, visible: v } : c
-                          ),
-                        }))}
-                        size="sm"
-                      />
-                    </div>
-                  ))}
+                <Label required>Column Configuration</Label>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Every column needs a one-line description (unit/currency, whether it&apos;s precomputed) so it&apos;s usable by the AI assistant.
+                </p>
+                <div className="space-y-2 max-h-64 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 p-2">
+                  {formData.column_metadata.map((col, i) => {
+                    const descMissing = !col.description || !col.description.trim();
+                    return (
+                      <div key={col.key} className="space-y-1 rounded border border-gray-100 dark:border-gray-700/60 p-1.5">
+                        <div className="flex items-center gap-2 text-sm">
+                          <code className="text-blue-400 text-xs w-32 truncate font-mono">{col.key}</code>
+                          <Input
+                            value={col.label}
+                            onChange={(e) => setFormData((p) => ({
+                              ...p,
+                              column_metadata: p.column_metadata.map((c, ci) =>
+                                ci === i ? { ...c, label: e.target.value } : c
+                              ),
+                            }))}
+                            className="flex-1 h-7 text-xs"
+                          />
+                          <Select
+                            value={col.type}
+                            onChange={(e) => setFormData((p) => ({
+                              ...p,
+                              column_metadata: p.column_metadata.map((c, ci) =>
+                                ci === i ? { ...c, type: e.target.value as ColumnMeta['type'] } : c
+                              ),
+                            }))}
+                            className="w-24 h-7 text-xs"
+                          >
+                            <option value="text">Text</option>
+                            <option value="numeric">Numeric</option>
+                            <option value="date">Date</option>
+                          </Select>
+                          <Toggle
+                            checked={!!col.visible}
+                            onChange={(v) => setFormData((p) => ({
+                              ...p,
+                              column_metadata: p.column_metadata.map((c, ci) =>
+                                ci === i ? { ...c, visible: v } : c
+                              ),
+                            }))}
+                            size="sm"
+                          />
+                        </div>
+                        <Input
+                          value={col.description ?? ''}
+                          onChange={(e) => setFormData((p) => ({
+                            ...p,
+                            column_metadata: p.column_metadata.map((c, ci) =>
+                              ci === i ? { ...c, description: e.target.value } : c
+                            ),
+                          }))}
+                          placeholder="Description — e.g. Approved credit ceiling in USD; precomputed"
+                          className={`w-full h-7 text-xs ${descMissing ? 'border-red-400 dark:border-red-500' : ''}`}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -487,14 +513,18 @@ export default function AdminDatasetsPage() {
             form="dataset-form"
             isLoading={createMutation.isPending || updateMutation.isPending}
             disabled={
-              !editingDataset &&
-              formData.create_stage_table &&
-              formData.column_metadata.length === 0
+              !formData.description.trim() ||
+              (formData.column_metadata ?? []).length === 0 ||
+              (formData.column_metadata ?? []).some((c) => !c.description || !c.description.trim())
             }
             title={
-              !editingDataset && formData.create_stage_table && formData.column_metadata.length === 0
-                ? 'Validate SQL first to detect columns'
-                : undefined
+              !formData.description.trim()
+                ? 'Add a dataset description'
+                : (formData.column_metadata ?? []).length === 0
+                  ? 'Validate SQL first to detect columns'
+                  : (formData.column_metadata ?? []).some((c) => !c.description || !c.description.trim())
+                    ? 'Every column needs a description'
+                    : undefined
             }
           >
             {editingDataset ? 'Save Changes' : 'Create Dataset'}

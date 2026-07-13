@@ -41,18 +41,18 @@ GROUP BY
 // PascalCase MSSQL names: TerminatedMsisdn→terminatedmsisdn, MccMnc→mccmnc, etc.
 // Computed aliases (bucket, msg_count, unique_msisdn) are already lowercase.
 const LIVE_COLUMNS = [
-  { key: 'terminatedmsisdn',   label: 'MSISDN',      type: 'text'      },
-  { key: 'terminatedsenderid', label: 'Sender ID',   type: 'text'      },
-  { key: 'mccmnc',             label: 'MCC-MNC',     type: 'text'      },
-  { key: 'submitdatetime',     label: 'Submit Time', type: 'timestamp' },
+  { key: 'terminatedmsisdn',   label: 'MSISDN',      type: 'text',      description: 'Recipient mobile number (MSISDN) of the SMS; raw per-message value.' },
+  { key: 'terminatedsenderid', label: 'Sender ID',   type: 'text',      description: 'Sender ID / originator shown on the message; raw per-message value.' },
+  { key: 'mccmnc',             label: 'MCC-MNC',     type: 'text',      description: 'Destination operator code = mobile country code + mobile network code (MCC+MNC); raw.' },
+  { key: 'submitdatetime',     label: 'Submit Time', type: 'timestamp', description: 'UTC timestamp the message was submitted to the SMSC; raw per-message value.' },
 ];
 
 const HIST_COLUMNS = [
-  { key: 'bucket',             label: 'Bucket',       type: 'timestamp' },
-  { key: 'mccmnc',             label: 'MCC-MNC',      type: 'text'      },
-  { key: 'terminatedsenderid', label: 'Sender ID',    type: 'text'      },
-  { key: 'msg_count',          label: 'Messages',     type: 'numeric'   },
-  { key: 'unique_msisdn',      label: 'Unique MSISDN', type: 'numeric'  },
+  { key: 'bucket',             label: 'Bucket',       type: 'timestamp', description: 'Start of the 5-minute time bucket (UTC); precomputed grouping key.' },
+  { key: 'mccmnc',             label: 'MCC-MNC',      type: 'text',      description: 'Destination operator code (MCC+MNC) for the bucket.' },
+  { key: 'terminatedsenderid', label: 'Sender ID',    type: 'text',      description: 'Sender ID / originator of the messages in the bucket.' },
+  { key: 'msg_count',          label: 'Messages',     type: 'numeric',   description: 'Number of messages in the bucket; precomputed COUNT.' },
+  { key: 'unique_msisdn',      label: 'Unique MSISDN', type: 'numeric',  description: 'Distinct recipient numbers in the bucket; precomputed COUNT(DISTINCT).' },
 ];
 
 @Injectable()

@@ -62,6 +62,8 @@ export interface ColumnMeta {
   label: string;
   type: 'text' | 'numeric' | 'date';
   visible: boolean;
+  // One-line meaning of the column (unit/currency, whether precomputed) for AI consumers (Atlas).
+  description?: string;
 }
 
 export interface DatasetLastRefresh {

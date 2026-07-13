@@ -90,20 +90,20 @@ ORDER BY total_msgs DESC
 `;
 
 const SEED_COLUMNS = [
-  { key: 'customer_company',       label: 'Customer Company',  type: 'text'      },
-  { key: 'total_msgs',             label: 'Total',             type: 'numeric'   },
-  { key: 'first_received_time',    label: 'First Received',    type: 'timestamp' },
-  { key: 'last_received_time',     label: 'Last Received',     type: 'timestamp' },
-  { key: 'delivered',              label: 'Delivered',         type: 'numeric'   },
-  { key: 'accepted',               label: 'Accepted',          type: 'numeric'   },
-  { key: 'pending',                label: 'Pending',           type: 'numeric'   },
-  { key: 'rejected',               label: 'Rejected',          type: 'numeric'   },
-  { key: 'negative_margin_count',  label: 'Neg. Margin',       type: 'numeric'   },
-  { key: 'msg_count_1min',         label: 'Msg/1min',          type: 'numeric'   },
-  { key: 'traffic_spike',          label: 'Traffic Spike',     type: 'numeric'   },
-  { key: 'avg_delivery_time',      label: 'Avg Del. (s)',      type: 'numeric'   },
-  { key: 'avg_neg_vendor_rate',   label: 'Vendor Rate',       type: 'numeric'   },
-  { key: 'avg_neg_customer_rate', label: 'Customer Rate',     type: 'numeric'   },
+  { key: 'customer_company',       label: 'Customer Company',  type: 'text',      description: 'Customer company name; grouping key (one row per company over the last 2 minutes).' },
+  { key: 'total_msgs',             label: 'Total',             type: 'numeric',   description: 'Total MT messages for the company in the 2-minute window; precomputed COUNT.' },
+  { key: 'first_received_time',    label: 'First Received',    type: 'timestamp', description: 'Earliest message submit time in the window (UTC); precomputed MIN.' },
+  { key: 'last_received_time',     label: 'Last Received',     type: 'timestamp', description: 'Latest message submit time in the window (UTC); precomputed MAX.' },
+  { key: 'delivered',              label: 'Delivered',         type: 'numeric',   description: 'Messages with a DLR timestamp and not rejected; precomputed SUM.' },
+  { key: 'accepted',               label: 'Accepted',          type: 'numeric',   description: 'Messages sent to vendor but awaiting DLR; precomputed SUM.' },
+  { key: 'pending',                label: 'Pending',           type: 'numeric',   description: 'Messages not yet forwarded to vendor; precomputed SUM.' },
+  { key: 'rejected',               label: 'Rejected',          type: 'numeric',   description: 'Messages explicitly rejected or DLR status 8; precomputed SUM.' },
+  { key: 'negative_margin_count',  label: 'Neg. Margin',       type: 'numeric',   description: 'Messages where vendor rate exceeds customer rate (loss-making); precomputed SUM.' },
+  { key: 'msg_count_1min',         label: 'Msg/1min',          type: 'numeric',   description: 'Message count in the last 1 minute for the company; precomputed, drives spike alert.' },
+  { key: 'traffic_spike',          label: 'Traffic Spike',     type: 'numeric',   description: 'Flag 1/0: 1 when msg_count_1min ≥ 500; precomputed.' },
+  { key: 'avg_delivery_time',      label: 'Avg Del. (s)',      type: 'numeric',   description: 'Average sent-to-delivered latency in seconds; precomputed AVG.' },
+  { key: 'avg_neg_vendor_rate',   label: 'Vendor Rate',       type: 'numeric',   description: 'Average vendor cost rate across negative-margin messages (per message, source currency); precomputed AVG.' },
+  { key: 'avg_neg_customer_rate', label: 'Customer Rate',     type: 'numeric',   description: 'Average customer revenue rate across negative-margin messages (per message, source currency); precomputed AVG.' },
 ];
 
 @Injectable()

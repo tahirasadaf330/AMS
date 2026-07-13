@@ -88,12 +88,47 @@ export class DatasetsService {
     return this.datasetRepo.find({ where: { isActive: true } });
   }
 
+  /**
+   * A dataset must carry a description and per-column meanings so downstream AI
+   * consumers (Atlas) can understand it. `requirePresence` is true on create
+   * (both fields mandatory) and false on update (only validate fields the caller
+   * actually supplied, so unrelated partial updates aren't blocked).
+   *
+   * Self-seeded report datasets bypass this path (they use the repo directly),
+   * so this rule only governs datasets created/edited via the admin API/form.
+   */
+  private assertDescribed(
+    description: string | undefined,
+    columnMetadata: unknown,
+    requirePresence: boolean,
+  ): void {
+    if (requirePresence || description !== undefined) {
+      if (!description || !description.trim()) {
+        throw new BadRequestException('A dataset description is required.');
+      }
+    }
+    if (requirePresence || columnMetadata !== undefined) {
+      if (!Array.isArray(columnMetadata) || columnMetadata.length === 0) {
+        throw new BadRequestException('Column metadata is required — define at least one column.');
+      }
+      const missing = (columnMetadata as Array<{ key?: string; label?: string; description?: string }>)
+        .filter((c) => !c?.description || !String(c.description).trim())
+        .map((c) => c?.key || c?.label || '(unnamed)');
+      if (missing.length > 0) {
+        throw new BadRequestException(
+          `Every column needs a description. Missing for: ${missing.join(', ')}`,
+        );
+      }
+    }
+  }
+
   async create(dto: CreateDatasetDto, userId: string): Promise<Dataset> {
     if (!/^[a-z_][a-z0-9_]{0,127}$/.test(dto.stage_table_name)) {
       throw new BadRequestException(
         'Stage table name must be lowercase alphanumeric + underscores, starting with a letter or underscore, max 128 chars',
       );
     }
+    this.assertDescribed(dto.description, dto.column_metadata, true);
     try {
       const dataset = this.datasetRepo.create({
         name: dto.name,
@@ -128,6 +163,7 @@ export class DatasetsService {
 
   async update(id: string, dto: UpdateDatasetDto): Promise<Dataset> {
     const dataset = await this.findOne(id);
+    this.assertDescribed(dto.description, dto.column_metadata, false);
     const sqlChanged = dto.sql_query !== undefined && dto.sql_query !== dataset.sqlQuery;
 
     try {
