@@ -18,6 +18,7 @@ export default function LoginPage() {
 
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [remember, setRemember] = React.useState(true);
   const [showPassword, setShowPassword] = React.useState(false);
   const [error, setError] = React.useState('');
   const [isLoading, setIsLoading] = React.useState(false);
@@ -45,7 +46,8 @@ export default function LoginPage() {
           dataset_access: data.user.dataset_access ?? [],
           report_access: (data.user as { report_access?: string[] }).report_access ?? [],
         },
-        data.token
+        data.token,
+        remember
       );
 
       if (data.must_change_password) {
@@ -130,6 +132,18 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+
+            {/* Remember me */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                disabled={isLoading}
+                className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-600 dark:text-gray-300">Remember me on this device</span>
+            </label>
 
             <Button
               type="submit"

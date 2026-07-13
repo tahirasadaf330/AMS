@@ -14,8 +14,8 @@ function colWidth(col: ColumnMeta): number {
   const byLabel = col.label.length * 8 + 56;
   switch (col.type) {
     case 'numeric': return Math.max(130, Math.min(200, byLabel));
-    case 'date':    return Math.max(160, Math.min(220, byLabel));
-    default:        return Math.max(200, Math.min(340, byLabel));
+    case 'date': return Math.max(160, Math.min(220, byLabel));
+    default: return Math.max(200, Math.min(340, byLabel));
   }
 }
 
@@ -71,7 +71,7 @@ function TextFilter({
   const wrapRef = React.useRef<HTMLDivElement>(null);
 
   const selected = getInSelected(filters, col.key);
-  const allVals  = React.useMemo(() => uniqueVals(rows, col.key), [rows, col.key]);
+  const allVals = React.useMemo(() => uniqueVals(rows, col.key), [rows, col.key]);
   const filtered = allVals.filter(v => v.toLowerCase().includes(search.toLowerCase()));
   const hasFilter = selected.length > 0;
 
@@ -294,21 +294,24 @@ function DateFilter({
   onChange: (changes: Record<string, string>) => void;
 }) {
   const from = getRangeMin(filters, col.key);
-  const to   = getRangeMax(filters, col.key);
+  const to = getRangeMax(filters, col.key);
   const hasFilter = from !== '' || to !== '';
 
   return (
-    <div className={cn('flex items-center gap-1', hasFilter && 'ring-1 ring-blue-500/40 rounded')}>
+    // Native date inputs have a large intrinsic min-width, so two side-by-side
+    // overflow narrow columns and overlap the neighbouring filter — stack them.
+    <div className={cn('flex flex-col gap-1 min-w-0', hasFilter && 'ring-1 ring-blue-500/40 rounded')}>
       <input
         type="date"
         value={from}
+        title="From"
         onChange={e => onChange({ [`${col.key}__min`]: e.target.value })}
         className="w-full h-7 px-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500"
       />
-      <span className="text-gray-400 dark:text-gray-600 text-xs flex-shrink-0">–</span>
       <input
         type="date"
         value={to}
+        title="To"
         onChange={e => onChange({ [`${col.key}__max`]: e.target.value })}
         className="w-full h-7 px-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500"
       />

@@ -8,8 +8,8 @@ import {
   Bell,
   XCircle,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { KpiCard } from '@/components/kpi-card';
-import { DatasetHealthCard } from '@/components/dataset-health-card';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { StatusBadge } from '@/components/status-badge';
@@ -17,10 +17,24 @@ import { useDatasets } from '@/hooks/useDashboard';
 import { useConditions } from '@/hooks/useConditions';
 import { useNotificationLog } from '@/hooks/useNotifications';
 import { useDatasetStore } from '@/store/dataset.store';
-import { formatDatetime } from '@/lib/utils';
+import { formatDatetime, formatNumber } from '@/lib/utils';
 import { SkeletonCard } from '@/components/ui/skeleton';
+import type { Dataset } from '@/types';
+
+function datasetStatus(d: Dataset): 'ok' | 'failed' | 'stale' | 'pending' {
+  if (!d.last_refresh) return 'pending';
+  if (d.last_refresh.status === 'failed') return 'failed';
+  if (d.last_refresh.status === 'running') return 'ok';
+  const hoursSince = (Date.now() - new Date(d.last_refresh.refreshed_at).getTime()) / 36e5;
+  return hoursSince > 24 ? 'stale' : 'ok';
+}
+
+const TH_CLASS =
+  'sticky top-0 z-10 bg-gray-50 dark:bg-gray-900/80 backdrop-blur px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 whitespace-nowrap';
+const TD_CLASS = 'px-4 py-2.5 text-sm whitespace-nowrap';
 
 export default function OverviewPage() {
+  const router = useRouter();
   const { data: datasets, isLoading: datasetsLoading } = useDatasets();
   const { data: conditions, isLoading: conditionsLoading } = useConditions();
 
@@ -91,83 +105,130 @@ export default function OverviewPage() {
         />
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Recent activity feed */}
-        <div className="lg:col-span-2">
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Recent Notifications</h2>
-              <Badge variant="default">{recentNotifs.length}</Badge>
-            </div>
-            <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
-              {notifLoading && (
-                <div className="p-4 space-y-3">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <SkeletonCard key={i} className="h-12 bg-gray-200 dark:bg-gray-700/30" />
-                  ))}
-                </div>
-              )}
-              {!notifLoading && recentNotifs.length === 0 && (
-                <div className="flex items-center justify-center py-12 text-gray-500 text-sm">
-                  No notifications today
-                </div>
-              )}
-              {recentNotifs.map((log) => (
-                <div key={log.id} className="flex items-start justify-between px-5 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/20">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* Recent notifications table */}
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Recent Notifications</h2>
+            <Badge variant="default">{recentNotifs.length}</Badge>
+          </div>
+          <div className="overflow-auto max-h-[420px]">
+            {notifLoading ? (
+              <div className="p-4 space-y-3">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <SkeletonCard key={i} className="h-10 bg-gray-200 dark:bg-gray-700/30" />
+                ))}
+              </div>
+            ) : recentNotifs.length === 0 ? (
+              <div className="flex items-center justify-center py-12 text-gray-500 text-sm">
+                No notifications today
+              </div>
+            ) : (
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr>
+                    <th className={TH_CLASS}>Condition</th>
+                    <th className={TH_CLASS}>Dataset</th>
+                    <th className={TH_CLASS}>Channel</th>
+                    <th className={`${TH_CLASS} text-right`}>Rows</th>
+                    <th className={TH_CLASS}>Time</th>
+                    <th className={TH_CLASS}>Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                  {recentNotifs.map((log) => (
+                    <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/20">
+                      <td className={`${TD_CLASS} font-medium text-gray-800 dark:text-gray-200 max-w-[220px] truncate`} title={log.condition_name}>
                         {log.condition_name}
-                      </p>
-                      <Badge variant={log.channel === 'email' ? 'blue' : 'purple'} className="text-xs">
-                        {log.channel}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
-                      <span>{log.dataset_name}</span>
-                      <span>·</span>
-                      <span>{log.matched_rows} rows</span>
-                      <span>·</span>
-                      <span>{formatDatetime(log.triggered_at)}</span>
-                    </div>
-                  </div>
-                  <StatusBadge status={log.status} className="flex-shrink-0 ml-3" />
-                </div>
-              ))}
-            </div>
+                      </td>
+                      <td className={`${TD_CLASS} text-gray-500 dark:text-gray-400 max-w-[180px] truncate`} title={log.dataset_name}>
+                        {log.dataset_name}
+                      </td>
+                      <td className={TD_CLASS}>
+                        <Badge variant={log.channel === 'email' ? 'blue' : 'purple'} className="text-xs">
+                          {log.channel}
+                        </Badge>
+                      </td>
+                      <td className={`${TD_CLASS} text-right tabular-nums text-gray-600 dark:text-gray-300`}>
+                        {log.matched_rows}
+                      </td>
+                      <td className={`${TD_CLASS} text-gray-500 dark:text-gray-400 tabular-nums`}>
+                        {formatDatetime(log.triggered_at)}
+                      </td>
+                      <td className={TD_CLASS}>
+                        <StatusBadge status={log.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
-        {/* Dataset health strip */}
-        <div>
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-            <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Dataset Health</h2>
-            </div>
-            <div className="p-3 space-y-2">
-              {datasetsLoading &&
-                Array.from({ length: 3 }).map((_, i) => (
-                  <SkeletonCard key={i} className="h-24" />
+        {/* Dataset health table */}
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Dataset Health</h2>
+            <Badge variant="default">{(datasets ?? []).length}</Badge>
+          </div>
+          <div className="overflow-auto max-h-[420px]">
+            {datasetsLoading ? (
+              <div className="p-4 space-y-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <SkeletonCard key={i} className="h-10" />
                 ))}
-              {!datasetsLoading && (datasets ?? []).length === 0 && (
-                <p className="text-center py-8 text-gray-500 text-sm">No datasets available</p>
-              )}
-              {(datasets ?? []).map((dataset) => {
-                const storeRefresh = datasetStore.lastRefreshes[dataset.id];
-                const enriched = storeRefresh
-                  ? {
-                      ...dataset,
-                      last_refresh: {
-                        status: storeRefresh.status ?? dataset.last_refresh?.status ?? 'success',
-                        row_count: storeRefresh.row_count,
-                        refreshed_at: storeRefresh.refreshed_at,
-                        duration_ms: storeRefresh.duration_ms ?? 0,
-                      },
-                    }
-                  : dataset;
-                return <DatasetHealthCard key={dataset.id} dataset={enriched} />;
-              })}
-            </div>
+              </div>
+            ) : (datasets ?? []).length === 0 ? (
+              <p className="text-center py-8 text-gray-500 text-sm">No datasets available</p>
+            ) : (
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr>
+                    <th className={TH_CLASS}>Dataset</th>
+                    <th className={TH_CLASS}>Status</th>
+                    <th className={`${TH_CLASS} text-right`}>Rows</th>
+                    <th className={TH_CLASS}>Last Refresh</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                  {(datasets ?? []).map((dataset) => {
+                    const storeRefresh = datasetStore.lastRefreshes[dataset.id];
+                    const enriched = storeRefresh
+                      ? {
+                          ...dataset,
+                          last_refresh: {
+                            status: storeRefresh.status ?? dataset.last_refresh?.status ?? 'success',
+                            row_count: storeRefresh.row_count,
+                            refreshed_at: storeRefresh.refreshed_at,
+                            duration_ms: storeRefresh.duration_ms ?? 0,
+                          },
+                        }
+                      : dataset;
+                    return (
+                      <tr
+                        key={dataset.id}
+                        onClick={() => router.push(`/dashboard/${dataset.id}`)}
+                        className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/20"
+                      >
+                        <td className={`${TD_CLASS} font-medium text-gray-800 dark:text-gray-200 max-w-[220px] truncate`} title={enriched.name}>
+                          {enriched.name}
+                        </td>
+                        <td className={TD_CLASS}>
+                          <StatusBadge status={datasetStatus(enriched)} />
+                        </td>
+                        <td className={`${TD_CLASS} text-right tabular-nums text-gray-600 dark:text-gray-300`}>
+                          {enriched.last_refresh ? formatNumber(enriched.last_refresh.row_count) : '—'}
+                        </td>
+                        <td className={`${TD_CLASS} text-gray-500 dark:text-gray-400 tabular-nums`}>
+                          {enriched.last_refresh ? formatDatetime(enriched.last_refresh.refreshed_at) : 'Awaiting first run'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       </div>

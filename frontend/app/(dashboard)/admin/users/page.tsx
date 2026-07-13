@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Edit2, UserX, ShieldCheck, Trash2, Lock,
   Search, ChevronUp, ChevronDown, ChevronsUpDown, Users,
+  Copy, Check, KeyRound,
 } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
@@ -95,7 +96,7 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 
 // ── User form defaults ────────────────────────────────────────
 const defaultUserForm = {
-  name: '', email: '', password: '', role: 'viewer',
+  name: '', email: '', role: 'viewer',
   dataset_access: [] as string[], report_access: [] as string[],
   send_welcome_email: false, group_id: '',
 };
@@ -161,6 +162,9 @@ export default function AdminUsersPage() {
   // ── User form (create / edit) ─────────────────────────────────
   const [showUserForm, setShowUserForm]   = React.useState(false);
   const [editingUser, setEditingUser]     = React.useState<AdminUser | null>(null);
+  // Server-generated temp password, shown once after creation
+  const [tempPwResult, setTempPwResult]   = React.useState<{ email: string; password: string } | null>(null);
+  const [tempPwCopied, setTempPwCopied]   = React.useState(false);
   const [userForm, setUserForm]           = React.useState(defaultUserForm);
   const [deactivateTarget, setDeactivateTarget] = React.useState<AdminUser | null>(null);
   const [deleteUserTarget, setDeleteUserTarget] = React.useState<AdminUser | null>(null);
@@ -220,8 +224,15 @@ export default function AdminUsersPage() {
   // ── User mutations ────────────────────────────────────────────
   const createUserMut = useMutation({
     mutationFn: async (f: typeof defaultUserForm) =>
-      adminUsersApi.create({ name: f.name, email: f.email, password: f.password, role: f.role, dataset_access: f.dataset_access, report_access: f.report_access, send_welcome_email: f.send_welcome_email }),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }); addToast({ title: 'User created', variant: 'success' }); setShowUserForm(false); setUserForm(defaultUserForm); },
+      adminUsersApi.create({ name: f.name, email: f.email, role: f.role, dataset_access: f.dataset_access, report_access: f.report_access, send_welcome_email: f.send_welcome_email }),
+    onSuccess: (res) => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      addToast({ title: 'User created', variant: 'success' });
+      setShowUserForm(false);
+      // Show the server-generated temp password once so the admin can share it
+      setTempPwResult({ email: userForm.email, password: res.data.temp_password ?? '' });
+      setUserForm(defaultUserForm);
+    },
     onError: (err: unknown) => { const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message; addToast({ title: msg ?? 'Failed to create user', variant: 'destructive' }); },
   });
 
@@ -279,7 +290,7 @@ export default function AdminUsersPage() {
 
   const openEditUser = (u: AdminUser) => {
     setEditingUser(u);
-    setUserForm({ name: u.name, email: u.email, password: '', role: u.role, dataset_access: u.dataset_access ?? [], report_access: u.report_access ?? [], send_welcome_email: false, group_id: u.group_id ?? '' });
+    setUserForm({ name: u.name, email: u.email, role: u.role, dataset_access: u.dataset_access ?? [], report_access: u.report_access ?? [], send_welcome_email: false, group_id: u.group_id ?? '' });
   };
 
   if (!isAdmin) return <div className="flex items-center justify-center h-64 text-gray-500 text-sm">Admin access required.</div>;
@@ -619,6 +630,39 @@ export default function AdminUsersPage() {
         </DialogBody>
       </Dialog>
 
+      {/* Temp password — shown once after user creation */}
+      <Dialog open={!!tempPwResult} onClose={() => { setTempPwResult(null); setTempPwCopied(false); }} className="max-w-md">
+        <DialogHeader title="Temporary Password" onClose={() => { setTempPwResult(null); setTempPwCopied(false); }} />
+        <DialogBody>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+            Share this password with <span className="font-medium text-gray-800 dark:text-gray-100">{tempPwResult?.email}</span>.
+            It is shown <span className="font-semibold">only once</span> — the user must change it on first login.
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2.5 font-mono text-sm text-gray-900 dark:text-gray-100 tracking-wide select-all">
+              {tempPwResult?.password || '—'}
+            </code>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                if (!tempPwResult?.password) return;
+                void navigator.clipboard.writeText(tempPwResult.password).then(() => {
+                  setTempPwCopied(true);
+                  addToast({ title: 'Password copied', variant: 'success' });
+                });
+              }}
+            >
+              {tempPwCopied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+              {tempPwCopied ? 'Copied' : 'Copy'}
+            </Button>
+          </div>
+          <div className="flex justify-end mt-4">
+            <Button onClick={() => { setTempPwResult(null); setTempPwCopied(false); }}>Done</Button>
+          </div>
+        </DialogBody>
+      </Dialog>
+
       {/* Create / Edit user */}
       <Dialog open={showUserForm || !!editingUser} onClose={() => { setShowUserForm(false); setEditingUser(null); }} className="max-w-lg">
         <DialogHeader title={editingUser ? 'Edit User' : 'Create User'} onClose={() => { setShowUserForm(false); setEditingUser(null); }} />
@@ -633,10 +677,12 @@ export default function AdminUsersPage() {
               <Input type="email" value={userForm.email} onChange={(e) => setUserForm((p) => ({ ...p, email: e.target.value }))} disabled={!!editingUser} />
             </div>
             {!editingUser && (
-              <div className="space-y-1.5">
-                <Label required>Temporary Password</Label>
-                <Input type="password" value={userForm.password} onChange={(e) => setUserForm((p) => ({ ...p, password: e.target.value }))} />
-                <p className="text-xs text-gray-500">Min 10 chars · uppercase · lowercase · number · special character</p>
+              <div className="flex items-start gap-2 rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-3 py-2.5">
+                <KeyRound className="h-4 w-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-blue-700 dark:text-blue-300">
+                  A temporary password is generated automatically and shown once after the user is created.
+                  The user must change it on first login.
+                </p>
               </div>
             )}
             <div className="grid grid-cols-2 gap-3">

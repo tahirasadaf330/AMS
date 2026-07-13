@@ -9,9 +9,9 @@ import { useDatasetSocket } from '@/hooks/useDatasetSocket';
 // ──────────────────────────────────────────────────────────────────────────────
 const CSS = `
 .edr{
-  --sf:#ffffff;--sf2:#f5f8fa;
-  --ink:#1e293b;--inks:#475569;--mu:#94a3b8;
-  --ln:#e2e8f0;--lns:#cbd5e1;
+  --sf:#ffffff;--sf2:#f5f7f8;
+  --ink:#2c3e50;--inks:#5d6d7e;--mu:#95a5a6;
+  --ln:#e4e9ec;--lns:#d3dadf;
   --delivered:#16a34a;--delivered-bg:rgba(22,163,74,.10);--delivered-bd:rgba(22,163,74,.28);
   --accepted:#2563eb;--accepted-bg:rgba(37,99,235,.10);--accepted-bd:rgba(37,99,235,.28);
   --pending:#d97706;--pending-bg:rgba(217,119,6,.10);--pending-bd:rgba(217,119,6,.28);
@@ -22,9 +22,9 @@ const CSS = `
   color:var(--ink);
 }
 .dark .edr{
-  --sf:#1e293b;--sf2:#162032;
-  --ink:#e2e8f0;--inks:#94a3b8;--mu:#64748b;
-  --ln:#1e3a5f;--lns:#2d4e6e;
+  --sf:#22303f;--sf2:#1d2a37;
+  --ink:#ecf0f1;--inks:#bdc8d2;--mu:#7f8c9a;
+  --ln:#2f4151;--lns:#3b5063;
   --delivered-bg:rgba(22,163,74,.14);--delivered-bd:rgba(22,163,74,.35);
   --accepted-bg:rgba(37,99,235,.14);--accepted-bd:rgba(37,99,235,.35);
   --pending-bg:rgba(217,119,6,.14);--pending-bd:rgba(217,119,6,.35);

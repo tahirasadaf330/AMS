@@ -10,6 +10,7 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { User, UserRole } from '../../common/entities/user.entity';
 import { Session } from '../../common/entities/session.entity';
 import { PasswordHistory } from '../../common/entities/password-history.entity';
@@ -20,10 +21,30 @@ import { GraphEmailService } from '../../notifications/graph-email.service';
 const BCRYPT_ROUNDS = 12;
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{10,}$/;
 
+// Temp passwords are generated server-side (admin no longer types one).
+// 14 chars, at least one of each required class, unambiguous alphabet.
+function generateTempPassword(): string {
+  const upper = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+  const lower = 'abcdefghjkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const special = '!@#$%^&*';
+  const all = upper + lower + digits + special;
+  const pick = (set: string) => set[crypto.randomInt(set.length)];
+  const chars = [pick(upper), pick(lower), pick(digits), pick(special)];
+  while (chars.length < 14) chars.push(pick(all));
+  // Fisher–Yates so the guaranteed classes aren't always at the front
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
+
 export interface CreateUserDto {
   email: string;
   name: string;
-  password: string;
+  /** Optional — when omitted the server generates a temp password and returns it once. */
+  password?: string;
   role: UserRole;
   datasetAccess?: string[];
   reportAccess?: string[];
@@ -159,8 +180,12 @@ export class AdminUsersService implements OnModuleInit {
     };
   }
 
-  async create(dto: CreateUserDto, createdBy: string): Promise<Omit<User, 'passwordHash'>> {
-    if (!PASSWORD_REGEX.test(dto.password)) {
+  async create(
+    dto: CreateUserDto,
+    createdBy: string,
+  ): Promise<Omit<User, 'passwordHash'> & { tempPassword: string }> {
+    const tempPassword = dto.password?.trim() ? dto.password : generateTempPassword();
+    if (!PASSWORD_REGEX.test(tempPassword)) {
       throw new BadRequestException(
         'Password must be at least 10 characters with uppercase, lowercase, digit, and special character',
       );
@@ -172,7 +197,7 @@ export class AdminUsersService implements OnModuleInit {
     }
 
     try {
-      const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+      const passwordHash = await bcrypt.hash(tempPassword, BCRYPT_ROUNDS);
       const user = this.userRepo.create({
         email: dto.email.toLowerCase(),
         name: dto.name,
@@ -213,12 +238,14 @@ export class AdminUsersService implements OnModuleInit {
       }
 
       // Send welcome email (fire and forget)
-      this.sendWelcomeEmail(saved, dto.password).catch((err) => {
+      this.sendWelcomeEmail(saved, tempPassword).catch((err) => {
         this.logger.error('Failed to send welcome email', err);
       });
 
       const { passwordHash: _, ...result } = saved;
-      return result as Omit<User, 'passwordHash'>;
+      // Returned exactly once so the admin can hand it to the user;
+      // never stored or logged in plaintext.
+      return { ...(result as Omit<User, 'passwordHash'>), tempPassword };
     } catch (err) {
       if ((err as any).code === '23505') {
         throw new ConflictException('Email already in use');
