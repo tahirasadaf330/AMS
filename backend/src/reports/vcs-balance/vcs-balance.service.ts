@@ -74,21 +74,21 @@ ORDER BY remaining_balance_pct ASC NULLS LAST
 `;
 
 const SEED_COLUMNS = [
-  { key: 'clients_id',             label: 'Client ID',                    type: 'numeric' },
-  { key: 'company_name',           label: 'Company Name',                 type: 'text'    },
-  { key: 'account_manager',        label: 'Account Manager',              type: 'text'    },
-  { key: 'carrier',                label: 'Carrier',                      type: 'text'    },
-  { key: 'credit_limit',           label: 'Credit Limit',                 type: 'numeric' },
-  { key: 'current_balance',        label: 'Current Balance',              type: 'numeric' },
-  { key: 'remaining_balance',      label: 'Remaining CL',                 type: 'numeric' },
-  { key: 'remaining_balance_pct',  label: 'Remaining CL %',               type: 'numeric' },
-  { key: 'c_email_tech',           label: 'Tech Email',                   type: 'text'    },
-  { key: 'c_email_billing',        label: 'Billing Email',                type: 'text'    },
-  { key: 'c_email_rates',          label: 'Rates Email',                  type: 'text'    },
-  { key: 'currency_name',          label: 'Currency',                     type: 'text'    },
-  { key: 'payment_term',           label: 'Payment Term',                 type: 'text'    },
-  { key: 'avg_amount_last_3_days', label: 'Avg Daily Usage (Last 3 days)', type: 'numeric' },
-  { key: 'yesterday_amount',       label: 'Yesterday Usage',              type: 'numeric' },
+  { key: 'clients_id',             label: 'Client ID',                    type: 'numeric', description: 'Jerasoft internal client ID.' },
+  { key: 'company_name',           label: 'Company Name',                 type: 'text',    description: 'Voice (VCS) client company name.' },
+  { key: 'account_manager',        label: 'Account Manager',              type: 'text',    description: "Client's account owner (full name) from Jerasoft auth users." },
+  { key: 'carrier',                label: 'Carrier',                      type: 'text',    description: "Owning carrier normalised to 'Hayo' / 'CN' / other legal-entity name." },
+  { key: 'credit_limit',           label: 'Credit Limit',                 type: 'numeric', description: 'Approved credit ceiling, in the row currency.' },
+  { key: 'current_balance',        label: 'Current Balance',              type: 'numeric', description: 'Current account balance from Jerasoft, in the row currency; precomputed.' },
+  { key: 'remaining_balance',      label: 'Remaining CL',                 type: 'numeric', description: 'Credit limit plus current balance (remaining spendable), in the row currency; precomputed.' },
+  { key: 'remaining_balance_pct',  label: 'Remaining CL %',               type: 'numeric', description: 'Remaining credit as a percent of the credit limit; precomputed.' },
+  { key: 'c_email_tech',           label: 'Tech Email',                   type: 'text',    description: 'Client technical contact email.' },
+  { key: 'c_email_billing',        label: 'Billing Email',                type: 'text',    description: 'Client billing contact email.' },
+  { key: 'c_email_rates',          label: 'Rates Email',                  type: 'text',    description: 'Client rates contact email.' },
+  { key: 'currency_name',          label: 'Currency',                     type: 'text',    description: 'Currency that all monetary columns in this row are expressed in.' },
+  { key: 'payment_term',           label: 'Payment Term',                 type: 'text',    description: 'Client payment term name (e.g. prepaid/postpaid terms).' },
+  { key: 'avg_amount_last_3_days', label: 'Avg Daily Usage (Last 3 days)', type: 'numeric', description: 'Average daily net billed amount over the last 3 days, in the row currency; precomputed AVG.' },
+  { key: 'yesterday_amount',       label: 'Yesterday Usage',              type: 'numeric', description: "Yesterday's net billed amount (orig minus term), in the row currency; precomputed." },
 ];
 
 @Injectable()

@@ -71,15 +71,15 @@ ORDER BY attempts DESC
 `;
 
 const SEED_COLUMNS = [
-  { key: 'account',        label: 'Account',        type: 'text'    },
-  { key: 'destination',    label: 'Destination',    type: 'text'    },
-  { key: 'vendor',         label: 'Vendor',         type: 'text'    },
-  { key: 'attempts',       label: 'Attempts',       type: 'numeric' },
-  { key: 'acd',            label: 'ACD',            type: 'numeric' },
-  { key: 'asr',            label: 'ASR',            type: 'numeric' },
-  { key: 'failed_calls',   label: 'Failed Calls',   type: 'numeric' },
-  { key: 'volume',         label: 'Volume',         type: 'numeric' },
-  { key: 'answered_calls', label: 'Answered Calls', type: 'numeric' },
+  { key: 'account',        label: 'Account',        type: 'text',    description: 'Originating client/account name for the voice traffic.' },
+  { key: 'destination',    label: 'Destination',    type: 'text',    description: 'Destination / route name for the calls.' },
+  { key: 'vendor',         label: 'Vendor',         type: 'text',    description: 'Terminating vendor carrying the traffic.' },
+  { key: 'attempts',       label: 'Attempts',       type: 'numeric', description: 'Total call attempts in the window; precomputed count.' },
+  { key: 'acd',            label: 'ACD',            type: 'numeric', description: 'Average Call Duration in minutes; precomputed.' },
+  { key: 'asr',            label: 'ASR',            type: 'numeric', description: 'Answer-Seizure Ratio as a percent (answered ÷ attempts); precomputed.' },
+  { key: 'failed_calls',   label: 'Failed Calls',   type: 'numeric', description: 'Number of unanswered/failed call attempts; precomputed.' },
+  { key: 'volume',         label: 'Volume',         type: 'numeric', description: 'Total billed call minutes in the window; precomputed SUM.' },
+  { key: 'answered_calls', label: 'Answered Calls', type: 'numeric', description: 'Number of answered (connected) calls; precomputed.' },
 ];
 
 @Injectable()
