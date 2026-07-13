@@ -166,7 +166,8 @@ export default function DatasetDashboardPage() {
                 Refresh Now
               </Button>
             )}
-            {canRefresh && isRefreshing && (
+            {/* Voice Live Traffic refreshes in a few seconds, so its Cancel button is noise — hide it there only. */}
+            {canRefresh && isRefreshing && dataset?.stage_table_name !== 'ds_voice_live_traffic' && (
               <Button
                 variant="destructive"
                 size="sm"

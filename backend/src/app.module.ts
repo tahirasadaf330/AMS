@@ -46,6 +46,7 @@ import { MtEdrModule } from "./reports/mt-edr/mt-edr.module";
 import { SmsReportModule } from "./reports/sms-report/sms-report.module";
 import { AdminGroupsModule } from "./admin/groups/groups.module";
 import { DealsAutomationModule } from "./reports/deals-automation/deals-automation.module";
+import { VoiceLiveTrafficModule } from "./reports/voice-live-traffic/voice-live-traffic.module";
 import { AppleTrafficModule } from "./reports/apple-traffic/apple-traffic.module";
 @Module({
   imports: [
@@ -117,6 +118,7 @@ import { AppleTrafficModule } from "./reports/apple-traffic/apple-traffic.module
     MtEdrModule,
     SmsReportModule,
     DealsAutomationModule,
+    VoiceLiveTrafficModule,
     AppleTrafficModule,
     ReportsRegistryModule,
     AdminGroupsModule,

@@ -441,6 +441,11 @@ export const smsCreditLimitApi = {
   getData: () => api.get('/reports/sms-credit-limit/data'),
 };
 
+// ── VOICE LIVE TRAFFIC REPORT ─────────────────────────────────
+export const voiceLiveTrafficApi = {
+  getData: () => api.get('/reports/voice-live-traffic/data'),
+};
+
 // ── MT EDR MONITORING REPORT ──────────────────────────────────
 export const mtEdrApi = {
   getData: () => api.get('/reports/mt-edr/data'),

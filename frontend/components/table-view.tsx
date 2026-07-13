@@ -14,8 +14,8 @@ function colWidth(col: ColumnMeta): number {
   const byLabel = col.label.length * 8 + 56;
   switch (col.type) {
     case 'numeric': return Math.max(130, Math.min(200, byLabel));
-    case 'date':    return Math.max(160, Math.min(220, byLabel));
-    default:        return Math.max(160, Math.min(320, byLabel));
+    case 'date': return Math.max(160, Math.min(220, byLabel));
+    default: return Math.max(200, Math.min(340, byLabel));
   }
 }
 
@@ -71,7 +71,7 @@ function TextFilter({
   const wrapRef = React.useRef<HTMLDivElement>(null);
 
   const selected = getInSelected(filters, col.key);
-  const allVals  = React.useMemo(() => uniqueVals(rows, col.key), [rows, col.key]);
+  const allVals = React.useMemo(() => uniqueVals(rows, col.key), [rows, col.key]);
   const filtered = allVals.filter(v => v.toLowerCase().includes(search.toLowerCase()));
   const hasFilter = selected.length > 0;
 
@@ -105,7 +105,7 @@ function TextFilter({
           'w-full h-7 px-2 text-left text-xs flex items-center justify-between gap-1 rounded border transition-colors',
           hasFilter
             ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300'
-            : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800/80 text-gray-400 dark:text-gray-500 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-600 dark:hover:text-gray-300',
+            : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-400 dark:text-gray-500 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-600 dark:hover:text-gray-300',
         )}
       >
         <span className="truncate min-w-0">
@@ -224,7 +224,7 @@ function NumericFilter({
           'w-full h-7 px-2 text-left text-xs flex items-center justify-between gap-1 rounded border transition-colors',
           hasFilter
             ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300'
-            : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800/80 text-gray-400 dark:text-gray-500 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-600 dark:hover:text-gray-300',
+            : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-400 dark:text-gray-500 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-600 dark:hover:text-gray-300',
         )}
       >
         <span className="truncate min-w-0">{label}</span>
@@ -294,7 +294,7 @@ function DateFilter({
   onChange: (changes: Record<string, string>) => void;
 }) {
   const from = getRangeMin(filters, col.key);
-  const to   = getRangeMax(filters, col.key);
+  const to = getRangeMax(filters, col.key);
   const hasFilter = from !== '' || to !== '';
 
   return (
@@ -306,14 +306,14 @@ function DateFilter({
         value={from}
         title="From"
         onChange={e => onChange({ [`${col.key}__min`]: e.target.value })}
-        className="w-full min-w-0 h-7 px-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800/80 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500"
+        className="w-full h-7 px-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500"
       />
       <input
         type="date"
         value={to}
         title="To"
         onChange={e => onChange({ [`${col.key}__max`]: e.target.value })}
-        className="w-full min-w-0 h-7 px-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800/80 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500"
+        className="w-full h-7 px-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500"
       />
       {hasFilter && (
         <button
@@ -508,8 +508,8 @@ export function TableView({
               ))}
             </tr>
 
-            {/* Filter row */}
-            <tr className="border-b border-gray-200 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-900/60">
+            {/* Filter row — opaque background so scrolled body rows don't bleed through the sticky header */}
+            <tr className="border-b border-gray-200 dark:border-gray-700/50 bg-gray-100 dark:bg-gray-900">
               {visibleColumns.map(col => (
                 <th
                   key={col.key}
@@ -567,22 +567,24 @@ export function TableView({
                       const raw = row[col.key] ?? null;
                       const str = raw !== null ? String(raw) : '';
                       const isNegative = col.type === 'numeric' && raw !== null && Number(raw) < 0;
+                      const isTextCol = col.type !== 'numeric' && col.type !== 'date';
                       return (
                         <td
                           key={col.key}
                           title={str}
                           className={cn(
-                            'px-3 py-2.5 text-sm',
+                            'px-3 py-2.5 text-sm align-top',
                             col.type === 'numeric'
                               ? cn('text-right font-mono tabular-nums', isNegative ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-200')
                               : 'text-gray-600 dark:text-gray-300',
                           )}
-                          style={{
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            maxWidth: 0,
-                          }}
+                          style={
+                            isTextCol
+                              // Text columns wrap so long values (account/destination/vendor…)
+                              // are fully visible instead of truncated behind a tooltip.
+                              ? { whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere' }
+                              : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 0 }
+                          }
                         >
                           <CellValue value={raw} type={col.type} />
                         </td>

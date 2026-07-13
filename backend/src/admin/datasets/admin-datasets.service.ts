@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { DatasetsService, CreateDatasetDto, UpdateDatasetDto } from '../../datasets/datasets.service';
 import { SchedulerService } from '../../scheduler/scheduler.service';
 import { JerasoftService } from '../../datasources/jerasoft/jerasoft.service';
@@ -13,10 +15,19 @@ export class AdminDatasetsService {
     private schedulerService: SchedulerService,
     private jerasoftService: JerasoftService,
     private stageService: StageService,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
-  findAll() {
-    return this.datasetsService.findAll();
+  async findAll() {
+    const datasets = await this.datasetsService.findAll();
+    // window_minutes is stored on the datasets table but not on the entity, so
+    // merge it in here for the admin UI (it drives the Traffic Window selector).
+    const windows: Array<{ id: string; window_minutes: number | null }> = await this.dataSource
+      .query(`SELECT id, window_minutes FROM datasets`)
+      .catch(() => []);
+    const windowMap = new Map(windows.map((w) => [w.id, w.window_minutes]));
+    return datasets.map((d) => ({ ...d, window_minutes: windowMap.get(d.id) ?? null }));
   }
 
   findOne(id: string) {

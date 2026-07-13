@@ -9,6 +9,10 @@ import { SharePointSyncService, SpTarget } from '../reports/google-mo/sharepoint
 
 const MAX_BACKOFF_MS = 60 * 1000;
 const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, MAX_BACKOFF_MS];
+// Stop auto-retrying after this many consecutive failures so a persistently
+// failing dataset (e.g. a query that keeps timing out) can't hammer the source
+// forever. The counter resets on success and at each scheduled run.
+const MAX_RETRIES = 3;
 
 interface JobState {
   retryCount: number;
@@ -87,7 +91,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         if (!this.inFlight.has(dataset.id)) {
           const ctrl = new AbortController();
           this.inFlight.set(dataset.id, ctrl);
-          this.runRefreshCycle(dataset, ctrl.signal)
+          // Each scheduled run starts with a fresh retry budget.
+          const st = this.jobStates.get(dataset.id);
+          if (st) st.retryCount = 0;
+          this.runRefreshCycle(dataset, ctrl.signal, true)
             .finally(() => this.inFlight.delete(dataset.id))
             .catch((err) => {
               this.logger.error(`Unhandled error in refresh cycle for ${dataset.id}`, err);
@@ -149,7 +156,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     this.inFlight.set(datasetId, controller);
     const dataset = await this.datasetsService.findOne(datasetId);
     try {
-      await this.runRefreshCycle(dataset, controller.signal);
+      // Manual refresh: do not auto-retry on failure — surface the error and stop.
+      await this.runRefreshCycle(dataset, controller.signal, false);
     } finally {
       this.inFlight.delete(datasetId);
     }
@@ -170,7 +178,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     return this.inFlight.has(datasetId);
   }
 
-  private async runRefreshCycle(dataset: Dataset, signal?: AbortSignal): Promise<void> {
+  private async runRefreshCycle(dataset: Dataset, signal?: AbortSignal, retryOnFailure = true): Promise<void> {
     this.logger.log(`Starting refresh cycle for dataset: ${dataset.name}`);
 
     try {
@@ -202,7 +210,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
       this.logger.error(`Refresh cycle failed for ${dataset.name}: ${errorMsg}`);
-      this.scheduleRetry(dataset);
+      if (retryOnFailure) this.scheduleRetry(dataset);
     }
   }
 
@@ -221,6 +229,14 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
 
   private scheduleRetry(dataset: Dataset): void {
     const state = this.jobStates.get(dataset.id) || { retryCount: 0, retryTimeout: null };
+
+    if (state.retryCount >= MAX_RETRIES) {
+      this.logger.warn(
+        `Dataset ${dataset.name}: giving up after ${state.retryCount} consecutive failures — will try again at the next scheduled run`,
+      );
+      this.jobStates.set(dataset.id, state);
+      return;
+    }
 
     if (state.retryTimeout) {
       clearTimeout(state.retryTimeout);
