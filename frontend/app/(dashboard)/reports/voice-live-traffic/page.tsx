@@ -139,7 +139,7 @@ const TH = ({ children, left, w, colKey, sort }: { children: React.ReactNode; le
   return (
     <th onClick={colKey ? () => sort?.set(colKey) : undefined} style={{
       textAlign: left ? 'left' : 'right', position: 'sticky', top: 0,
-      background: 'var(--sf)', zIndex: 1, padding: '10px 10px',
+      background: 'var(--sf2)', zIndex: 1, padding: '10px 10px',
       fontSize: 10, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase',
       color: isActive ? 'var(--turquoise)' : 'var(--mu)', whiteSpace: 'nowrap',
       borderBottom: isActive ? '2px solid var(--turquoise)' : '2px solid var(--lns)',
@@ -155,7 +155,7 @@ const TH = ({ children, left, w, colKey, sort }: { children: React.ReactNode; le
 };
 
 const TD = ({ children, left, style }: { children: React.ReactNode; left?: boolean; style?: React.CSSProperties }) => (
-  <td style={{ textAlign: left ? 'left' : 'right', padding: '9px 10px', whiteSpace: 'nowrap', borderBottom: '1px solid var(--ln)', verticalAlign: 'top', ...style }}>
+  <td style={{ textAlign: left ? 'left' : 'right', padding: '9px 10px', whiteSpace: 'nowrap', borderBottom: '1px solid var(--ln)', verticalAlign: 'top', background: 'var(--sf2)', ...style }}>
     {children}
   </td>
 );
@@ -322,7 +322,7 @@ export default function VoiceLiveTrafficPage() {
             </div>
           </div>
 
-          <div className="tbl-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+          <div className="tbl-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: 'var(--sf2)' }}>
             {loading ? <Skel /> : (
               <table style={{ borderCollapse: 'collapse', fontSize: 12.5, minWidth: '100%' }}>
                 <thead>
@@ -350,12 +350,10 @@ export default function VoiceLiveTrafficPage() {
                     const [asrBg, asrColor] = asrColours(r.asr);
                     return (
                       <tr key={(safePage - 1) * PAGE_SIZE + i}>
-                        <TD left style={wrapCell(230)}>
-                          <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{r.account}</span>
-                        </TD>
+                        <TD left style={{ ...wrapCell(230), color: 'var(--inks)' }}>{r.account}</TD>
                         <TD left style={{ ...wrapCell(180), color: 'var(--inks)' }}>{r.destination ?? '—'}</TD>
                         <TD left style={{ ...wrapCell(170), color: 'var(--inks)' }}>{r.vendor ?? '—'}</TD>
-                        <TD style={{ fontFamily: 'monospace', color: 'var(--ink)', fontWeight: 600 }}>{fmtInt(r.attempts)}</TD>
+                        <TD style={{ fontFamily: 'monospace', color: 'var(--inks)' }}>{fmtInt(r.attempts)}</TD>
                         <TD style={{ fontFamily: 'monospace', color: 'var(--inks)' }}>{fmtDec(r.acd)}</TD>
                         <TD>
                           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
