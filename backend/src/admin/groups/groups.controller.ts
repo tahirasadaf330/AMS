@@ -42,6 +42,11 @@ export class AdminGroupsController {
     @Body() body: {
       name?: string;
       description?: string;
+      // The frontend sends snake_case; the app's inbound camelCase middleware is a
+      // no-op (it runs before the body is parsed), so read snake_case here with a
+      // camelCase fallback to stay robust regardless of that middleware.
+      dataset_access?: string[];
+      report_access?: string[];
       datasetAccess?: string[];
       reportAccess?: string[];
     },
@@ -51,8 +56,8 @@ export class AdminGroupsController {
       id,
       body.name,
       body.description,
-      body.datasetAccess,
-      body.reportAccess,
+      body.dataset_access ?? body.datasetAccess,
+      body.report_access ?? body.reportAccess,
       user.sub,
     );
   }

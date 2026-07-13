@@ -217,9 +217,15 @@ export class AdminUsersService implements OnModuleInit {
         this.passwordHistoryRepo.create({ userId: saved.id, passwordHash }),
       );
 
+      // Accept both camelCase and snake_case (the inbound camelCase middleware is a
+      // no-op, so the frontend's snake_case keys arrive unconverted) — mirrors update().
+      const raw = dto as unknown as Record<string, unknown>;
+      const datasetAccess = (dto.datasetAccess ?? raw['dataset_access']) as string[] | undefined;
+      const reportAccess  = (dto.reportAccess  ?? raw['report_access'])  as string[] | undefined;
+
       // Grant dataset access
-      if (dto.datasetAccess?.length) {
-        for (const datasetId of dto.datasetAccess) {
+      if (datasetAccess?.length) {
+        for (const datasetId of datasetAccess) {
           await this.dataSource.query(
             `INSERT INTO user_dataset_access (user_id, dataset_id, granted_by) VALUES ($1, $2, $3)`,
             [saved.id, datasetId, createdBy],
@@ -228,8 +234,8 @@ export class AdminUsersService implements OnModuleInit {
       }
 
       // Grant report access
-      if (dto.reportAccess?.length) {
-        for (const reportSlug of dto.reportAccess) {
+      if (reportAccess?.length) {
+        for (const reportSlug of reportAccess) {
           await this.dataSource.query(
             `INSERT INTO user_report_access (user_id, report_slug, granted_by) VALUES ($1, $2, $3)`,
             [saved.id, reportSlug, createdBy],
