@@ -1,14 +1,14 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { Dataset } from '../../common/entities/dataset.entity';
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { InjectDataSource, InjectRepository } from "@nestjs/typeorm";
+import { DataSource, Repository } from "typeorm";
+import { Dataset } from "../../common/entities/dataset.entity";
 
-const STAGE        = 'ds_voice_live_traffic';
-const DATASET_NAME = 'Voice Live Traffic - Data';
+const STAGE = "ds_voice_live_traffic";
+const DATASET_NAME = "Voice Live Traffic - Data";
 
 // Allowed traffic-window sizes (minutes). Default is 10.
 export const ALLOWED_WINDOWS = [10, 15, 20] as const;
-export const DEFAULT_WINDOW  = 10;
+export const DEFAULT_WINDOW = 10;
 
 // Stored in the dataset record and executed by StageService on refresh.
 // dataSourceId: null → Jerasoft builtin (PostgreSQL on 10.10.8.70 / vcs db).
@@ -71,15 +71,85 @@ ORDER BY attempts DESC
 `;
 
 const SEED_COLUMNS = [
-  { key: 'account',        label: 'Account',        type: 'text',    description: 'Originating client/account name for the voice traffic.' },
-  { key: 'destination',    label: 'Destination',    type: 'text',    description: 'Destination / route name for the calls.' },
-  { key: 'vendor',         label: 'Vendor',         type: 'text',    description: 'Terminating vendor carrying the traffic.' },
-  { key: 'attempts',       label: 'Attempts',       type: 'numeric', description: 'Total call attempts in the window; precomputed count.' },
-  { key: 'acd',            label: 'ACD',            type: 'numeric', description: 'Average Call Duration in minutes; precomputed.' },
-  { key: 'asr',            label: 'ASR',            type: 'numeric', description: 'Answer-Seizure Ratio as a percent (answered ÷ attempts); precomputed.' },
-  { key: 'failed_calls',   label: 'Failed Calls',   type: 'numeric', description: 'Number of unanswered/failed call attempts; precomputed.' },
-  { key: 'volume',         label: 'Volume',         type: 'numeric', description: 'Total billed call minutes in the window; precomputed SUM.' },
-  { key: 'answered_calls', label: 'Answered Calls', type: 'numeric', description: 'Number of answered (connected) calls; precomputed.' },
+  {
+    key: "account",
+    label: "Account",
+    type: "text",
+    description: "Originating client/account name for the voice traffic.",
+  },
+  {
+    key: "destination",
+    label: "Destination",
+    type: "text",
+    description: "Destination / route name for the calls.",
+  },
+  {
+    key: "vendor",
+    label: "Vendor",
+    type: "text",
+    description: "Terminating vendor carrying the traffic.",
+  },
+  {
+    key: "attempts",
+    label: "Attempts",
+    type: "numeric",
+    description: "Total call attempts in the window; precomputed count.",
+  },
+  {
+    key: "acd",
+    label: "ACD",
+    type: "numeric",
+    description: "Average Call Duration in minutes; precomputed.",
+  },
+  {
+    key: "asr",
+    label: "ASR",
+    type: "numeric",
+    description:
+      "Answer-Seizure Ratio as a percent (answered ÷ attempts); precomputed.",
+  },
+  {
+    key: "failed_calls",
+    label: "Failed Calls",
+    type: "numeric",
+    description: "Number of unanswered/failed call attempts; precomputed.",
+  },
+  {
+    key: "volume",
+    label: "Volume",
+    type: "numeric",
+    description: "Total billed call minutes in the window; precomputed SUM.",
+  },
+  {
+    key: "answered_calls",
+    label: "Answered Calls",
+    type: "numeric",
+    description: "Number of answered (connected) calls; precomputed.",
+  },
+  {
+    key: "asr_change",
+    label: "ASR Change",
+    type: "numeric",
+    visible: false,
+    description:
+      "Latest ASR minus the average of the last 2 refreshes (per route). Negative = ASR dropped. NULL until a baseline exists. Computed post-refresh for alert comparison; hidden in the viewer.",
+  },
+  {
+    key: "acd_change",
+    label: "ACD Change",
+    type: "numeric",
+    visible: false,
+    description:
+      "Latest ACD minus the average of the last 2 refreshes (per route). Negative = ACD dropped. NULL until a baseline exists. Computed post-refresh for alert comparison; hidden in the viewer.",
+  },
+  {
+    key: "failed_calls_change",
+    label: "Failed Calls Change",
+    type: "numeric",
+    visible: false,
+    description:
+      "Latest failed calls minus the average of the last 2 refreshes (per route). Positive = failures rose. NULL until a baseline exists. Computed post-refresh for alert comparison; hidden in the viewer.",
+  },
 ];
 
 @Injectable()
@@ -100,7 +170,7 @@ export class VoiceLiveTrafficService implements OnModuleInit {
       await this.ensureDatasetRecord();
       await this.ensureStageTable();
     } catch (err) {
-      this.logger.error('Voice Live Traffic dataset seed failed', err);
+      this.logger.error("Voice Live Traffic dataset seed failed", err);
     }
   }
 
@@ -117,18 +187,24 @@ export class VoiceLiveTrafficService implements OnModuleInit {
   }
 
   private async ensureDatasetRecord(): Promise<void> {
-    const existing = await this.datasetRepo.findOne({ where: { stageTableName: STAGE } });
+    const existing = await this.datasetRepo.findOne({
+      where: { stageTableName: STAGE },
+    });
 
     if (existing) {
       this._datasetId = existing.id;
-      const sqlChanged  = existing.sqlQuery !== SEED_SQL;
-      const metaChanged = JSON.stringify(existing.columnMetadata) !== JSON.stringify(SEED_COLUMNS);
+      const sqlChanged = existing.sqlQuery !== SEED_SQL;
+      const metaChanged =
+        JSON.stringify(existing.columnMetadata) !==
+        JSON.stringify(SEED_COLUMNS);
       if (sqlChanged || metaChanged) {
         await this.datasetRepo.update(existing.id, {
-          sqlQuery:       SEED_SQL,
+          sqlQuery: SEED_SQL,
           columnMetadata: SEED_COLUMNS as any,
         });
-        this.logger.log('Updated Voice Live Traffic dataset SQL and column metadata');
+        this.logger.log(
+          "Updated Voice Live Traffic dataset SQL and column metadata",
+        );
       }
       // Backfill window for rows created before the column existed.
       await this.dataSource.query(
@@ -138,19 +214,20 @@ export class VoiceLiveTrafficService implements OnModuleInit {
       return;
     }
 
-    this.logger.log('Seeding Voice Live Traffic dataset…');
+    this.logger.log("Seeding Voice Live Traffic dataset…");
     const saved = await this.datasetRepo.save(
       this.datasetRepo.create({
-        name:           DATASET_NAME,
-        description:    'Live voice traffic (ASR/ACD/volume) paired from Jerasoft over a configurable recent window.',
-        sourceDb:       'jerasoft',
-        dataSourceId:   null,
-        sqlQuery:       SEED_SQL,
+        name: DATASET_NAME,
+        description:
+          "Live voice traffic (ASR/ACD/volume) paired from Jerasoft over a configurable recent window.",
+        sourceDb: "jerasoft",
+        dataSourceId: null,
+        sqlQuery: SEED_SQL,
         stageTableName: STAGE,
         columnMetadata: SEED_COLUMNS as any,
-        scheduleCron:   '0 */6 * * *',
-        isActive:       true,
-        createdBy:      null,
+        scheduleCron: "0 */6 * * *",
+        isActive: true,
+        createdBy: null,
       }),
     );
     this._datasetId = saved.id;
@@ -158,11 +235,15 @@ export class VoiceLiveTrafficService implements OnModuleInit {
       `UPDATE datasets SET window_minutes = $1 WHERE id = $2`,
       [DEFAULT_WINDOW, saved.id],
     );
-    this.logger.log('Voice Live Traffic dataset record created');
+    this.logger.log("Voice Live Traffic dataset record created");
   }
 
   private async ensureStageTable(): Promise<void> {
-    const typeMap: Record<string, string> = { numeric: 'NUMERIC', date: 'DATE', text: 'TEXT' };
+    const typeMap: Record<string, string> = {
+      numeric: "NUMERIC",
+      date: "DATE",
+      text: "TEXT",
+    };
     const [row] = await this.dataSource.query(
       `SELECT EXISTS (
          SELECT 1 FROM information_schema.tables WHERE table_name = $1
@@ -172,7 +253,9 @@ export class VoiceLiveTrafficService implements OnModuleInit {
 
     if (!row?.exists) {
       this.logger.log(`Creating stage table: ${STAGE}`);
-      const colDefs = SEED_COLUMNS.map((c) => `"${c.key}" ${typeMap[c.type] ?? 'TEXT'}`).join(', ');
+      const colDefs = SEED_COLUMNS.map(
+        (c) => `"${c.key}" ${typeMap[c.type] ?? "TEXT"}`,
+      ).join(", ");
       await this.dataSource.query(`
         CREATE TABLE IF NOT EXISTS ${STAGE} (
           id           BIGSERIAL   PRIMARY KEY,
@@ -196,7 +279,7 @@ export class VoiceLiveTrafficService implements OnModuleInit {
     for (const col of SEED_COLUMNS) {
       if (!existingSet.has(col.key)) {
         await this.dataSource.query(
-          `ALTER TABLE ${STAGE} ADD COLUMN IF NOT EXISTS "${col.key}" ${typeMap[col.type] ?? 'TEXT'}`,
+          `ALTER TABLE ${STAGE} ADD COLUMN IF NOT EXISTS "${col.key}" ${typeMap[col.type] ?? "TEXT"}`,
         );
         this.logger.log(`Added missing column "${col.key}" to ${STAGE}`);
       }
@@ -204,43 +287,62 @@ export class VoiceLiveTrafficService implements OnModuleInit {
   }
 
   async getData(): Promise<any> {
-    const stageRows: any[] = await this.dataSource.query(
-      `SELECT * FROM ${STAGE} ORDER BY attempts DESC NULLS LAST`,
-    ).catch((err: Error) => {
-      this.logger.error(`Failed to read ${STAGE}: ${err.message}`);
-      return [];
-    });
+    const stageRows: any[] = await this.dataSource
+      .query(`SELECT * FROM ${STAGE} ORDER BY attempts DESC NULLS LAST`)
+      .catch((err: Error) => {
+        this.logger.error(`Failed to read ${STAGE}: ${err.message}`);
+        return [];
+      });
 
     let windowMinutes = DEFAULT_WINDOW;
     if (this._datasetId) {
-      const [w] = await this.dataSource.query(
-        `SELECT window_minutes FROM datasets WHERE id = $1`,
-        [this._datasetId],
-      ).catch(() => [null]);
+      const [w] = await this.dataSource
+        .query(`SELECT window_minutes FROM datasets WHERE id = $1`, [
+          this._datasetId,
+        ])
+        .catch(() => [null]);
       const val = Number(w?.window_minutes);
       if (ALLOWED_WINDOWS.includes(val as any)) windowMinutes = val;
     }
 
     if (stageRows.length === 0) {
-      return { datasetId: this._datasetId, rows: [], windowMinutes, lastRefreshed: null, summary: this.emptySummary() };
+      return {
+        datasetId: this._datasetId,
+        rows: [],
+        windowMinutes,
+        lastRefreshed: null,
+        summary: this.emptySummary(),
+      };
     }
 
     const rows = stageRows.map((r: any) => ({
-      account:        r.account,
-      destination:    r.destination ?? null,
-      vendor:         r.vendor ?? null,
-      attempts:       r.attempts       != null ? Number(r.attempts)       : 0,
-      acd:            r.acd            != null ? Number(r.acd)            : null,
-      asr:            r.asr            != null ? Number(r.asr)            : null,
-      failed_calls:   r.failed_calls   != null ? Number(r.failed_calls)   : 0,
-      volume:         r.volume         != null ? Number(r.volume)         : 0,
+      account: r.account,
+      destination: r.destination ?? null,
+      vendor: r.vendor ?? null,
+      attempts: r.attempts != null ? Number(r.attempts) : 0,
+      acd: r.acd != null ? Number(r.acd) : null,
+      asr: r.asr != null ? Number(r.asr) : null,
+      failed_calls: r.failed_calls != null ? Number(r.failed_calls) : 0,
+      volume: r.volume != null ? Number(r.volume) : 0,
       answered_calls: r.answered_calls != null ? Number(r.answered_calls) : 0,
     }));
 
-    const totalAttempts = rows.reduce((s: number, r: any) => s + (r.attempts ?? 0), 0);
-    const totalAnswered = rows.reduce((s: number, r: any) => s + (r.answered_calls ?? 0), 0);
-    const totalFailed   = rows.reduce((s: number, r: any) => s + (r.failed_calls ?? 0), 0);
-    const totalVolume   = rows.reduce((s: number, r: any) => s + (r.volume ?? 0), 0);
+    const totalAttempts = rows.reduce(
+      (s: number, r: any) => s + (r.attempts ?? 0),
+      0,
+    );
+    const totalAnswered = rows.reduce(
+      (s: number, r: any) => s + (r.answered_calls ?? 0),
+      0,
+    );
+    const totalFailed = rows.reduce(
+      (s: number, r: any) => s + (r.failed_calls ?? 0),
+      0,
+    );
+    const totalVolume = rows.reduce(
+      (s: number, r: any) => s + (r.volume ?? 0),
+      0,
+    );
 
     const [refreshRow] = await this.dataSource.query(
       `SELECT MAX(refreshed_at) AS last_refreshed FROM ${STAGE}`,
@@ -252,17 +354,27 @@ export class VoiceLiveTrafficService implements OnModuleInit {
       rows,
       lastRefreshed: refreshRow?.last_refreshed ?? null,
       summary: {
-        totalRows:     rows.length,
+        totalRows: rows.length,
         totalAttempts,
         totalAnswered,
         totalFailed,
-        totalVolume:   Math.round(totalVolume * 100) / 100,
-        overallAsr:    totalAttempts > 0 ? Math.round((totalAnswered / totalAttempts) * 1000) / 10 : null,
+        totalVolume: Math.round(totalVolume * 100) / 100,
+        overallAsr:
+          totalAttempts > 0
+            ? Math.round((totalAnswered / totalAttempts) * 1000) / 10
+            : null,
       },
     };
   }
 
   private emptySummary() {
-    return { totalRows: 0, totalAttempts: 0, totalAnswered: 0, totalFailed: 0, totalVolume: 0, overallAsr: null };
+    return {
+      totalRows: 0,
+      totalAttempts: 0,
+      totalAnswered: 0,
+      totalFailed: 0,
+      totalVolume: 0,
+      overallAsr: null,
+    };
   }
 }

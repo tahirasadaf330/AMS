@@ -39,16 +39,16 @@ interface NavItem {
 // by hasReportAccess(slug); adding a report here is the only place to register it
 // in the nav.
 const REPORT_LINKS: { slug: string; href: string; label: string }[] = [
-  { slug: 'apple-traffic',      href: '/reports/apple-traffic',       label: 'Apple Traffic' },
-  { slug: 'deals-automation',   href: '/reports/deals-automation',    label: 'Deals Automation' },
-  { slug: 'google_mo',          href: '/reports/google-mo-traffic',   label: 'Google MO Traffic' },
-  { slug: 'mt-edr',             href: '/reports/mt-edr-monitoring',   label: 'MT EDR Monitoring' },
-  { slug: 'prepayment-cl',      href: '/reports/prepayment-cl',       label: 'Pre-Payment Limit' },
-  { slug: 'sms-credit-limit',   href: '/reports/sms-credit-limit',    label: 'SMS Credit Limit' },
-  { slug: 'sms-report',         href: '/reports/sms-report',          label: 'SMS Report' },
-  { slug: 'vcs-balance',        href: '/reports/vcs-balance',         label: 'Voice Credit Limit' },
-  { slug: 'voice-live-traffic', href: '/reports/voice-live-traffic',  label: 'Voice Live Traffic' },
-  { slug: 'zamani',             href: '/reports/zamani-traffic',      label: 'Zamani Traffic' },
+  { slug: 'apple-traffic', href: '/reports/apple-traffic', label: 'Apple Traffic' },
+  { slug: 'deals-automation', href: '/reports/deals-automation', label: 'Deals Automation' },
+  { slug: 'google_mo', href: '/reports/google-mo-traffic', label: 'Google MO Traffic' },
+  { slug: 'mt-edr', href: '/reports/mt-edr-monitoring', label: 'MT EDR Monitoring' },
+  { slug: 'prepayment-cl', href: '/reports/prepayment-cl', label: 'Pre-Payment Limit' },
+  { slug: 'sms-credit-limit', href: '/reports/sms-credit-limit', label: 'SMS Credit Limit' },
+  { slug: 'sms-report', href: '/reports/sms-report', label: 'SMS Report' },
+  { slug: 'vcs-balance', href: '/reports/vcs-balance', label: 'Voice Credit Limit' },
+  { slug: 'voice-live-traffic', href: '/reports/voice-live-traffic', label: 'Voice Live Traffic' },
+  { slug: 'zamani', href: '/reports/zamani-traffic', label: 'Zamani Traffic' },
 ].sort((a, b) => a.label.localeCompare(b.label));
 
 export function NavSidebar() {

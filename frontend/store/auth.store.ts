@@ -114,5 +114,8 @@ if (typeof window !== 'undefined') {
       useAuthStore.getState().clearAuth();
       window.location.href = '/login';
     },
+    // Keep the store token in sync with refreshes so the WebSocket reconnects
+    // with a valid token (otherwise it stays on the expired one → "Invalid token").
+    (newToken) => useAuthStore.setState({ token: newToken }),
   );
 }
