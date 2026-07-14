@@ -211,6 +211,29 @@ const fmtDT   = (dt: string | null) => dt ? new Date(dt).toLocaleString('en-GB')
 const fmtN    = (n: number | null)  => n  != null ? Number(n).toLocaleString() : '—';
 const fmtRate = (n: number | null)  => n  != null ? Number(n).toFixed(6) : '—';
 
+// datetime-local input value (browser local tz) for the From/To time-window filters.
+const toLocalInput = (d: Date) => {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+// Quick-range presets. Relative presets are recomputed from "now" on every load so they roll
+// live with each refresh; 'custom' uses the From/To inputs verbatim.
+type EdrPreset = '2m' | '1h' | '6h' | '12h' | 'day' | 'custom';
+const PRESET_MS: Record<'2m' | '1h' | '6h' | '12h', number> = {
+  '2m': 2 * 60_000, '1h': 3_600_000, '6h': 6 * 3_600_000, '12h': 12 * 3_600_000,
+};
+const PRESET_LABEL: Record<Exclude<EdrPreset, 'custom'>, string> = {
+  '2m': 'Last 2 min', '1h': '1h', '6h': '6h', '12h': '12h', 'day': 'Full Day',
+};
+function presetWindow(p: Exclude<EdrPreset, 'custom'>): { start: Date; end: Date } {
+  const end = new Date();
+  const start = new Date(end);
+  if (p === 'day') start.setHours(0, 0, 0, 0);
+  else start.setTime(end.getTime() - PRESET_MS[p]);
+  return { start, end };
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Page
 // ──────────────────────────────────────────────────────────────────────────────
@@ -227,18 +250,41 @@ export default function MtEdrMonitoringPage() {
     key: 'total_msgs', dir: 'desc',
   });
 
+  // Time window — defaults to the live "Last 2 min" view (rolls with each refresh). Editing a
+  // From/To input switches to a fixed 'custom' window.
+  const [preset, setPreset]         = React.useState<EdrPreset>('2m');
+  const [customFrom, setCustomFrom] = React.useState('');
+  const [customTo,   setCustomTo]   = React.useState('');
+
+  // Displayed input values: a relative preset shows its (live) window; custom shows the edits.
+  const dispFrom = preset === 'custom' ? customFrom : toLocalInput(presetWindow(preset).start);
+  const dispTo   = preset === 'custom' ? customTo   : toLocalInput(presetWindow(preset).end);
+
+  const editFrom = (v: string) => { setCustomFrom(v); setCustomTo((t) => t || dispTo); setPreset('custom'); };
+  const editTo   = (v: string) => { setCustomTo(v);   setCustomFrom((f) => f || dispFrom); setPreset('custom'); };
+
   const load = React.useCallback(() => {
     setLoading(true);
     setError(null);
+    let fromISO: string | undefined;
+    let toISO: string | undefined;
+    if (preset === 'custom') {
+      fromISO = customFrom ? new Date(customFrom).toISOString() : undefined;
+      toISO   = customTo   ? new Date(customTo).toISOString()   : undefined;
+    } else {
+      const { start, end } = presetWindow(preset);   // recomputed from "now" → rolls live
+      fromISO = start.toISOString();
+      toISO   = end.toISOString();
+    }
     mtEdrApi
-      .getData()
+      .getData({ from: fromISO, to: toISO })
       .then((r) => {
         setData(r.data);
         setDatasetId(r.data?.dataset_id ?? null);
       })
       .catch((err: any) => setError(err?.response?.data?.message ?? err?.message ?? 'Failed to load data'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [preset, customFrom, customTo]);
 
   React.useEffect(() => { load(); }, [load]);
   useDatasetSocket(datasetId, load);
@@ -298,7 +344,7 @@ export default function MtEdrMonitoringPage() {
               <div className="edr-title">MT EDR Monitoring</div>
               <div className="edr-sub">
                 <span className="edr-dot" />
-                Real-time · Last 2 minutes · One row per company
+                Per company · rolling incremental · today + yesterday retained
               </div>
             </div>
             <div className="edr-lu">
@@ -348,6 +394,20 @@ export default function MtEdrMonitoringPage() {
 
           {/* Filters */}
           <div className="edr-filt">
+            {(['2m', '1h', '6h', '12h', 'day'] as const).map((p) => (
+              <button
+                key={p}
+                className="edr-tbtn"
+                onClick={() => setPreset(p)}
+                style={preset === p ? { borderColor: '#2563eb', color: '#2563eb', fontWeight: 700 } : undefined}
+              >
+                {PRESET_LABEL[p]}
+              </button>
+            ))}
+            <span style={{ fontSize: '.72rem', color: 'var(--mu)', fontWeight: 600 }}>From</span>
+            <input className="edr-inp" style={{ width: 195 }} type="datetime-local" value={dispFrom} onChange={(e) => editFrom(e.target.value)} />
+            <span style={{ fontSize: '.72rem', color: 'var(--mu)', fontWeight: 600 }}>To</span>
+            <input className="edr-inp" style={{ width: 195 }} type="datetime-local" value={dispTo} onChange={(e) => editTo(e.target.value)} />
             <input
               className="edr-inp"
               type="text"
@@ -406,7 +466,7 @@ export default function MtEdrMonitoringPage() {
                     <tr>
                       <td colSpan={14} className="edr-empty">
                         {allRows.length === 0
-                          ? 'No messages in the last 2 minutes'
+                          ? 'No messages in the selected time window'
                           : 'No companies match the current filters'}
                       </td>
                     </tr>
@@ -444,14 +504,20 @@ export default function MtEdrMonitoringPage() {
                           )}
                         </TD>
                         <TD mono>
-                          {row.negative_margin_count > 0
-                            ? <span style={{ color: 'var(--rejected)', fontWeight: 600 }}>{fmtRate(row.avg_neg_vendor_rate)}</span>
-                            : <span style={{ color: 'var(--mu)' }}>—</span>}
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                            {row.negative_margin_count > 0
+                              ? <span style={{ color: 'var(--rejected)', fontWeight: 600 }}>{fmtRate(row.avg_neg_vendor_rate)}</span>
+                              : <span style={{ color: 'var(--mu)' }}>—</span>}
+                            <span style={{ fontSize: '.62rem', color: 'var(--mu)' }}>{row.vendor_currency ?? '—'}</span>
+                          </div>
                         </TD>
                         <TD mono>
-                          {row.negative_margin_count > 0
-                            ? <span style={{ color: 'var(--accepted)', fontWeight: 600 }}>{fmtRate(row.avg_neg_customer_rate)}</span>
-                            : <span style={{ color: 'var(--mu)' }}>—</span>}
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                            {row.negative_margin_count > 0
+                              ? <span style={{ color: 'var(--accepted)', fontWeight: 600 }}>{fmtRate(row.avg_neg_customer_rate)}</span>
+                              : <span style={{ color: 'var(--mu)' }}>—</span>}
+                            <span style={{ fontSize: '.62rem', color: 'var(--mu)' }}>{row.customer_currency ?? '—'}</span>
+                          </div>
                         </TD>
                         <TD>
                           {isSpike

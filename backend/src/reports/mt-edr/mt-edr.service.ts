@@ -7,73 +7,40 @@ import { ExternalDataSource } from '../../common/entities/data-source.entity';
 const STAGE        = 'stage_mt_edr_monitoring';
 const DATASET_NAME = 'MT EDR Monitoring';
 
-// One row per company — aggregated over the last 2 minutes of MT traffic.
+// One row per MT message for the retention window (today + yesterday). StageService runs this
+// in rolling-overlap incremental mode: first load backfills the window from {{SINCE}}; each
+// 2-min cycle re-pulls only the last 30 minutes (by submit_datetime) so late-arriving DLRs are
+// captured; rows older than yesterday are pruned. getData() then aggregates per company over the
+// selected [from,to] window.
 //
-// Status classification uses DATETIME fields (not DlrStatus text) so it is
-// independent of each SMSC's localised status string values:
-//   delivered  — DlrDateTime IS NOT NULL and not rejected
-//   accepted   — SentDateTime IS NOT NULL, DlrDateTime IS NULL, not rejected
-//   pending    — SentDateTime IS NULL, not rejected
-//   rejected   — MessageRejected = 1, or DlrStatusId = 8
-//
-// Timestamps are returned via CONVERT(VARCHAR(23), …, 126) so the
-// sanitizeRowKeys helper receives a plain string (not a Date object) and
-// preserves the full HH:MM:SS precision in the PostgreSQL stage table.
+// Timestamps: `date` is the UTC calendar date (grouping/prune key). `submit_datetime` is emitted
+// as an ISO-8601 UTC string WITH a 'Z' suffix so PostgreSQL stores it as a correct UTC instant in
+// the TIMESTAMPTZ column (independent of the PG server timezone), which keeps From/To filtering and
+// the rolling-overlap DELETE aligned.
 const SEED_SQL = `
-WITH spike_by_company AS (
-    SELECT cc2.CompanyId, SUM(s.cnt) AS total_spike
-    FROM (
-        SELECT CustomerConnectionId, COUNT(*) AS cnt
-        FROM   SMSCEdr.dbo.MTEdr WITH(NOLOCK)
-        WHERE  SubmitDateTime >= DATEADD(MINUTE, -1, GETUTCDATE())
-        GROUP BY CustomerConnectionId
-    ) s
-    INNER JOIN SMSCPhoenix.dbo.CustomerConnections cc2 WITH(NOLOCK)
-        ON cc2.CustomerConnectionId = s.CustomerConnectionId
-    GROUP BY cc2.CompanyId
-)
 SELECT
-    cust_co.Name                                                              AS customer_company,
-    COUNT(*)                                                                  AS total_msgs,
-    CONVERT(VARCHAR(23), MIN(mt.SubmitDateTime), 126)                         AS first_received_time,
-    CONVERT(VARCHAR(23), MAX(mt.SubmitDateTime), 126)                         AS last_received_time,
-
-    -- Delivered: DLR timestamp present, not rejected
-    SUM(CASE WHEN mt.DlrDateTime IS NOT NULL
-              AND COALESCE(e.MessageRejected, ea.MessageRejected, 0) = 0
-             THEN 1 ELSE 0 END)                                               AS delivered,
-
-    -- Accepted: sent to vendor, waiting for DLR
-    SUM(CASE WHEN mt.SentDateTime IS NOT NULL
-              AND mt.DlrDateTime   IS NULL
-              AND COALESCE(e.MessageRejected, ea.MessageRejected, 0) = 0
-             THEN 1 ELSE 0 END)                                               AS accepted,
-
-    -- Pending: not yet forwarded to vendor
-    SUM(CASE WHEN mt.SentDateTime IS NULL
-              AND COALESCE(e.MessageRejected, ea.MessageRejected, 0) = 0
-             THEN 1 ELSE 0 END)                                               AS pending,
-
-    -- Rejected: explicitly rejected or DlrStatusId = 8
-    SUM(CASE WHEN COALESCE(e.MessageRejected, ea.MessageRejected, 0) = 1
-              OR  mt.DlrStatusId = 8
-             THEN 1 ELSE 0 END)                                               AS rejected,
-
-    SUM(CASE WHEN mt.MtVendorRate > mt.CustomerRate THEN 1 ELSE 0 END)       AS negative_margin_count,
-    ISNULL(MAX(sbc.total_spike), 0)                                           AS msg_count_1min,
-    CASE WHEN ISNULL(MAX(sbc.total_spike), 0) >= 500 THEN 1 ELSE 0 END       AS traffic_spike,
-    CAST(AVG(
-        CASE WHEN mt.SentDateTime IS NOT NULL AND mt.DlrDateTime IS NOT NULL
-             THEN CAST(DATEDIFF(SECOND, mt.SentDateTime, mt.DlrDateTime) AS FLOAT)
-        END
-    ) AS DECIMAL(10,1))                                                       AS avg_delivery_time,
-
-    -- Rates for negative-margin messages only (vendor cost > customer revenue)
-    CAST(AVG(CASE WHEN mt.MtVendorRate > mt.CustomerRate
-                  THEN CAST(mt.MtVendorRate AS FLOAT) END) AS DECIMAL(18,6)) AS avg_neg_vendor_rate,
-    CAST(AVG(CASE WHEN mt.MtVendorRate > mt.CustomerRate
-                  THEN CAST(mt.CustomerRate AS FLOAT) END) AS DECIMAL(18,6)) AS avg_neg_customer_rate
-
+    CONVERT(date, mt.SubmitDateTime)                                    AS [date],
+    CONVERT(VARCHAR(23), mt.SubmitDateTime, 126) + 'Z'                  AS submit_datetime,
+    cust_co.Name                                                        AS customer_company,
+    cust_co.CompanyId                                                   AS customer_id,
+    CASE
+        WHEN COALESCE(e.MessageRejected, ea.MessageRejected, 0) = 1
+             OR mt.DlrStatusId = 8                                      THEN 'rejected'
+        WHEN mt.DlrDateTime  IS NOT NULL                               THEN 'delivered'
+        WHEN mt.SentDateTime IS NOT NULL                               THEN 'accepted'
+        ELSE 'pending'
+    END                                                                 AS status,
+    mt.MccMnc                                                           AS mcc_mnc,
+    mvc.Name                                                            AS vendor_name,
+    cust_cur.CurrencyCode                                              AS customer_currency,
+    -- Vendor rate/cost is booked in the CUSTOMER's deal currency (not the vendor company's
+    -- own currency), so both raw rates are same-currency and margin compares directly.
+    cust_cur.CurrencyCode                                              AS vendor_currency,
+    mt.CustomerRate                                                     AS customer_rate,
+    mt.MtVendorRate                                                     AS vendor_rate,
+    CASE WHEN mt.MtVendorRate > mt.CustomerRate THEN 1 ELSE 0 END       AS is_negative_margin,
+    CASE WHEN mt.SentDateTime IS NOT NULL AND mt.DlrDateTime IS NOT NULL
+         THEN DATEDIFF(SECOND, mt.SentDateTime, mt.DlrDateTime) END     AS delivery_time_sec
 FROM SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
 LEFT JOIN SMSCEdr.dbo.EdrSmppServer e WITH(NOLOCK)
     ON e.EdrSmppServerId = mt.EdrSourceId AND mt.MessageSourceId = 1
@@ -83,27 +50,31 @@ LEFT JOIN SMSCPhoenix.dbo.CustomerConnections cc WITH(NOLOCK)
     ON cc.CustomerConnectionId = mt.CustomerConnectionId
 LEFT JOIN SMSCPhoenix.dbo.Company cust_co WITH(NOLOCK)
     ON cust_co.CompanyId = cc.CompanyId
-LEFT JOIN spike_by_company sbc ON sbc.CompanyId = cust_co.CompanyId
-WHERE mt.SubmitDateTime >= DATEADD(MINUTE, -2, GETUTCDATE())
-GROUP BY cust_co.Name, cust_co.CompanyId
-ORDER BY total_msgs DESC
+LEFT JOIN SMSCPhoenix.dbo.Currency cust_cur WITH(NOLOCK)
+    ON cust_cur.CurrencyId = cust_co.CurrencyId
+LEFT JOIN SMSCPhoenix.dbo.MtVendorConnection mvc WITH(NOLOCK)
+    ON mvc.MtVendorConnectionId = mt.MtVendorConnectionId
+WHERE mt.SubmitDateTime >= '{{SINCE}}'
 `;
 
+// Rolling-overlap config applied to the dataset row (read by StageService via raw SQL).
+const OVERLAP_MINUTES = 30;   // each cycle re-pulls the last 30 min (captures late DLRs)
+const RETENTION_DAYS  = 1;    // keep today + yesterday (prune date < today-1)
+
 const SEED_COLUMNS = [
-  { key: 'customer_company',       label: 'Customer Company',  type: 'text',      description: 'Customer company name; grouping key (one row per company over the last 2 minutes).' },
-  { key: 'total_msgs',             label: 'Total',             type: 'numeric',   description: 'Total MT messages for the company in the 2-minute window; precomputed COUNT.' },
-  { key: 'first_received_time',    label: 'First Received',    type: 'timestamp', description: 'Earliest message submit time in the window (UTC); precomputed MIN.' },
-  { key: 'last_received_time',     label: 'Last Received',     type: 'timestamp', description: 'Latest message submit time in the window (UTC); precomputed MAX.' },
-  { key: 'delivered',              label: 'Delivered',         type: 'numeric',   description: 'Messages with a DLR timestamp and not rejected; precomputed SUM.' },
-  { key: 'accepted',               label: 'Accepted',          type: 'numeric',   description: 'Messages sent to vendor but awaiting DLR; precomputed SUM.' },
-  { key: 'pending',                label: 'Pending',           type: 'numeric',   description: 'Messages not yet forwarded to vendor; precomputed SUM.' },
-  { key: 'rejected',               label: 'Rejected',          type: 'numeric',   description: 'Messages explicitly rejected or DLR status 8; precomputed SUM.' },
-  { key: 'negative_margin_count',  label: 'Neg. Margin',       type: 'numeric',   description: 'Messages where vendor rate exceeds customer rate (loss-making); precomputed SUM.' },
-  { key: 'msg_count_1min',         label: 'Msg/1min',          type: 'numeric',   description: 'Message count in the last 1 minute for the company; precomputed, drives spike alert.' },
-  { key: 'traffic_spike',          label: 'Traffic Spike',     type: 'numeric',   description: 'Flag 1/0: 1 when msg_count_1min ≥ 500; precomputed.' },
-  { key: 'avg_delivery_time',      label: 'Avg Del. (s)',      type: 'numeric',   description: 'Average sent-to-delivered latency in seconds; precomputed AVG.' },
-  { key: 'avg_neg_vendor_rate',   label: 'Vendor Rate',       type: 'numeric',   description: 'Average vendor cost rate across negative-margin messages (per message, source currency); precomputed AVG.' },
-  { key: 'avg_neg_customer_rate', label: 'Customer Rate',     type: 'numeric',   description: 'Average customer revenue rate across negative-margin messages (per message, source currency); precomputed AVG.' },
+  { key: 'date',              label: 'Date',           type: 'date',      description: 'UTC calendar date of the message; grouping and retention-prune key.' },
+  { key: 'submit_datetime',   label: 'Submit Time',    type: 'timestamp', description: 'UTC timestamp the message was submitted; indexed, drives the From/To filter.' },
+  { key: 'customer_company',  label: 'Customer Company', type: 'text',    description: 'Customer company name.' },
+  { key: 'customer_id',       label: 'Customer ID',    type: 'numeric',   description: 'Internal SMSC company id of the customer.' },
+  { key: 'status',            label: 'Status',         type: 'text',      description: "Per-message delivery state: 'delivered' | 'accepted' | 'pending' | 'rejected'." },
+  { key: 'mcc_mnc',           label: 'MCC-MNC',        type: 'text',      description: 'Destination operator code (mobile country + network code).' },
+  { key: 'vendor_name',       label: 'Vendor',         type: 'text',      description: 'Terminating vendor connection name.' },
+  { key: 'customer_currency', label: 'Customer Currency', type: 'text',   description: 'Customer company billing currency (ISO code).' },
+  { key: 'vendor_currency',   label: 'Vendor Currency', type: 'text',     description: "Currency the vendor rate/cost is booked in — the customer's deal currency (ISO code), not the vendor company's own currency." },
+  { key: 'customer_rate',     label: 'Customer Rate',  type: 'numeric',   description: 'Customer (revenue) rate for the message, in customer currency.' },
+  { key: 'vendor_rate',       label: 'Vendor Rate',    type: 'numeric',   description: 'Vendor (cost) rate for the message, in vendor currency.' },
+  { key: 'is_negative_margin', label: 'Neg. Margin',   type: 'numeric',   description: 'Flag 1/0: vendor rate exceeds customer rate (raw comparison, not currency-converted).' },
+  { key: 'delivery_time_sec', label: 'Delivery (s)',   type: 'numeric',   description: 'Seconds from sent to DLR; null if not yet delivered.' },
 ];
 
 @Injectable()
@@ -136,53 +107,62 @@ export class MtEdrService implements OnModuleInit {
       this._datasetId = existing.id;
       const sqlChanged  = existing.sqlQuery !== SEED_SQL;
       const metaChanged = JSON.stringify(existing.columnMetadata) !== JSON.stringify(SEED_COLUMNS);
-      if (sqlChanged || metaChanged) {
+      const cronChanged = existing.scheduleCron !== '*/2 * * * *';
+      if (sqlChanged || metaChanged || cronChanged) {
         await this.datasetRepo.update(existing.id, {
           sqlQuery:       SEED_SQL,
           columnMetadata: SEED_COLUMNS as any,
+          scheduleCron:   '*/2 * * * *',
         });
-        this.logger.log('Updated MT EDR dataset SQL and column metadata');
+        this.logger.log('Updated MT EDR dataset SQL, column metadata and schedule');
       }
-      return;
+    } else {
+      const asmsc = await this.dsRepo.findOne({ where: { name: 'ASMSC' } });
+      if (!asmsc) {
+        this.logger.warn('ASMSC datasource not found — MT EDR dataset not seeded');
+        return;
+      }
+      this.logger.log('Seeding MT EDR Monitoring dataset…');
+      const saved = await this.datasetRepo.save(
+        this.datasetRepo.create({
+          name:           DATASET_NAME,
+          description:    'MT EDR monitoring — one row per message for today+yesterday from ASMSC (rolling 30-min incremental), aggregated per company over the selected time window.',
+          sourceDb:       'mssql',
+          dataSourceId:   asmsc.id,
+          sqlQuery:       SEED_SQL,
+          stageTableName: STAGE,
+          columnMetadata: SEED_COLUMNS as any,
+          scheduleCron:   '*/2 * * * *',
+          isActive:       true,
+          createdBy:      null,
+        }),
+      );
+      this._datasetId = saved.id;
+      this.logger.log('MT EDR Monitoring dataset record created');
     }
 
-    const asmsc = await this.dsRepo.findOne({ where: { name: 'ASMSC' } });
-    if (!asmsc) {
-      this.logger.warn('ASMSC datasource not found — MT EDR dataset not seeded');
-      return;
+    // Apply rolling-overlap incremental config (columns not on the entity → raw SQL, idempotent).
+    // Clear any day-grained lookback so the overlap path is used.
+    if (this._datasetId) {
+      await this.dataSource.query(
+        `UPDATE datasets
+           SET incremental_overlap_minutes  = $2,
+               incremental_timestamp_column = 'submit_datetime',
+               retention_days               = $3,
+               incremental_lookback_days    = NULL
+         WHERE id = $1`,
+        [this._datasetId, OVERLAP_MINUTES, RETENTION_DAYS],
+      ).catch((e: Error) => this.logger.error(`Failed to set MT EDR overlap config: ${e.message}`));
     }
-
-    this.logger.log('Seeding MT EDR Monitoring dataset…');
-    const saved = await this.datasetRepo.save(
-      this.datasetRepo.create({
-        name:           DATASET_NAME,
-        description:    'Real-time MT EDR monitoring — last 2 minutes of SMS traffic, one row per company.',
-        sourceDb:       'mssql',
-        dataSourceId:   asmsc.id,
-        sqlQuery:       SEED_SQL,
-        stageTableName: STAGE,
-        columnMetadata: SEED_COLUMNS as any,
-        scheduleCron:   '* * * * *',
-        isActive:       true,
-        createdBy:      null,
-      }),
-    );
-    this._datasetId = saved.id;
-    this.logger.log('MT EDR Monitoring dataset record created');
   }
 
   private async ensureStageTable(): Promise<void> {
     const typeMap: Record<string, string> = {
-      numeric:   'NUMERIC',
-      date:      'DATE',
-      text:      'TEXT',
-      timestamp: 'TIMESTAMPTZ',
+      numeric: 'NUMERIC', date: 'DATE', text: 'TEXT', timestamp: 'TIMESTAMPTZ',
     };
 
     const [row] = await this.dataSource.query(
-      `SELECT EXISTS (
-         SELECT 1 FROM information_schema.tables WHERE table_name = $1
-       ) AS exists`,
+      `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1) AS exists`,
       [STAGE],
     );
 
@@ -196,86 +176,130 @@ export class MtEdrService implements OnModuleInit {
           ${colDefs}
         )
       `);
-      await this.dataSource.query(
-        `CREATE INDEX IF NOT EXISTS idx_${STAGE}_refreshed ON ${STAGE} (refreshed_at DESC)`,
+    } else {
+      // Schema evolution: add any missing columns, drop obsolete ones (skip reserved).
+      const existing: { column_name: string }[] = await this.dataSource.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+        [STAGE],
       );
-      this.logger.log(`Stage table ${STAGE} created`);
-      return;
-    }
+      const existingSet = new Set(existing.map((r) => r.column_name));
+      const wanted = new Set(SEED_COLUMNS.map((c) => c.key));
 
-    const existing: { column_name: string }[] = await this.dataSource.query(
-      `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
-      [STAGE],
-    );
-    const existingSet = new Set(existing.map((r) => r.column_name));
-    for (const col of SEED_COLUMNS) {
-      if (!existingSet.has(col.key)) {
-        await this.dataSource.query(
-          `ALTER TABLE ${STAGE} ADD COLUMN IF NOT EXISTS "${col.key}" ${typeMap[col.type] ?? 'TEXT'}`,
-        );
-        this.logger.log(`Added missing column "${col.key}" to ${STAGE}`);
+      // One-time transition from the old per-company snapshot schema to the per-message schema:
+      // if the timestamp column is absent, the table holds legacy snapshot rows with none of the
+      // new columns — clear them so the next refresh does a clean full backfill (StageService only
+      // backfills when the table is empty).
+      if (!existingSet.has('submit_datetime')) {
+        await this.dataSource.query(`TRUNCATE TABLE ${STAGE}`);
+        this.logger.log(`Cleared legacy ${STAGE} rows for per-message schema migration`);
+      }
+
+      for (const col of SEED_COLUMNS) {
+        if (!existingSet.has(col.key)) {
+          await this.dataSource.query(
+            `ALTER TABLE ${STAGE} ADD COLUMN IF NOT EXISTS "${col.key}" ${typeMap[col.type] ?? 'TEXT'}`,
+          );
+          this.logger.log(`Added missing column "${col.key}" to ${STAGE}`);
+        }
+      }
+      for (const name of existingSet) {
+        if (name !== 'id' && name !== 'refreshed_at' && !wanted.has(name)) {
+          await this.dataSource.query(`ALTER TABLE ${STAGE} DROP COLUMN IF EXISTS "${name}"`);
+          this.logger.log(`Dropped obsolete column "${name}" from ${STAGE}`);
+        }
       }
     }
+
+    // Indexes (idempotent) — timestamp for From/To range scans, date for prune/grouping.
+    await this.dataSource.query(`CREATE INDEX IF NOT EXISTS idx_${STAGE}_submit ON ${STAGE} (submit_datetime DESC)`);
+    await this.dataSource.query(`CREATE INDEX IF NOT EXISTS idx_${STAGE}_date ON ${STAGE} (date DESC)`);
+    await this.dataSource.query(`CREATE INDEX IF NOT EXISTS idx_${STAGE}_date_company ON ${STAGE} (date DESC, customer_company)`);
+    await this.dataSource.query(`CREATE INDEX IF NOT EXISTS idx_${STAGE}_refreshed ON ${STAGE} (refreshed_at DESC)`);
   }
 
-  async getData(): Promise<any> {
-    // DISTINCT ON (customer_company) guarantees one row per company even if the
-    // stage table accumulates rows across refresh cycles (e.g. due to scheduler
-    // overlap). We pick the row with the latest refreshed_at, then sort the
-    // result set by total_msgs so the busiest companies appear first.
-    const stageRows: any[] = await this.dataSource
-      .query(`
-        SELECT * FROM (
-          SELECT DISTINCT ON (customer_company) *
-          FROM   ${STAGE}
-          ORDER  BY customer_company, refreshed_at DESC
-        ) latest
-        ORDER BY total_msgs DESC NULLS LAST
-      `)
-      .catch((err: Error) => {
-        this.logger.error(`Failed to read ${STAGE}: ${err.message}`);
-        return [];
-      });
+  /**
+   * Aggregate the per-message rows into the per-company report over [from,to].
+   * from/to are ISO-8601 UTC instants (the frontend converts its datetime-local inputs).
+   * Both are optional; omitted → the whole retained window (today+yesterday).
+   */
+  async getData(from?: string, to?: string): Promise<any> {
+    const params: any[] = [from ?? null, to ?? null];
 
-    if (stageRows.length === 0) {
-      return {
-        datasetId:     this._datasetId,
-        rows:          [],
-        lastRefreshed: null,
-        summary:       this.emptySummary(),
-      };
-    }
+    const stageRows: any[] = await this.dataSource.query(`
+      WITH win AS (
+        SELECT *
+        FROM ${STAGE}
+        WHERE ($1::timestamptz IS NULL OR submit_datetime >= $1::timestamptz)
+          AND ($2::timestamptz IS NULL OR submit_datetime <= $2::timestamptz)
+      ),
+      per_min AS (
+        SELECT customer_company, date_trunc('minute', submit_datetime) AS m, COUNT(*) AS cnt
+        FROM win
+        GROUP BY customer_company, date_trunc('minute', submit_datetime)
+      ),
+      peak AS (
+        SELECT customer_company, MAX(cnt) AS peak_min FROM per_min GROUP BY customer_company
+      )
+      SELECT
+        w.customer_company,
+        MAX(w.customer_id)                                                    AS customer_id,
+        MAX(w.customer_currency)                                             AS customer_currency,
+        string_agg(DISTINCT w.vendor_currency, ', ')
+          FILTER (WHERE w.vendor_currency IS NOT NULL)                       AS vendor_currency,
+        COUNT(*)                                                             AS total_msgs,
+        COUNT(*) FILTER (WHERE w.status = 'delivered')                       AS delivered,
+        COUNT(*) FILTER (WHERE w.status = 'accepted')                        AS accepted,
+        COUNT(*) FILTER (WHERE w.status = 'pending')                         AS pending,
+        COUNT(*) FILTER (WHERE w.status = 'rejected')                        AS rejected,
+        COUNT(*) FILTER (WHERE w.is_negative_margin = 1)                     AS negative_margin_count,
+        AVG(w.delivery_time_sec) FILTER (WHERE w.delivery_time_sec IS NOT NULL) AS avg_delivery_time,
+        AVG(w.vendor_rate)   FILTER (WHERE w.is_negative_margin = 1)         AS avg_neg_vendor_rate,
+        AVG(w.customer_rate) FILTER (WHERE w.is_negative_margin = 1)         AS avg_neg_customer_rate,
+        MIN(w.submit_datetime)                                              AS first_received_time,
+        MAX(w.submit_datetime)                                              AS last_received_time,
+        COALESCE(p.peak_min, 0)                                             AS msg_count_1min
+      FROM win w
+      LEFT JOIN peak p ON p.customer_company = w.customer_company
+      GROUP BY w.customer_company, p.peak_min
+      ORDER BY total_msgs DESC
+    `, params).catch((err: Error) => {
+      this.logger.error(`Failed to read ${STAGE}: ${err.message}`);
+      return [];
+    });
 
     const toISO = (v: any): string | null => {
       if (v == null) return null;
-      // node-postgres returns TIMESTAMPTZ as Date objects
       if (v instanceof Date) return isNaN(v.getTime()) ? null : v.toISOString();
       const s = String(v).trim();
-      // Bare date strings (YYYY-MM-DD, 10 chars) have no time component — treat as null
-      // so the frontend shows "—" rather than midnight
       return s.length > 10 ? s : null;
     };
 
-    const rows = stageRows.map((r: any) => ({
-      customer_company:       r.customer_company      ?? null,
-      total_msgs:             Number(r.total_msgs             ?? 0),
-      first_received_time:    toISO(r.first_received_time),
-      last_received_time:     toISO(r.last_received_time),
-      delivered:              Number(r.delivered             ?? 0),
-      accepted:               Number(r.accepted              ?? 0),
-      pending:                Number(r.pending               ?? 0),
-      rejected:               Number(r.rejected              ?? 0),
-      negative_margin_count:  Number(r.negative_margin_count ?? 0),
-      msg_count_1min:         Number(r.msg_count_1min        ?? 0),
-      traffic_spike:          Number(r.traffic_spike         ?? 0),
-      avg_delivery_time:      r.avg_delivery_time      != null ? Number(r.avg_delivery_time)      : null,
-      avg_neg_vendor_rate:    r.avg_neg_vendor_rate    != null ? Number(r.avg_neg_vendor_rate)    : null,
-      avg_neg_customer_rate:  r.avg_neg_customer_rate  != null ? Number(r.avg_neg_customer_rate)  : null,
-    }));
+    const rows = stageRows.map((r: any) => {
+      const peak = Number(r.msg_count_1min ?? 0);
+      return {
+        customer_company:      r.customer_company ?? null,
+        customer_id:           r.customer_id != null ? Number(r.customer_id) : null,
+        customer_currency:     r.customer_currency ?? null,
+        vendor_currency:       r.vendor_currency ?? null,
+        total_msgs:            Number(r.total_msgs ?? 0),
+        delivered:             Number(r.delivered ?? 0),
+        accepted:              Number(r.accepted ?? 0),
+        pending:               Number(r.pending ?? 0),
+        rejected:              Number(r.rejected ?? 0),
+        negative_margin_count: Number(r.negative_margin_count ?? 0),
+        msg_count_1min:        peak,
+        traffic_spike:         peak >= 500 ? 1 : 0,
+        avg_delivery_time:     r.avg_delivery_time    != null ? Number(r.avg_delivery_time)    : null,
+        avg_neg_vendor_rate:   r.avg_neg_vendor_rate  != null ? Number(r.avg_neg_vendor_rate)  : null,
+        avg_neg_customer_rate: r.avg_neg_customer_rate != null ? Number(r.avg_neg_customer_rate) : null,
+        first_received_time:   toISO(r.first_received_time),
+        last_received_time:    toISO(r.last_received_time),
+      };
+    });
 
-    const totalMessages          = rows.reduce((s, r) => s + r.total_msgs, 0);
-    const companiesWithNegMargin = rows.filter((r) => r.negative_margin_count > 0).length;
-    const companiesWithSpike     = rows.filter((r) => r.traffic_spike === 1).length;
+    if (rows.length === 0) {
+      return { datasetId: this._datasetId, rows: [], lastRefreshed: null, summary: this.emptySummary() };
+    }
 
     const [refreshRow] = await this.dataSource.query(
       `SELECT MAX(refreshed_at) AS last_refreshed FROM ${STAGE}`,
@@ -286,10 +310,10 @@ export class MtEdrService implements OnModuleInit {
       rows,
       lastRefreshed: refreshRow?.last_refreshed ?? null,
       summary: {
-        totalCompanies:        rows.length,
-        totalMessages,
-        companiesWithNegMargin,
-        companiesWithSpike,
+        totalCompanies:         rows.length,
+        totalMessages:          rows.reduce((s, r) => s + r.total_msgs, 0),
+        companiesWithNegMargin: rows.filter((r) => r.negative_margin_count > 0).length,
+        companiesWithSpike:     rows.filter((r) => r.traffic_spike === 1).length,
       },
     };
   }
