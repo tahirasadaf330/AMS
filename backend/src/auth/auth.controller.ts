@@ -36,13 +36,17 @@ export class AuthController {
 
     const result = await this.authService.login(dto, ipAddress, userAgent);
 
-    // Set refresh token as HttpOnly cookie
+    // Set refresh token as HttpOnly cookie.
+    // Path must be '/' (not '/auth/refresh'): behind the nginx reverse proxy the browser
+    // calls '/api/auth/refresh', which would not match a '/auth/refresh' cookie path, so
+    // the cookie would never be sent and refresh would always 401 (silent logout on token
+    // expiry). '/' is sent on every request and works in all environments.
     res.cookie('refresh_token', result.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/auth/refresh',
+      path: '/',
     });
 
     this.auditService.log({
@@ -86,7 +90,7 @@ export class AuthController {
   ) {
     await this.authService.logout(user.jti);
 
-    res.clearCookie('refresh_token', { path: '/auth/refresh' });
+    res.clearCookie('refresh_token', { path: '/' });
 
     const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.socket.remoteAddress || '';
     this.auditService.log({

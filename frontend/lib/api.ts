@@ -55,8 +55,15 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+    const reqUrl = originalRequest?.url ?? '';
+    // Never attempt a token refresh for the auth endpoints themselves. A 401 from
+    // /auth/refresh (expired/invalid refresh token) must reject cleanly so the outer
+    // handler can log the user out. Otherwise it re-enters this interceptor, queues
+    // against its own in-flight refresh, and deadlocks — leaving the app stuck after
+    // a session expires (no data loads, logout hangs). Same for login/logout.
+    const isAuthEndpoint = /\/auth\/(refresh|login|logout)/.test(reqUrl);
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       if (_isRefreshing) {
         // Queue the request until refresh completes
         return new Promise((resolve, reject) => {
