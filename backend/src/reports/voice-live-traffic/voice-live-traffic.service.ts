@@ -126,6 +126,30 @@ const SEED_COLUMNS = [
     type: "numeric",
     description: "Number of answered (connected) calls; precomputed.",
   },
+  {
+    key: "asr_change",
+    label: "ASR Change",
+    type: "numeric",
+    visible: false,
+    description:
+      "Latest ASR minus the average of the last 2 refreshes (per route). Negative = ASR dropped. NULL until a baseline exists. Computed post-refresh for alert comparison; hidden in the viewer.",
+  },
+  {
+    key: "acd_change",
+    label: "ACD Change",
+    type: "numeric",
+    visible: false,
+    description:
+      "Latest ACD minus the average of the last 2 refreshes (per route). Negative = ACD dropped. NULL until a baseline exists. Computed post-refresh for alert comparison; hidden in the viewer.",
+  },
+  {
+    key: "failed_calls_change",
+    label: "Failed Calls Change",
+    type: "numeric",
+    visible: false,
+    description:
+      "Latest failed calls minus the average of the last 2 refreshes (per route). Positive = failures rose. NULL until a baseline exists. Computed post-refresh for alert comparison; hidden in the viewer.",
+  },
 ];
 
 @Injectable()

@@ -30,13 +30,16 @@ const api = axios.create({
 // Token injector — updated by the auth store
 let _getToken: () => string | null = () => null;
 let _onUnauthorized: () => void = () => {};
+let _onTokenRefresh: (token: string) => void = () => {};
 
 export function configureApiAuth(
   getToken: () => string | null,
-  onUnauthorized: () => void
+  onUnauthorized: () => void,
+  onTokenRefresh?: (token: string) => void
 ): void {
   _getToken = getToken;
   _onUnauthorized = onUnauthorized;
+  if (onTokenRefresh) _onTokenRefresh = onTokenRefresh;
 }
 
 api.interceptors.request.use((config) => {
@@ -78,6 +81,10 @@ api.interceptors.response.use(
         const { data } = await api.post<AuthResponse>('/auth/refresh');
         const newToken = data.token;
         _getToken = () => newToken;
+        // Push the refreshed token into the auth store too, so the WebSocket
+        // (which reads its token from the store) reconnects with a valid token
+        // instead of staying on the now-expired one.
+        _onTokenRefresh(newToken);
         _refreshQueue.forEach((cb) => cb(newToken));
         _refreshQueue = [];
         if (originalRequest.headers) {

@@ -9,12 +9,14 @@ import { TableView } from '@/components/table-view';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   useDashboardData,
   useRefreshHistory,
   useTriggerRefresh,
   useCancelRefresh,
   useDatasets,
+  dashboardKeys,
 } from '@/hooks/useDashboard';
 import { useAuthStore } from '@/store/auth.store';
 import { useDatasetStore } from '@/store/dataset.store';
@@ -27,6 +29,7 @@ export default function DatasetDashboardPage() {
   const params = useParams();
   const datasetId = params.datasetId as string;
   const canRefresh = useAuthStore((s) => s.canAccess('trigger_refresh'));
+  const queryClient = useQueryClient();
 
   const [page, setPage] = React.useState(1);
   const [sort, setSort] = React.useState<string | undefined>(undefined);
@@ -55,6 +58,13 @@ export default function DatasetDashboardPage() {
       if (event.dataset_id === datasetId) {
         setIsRefreshing(false);
         refreshGuard.current = false;
+        // Refetch status/history/data now that the refresh has completed, so the
+        // status badge and refresh history flip to success without a page reload.
+        // (The mutation's fixed 2s-delay refetch fires while the refresh is still
+        // running, so we tie the refetch to the completion event instead.)
+        void queryClient.invalidateQueries({ queryKey: dashboardKeys.datasets() });
+        void queryClient.invalidateQueries({ queryKey: dashboardKeys.history(datasetId) });
+        void queryClient.invalidateQueries({ queryKey: [...dashboardKeys.all, 'data', datasetId] });
       }
     };
     socket.on('dataset:refresh_started', onStarted);
@@ -65,7 +75,7 @@ export default function DatasetDashboardPage() {
       socket.off('dataset:refreshed', onDone);
       socket.off('dataset:refresh_failed', onDone);
     };
-  }, [datasetId, token]);
+  }, [datasetId, token, queryClient]);
 
   const tableParams = {
     page,
