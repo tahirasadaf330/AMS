@@ -10,14 +10,17 @@ const STAGE        = 'stage_deals_automation';
 const DATASET_NAME = 'Deals Automation';
 const DATASOURCE   = 'deals-dashboard';
 
-// Deals Automation alerting feed. One row per (ACTIVE deal, line-item, distinct destination).
+// Deals Automation alerting feed — v4. One row per (ACTIVE deal, line-item / pool).
+// Destinations are collapsed into one comma-joined `destinations` string (×N badges
+// already applied), so the grain is per-pool and no client-side grouping is needed.
 // Read-only SELECT against the `deals-dashboard` PostgreSQL data source. Runtime ~3 min.
 //
-// NOTE: start_date / end_date are emitted with to_char(...) rather than ::date so the
-// refresh sanitizer stores the exact calendar date. The `pg` driver parses a DATE into a
-// JS Date at the server's LOCAL midnight; StageService.sanitizeRowKeys then stringifies it
-// via toISOString() (UTC), which rolls the date back one day on any UTC+ server. Emitting
-// text sidesteps that entirely. days_to_expiry is computed server-side so it is unaffected.
+// Two adaptations for the AMS staging pipeline (which only stores numeric/date/text):
+//   * start_date / end_date emitted via to_char(...) rather than ::date — the `pg`
+//     driver parses a DATE into a JS Date at LOCAL midnight and StageService then
+//     stringifies via toISOString() (UTC), rolling the date back a day on UTC+ servers.
+//   * destinations_array emitted via to_json(...)::text — a native text[] cannot be
+//     staged safely; JSON text keeps it fully programmatic (frontend JSON.parses it).
 const SEED_SQL = `
 WITH active_deals AS (
     SELECT
@@ -34,17 +37,36 @@ WITH active_deals AS (
       AND d.deleted_at IS NULL
       AND d.end_date   >= CURRENT_DATE
 ),
--- One row per (line_item, normalized destination name).
--- HAVING drops names whose every variant has already ended.
-li_dest_keys AS (
+li_dest_normalized AS (
+    -- Per (line_item, normalized name): display name + variant count.
+    -- Includes destinations that were EVER on the LI so historical
+    -- consumption stays counted. Per-variant windowing is enforced
+    -- inside the LATERAL's EXISTS, not here.
     SELECT
         lid.line_item_id,
         UPPER(TRIM(dst.name))                    AS dst_name_norm,
-        (array_agg(dst.name ORDER BY dst.id))[1] AS destination_name
+        (array_agg(dst.name ORDER BY dst.id))[1] AS destination_name,
+        COUNT(*)                                 AS variant_count
     FROM deal_line_item_destinations lid
     JOIN destinations dst ON dst.id = lid.destination_id
     GROUP BY lid.line_item_id, UPPER(TRIM(dst.name))
-    HAVING MAX(COALESCE(lid.effective_to, DATE '9999-12-31')) >= CURRENT_DATE
+),
+li_dest_summary AS (
+    -- One row per line_item. Destinations concatenated with (×N) badges.
+    SELECT
+        line_item_id,
+        ARRAY_AGG(dst_name_norm)                              AS dst_name_norms,
+        STRING_AGG(
+            CASE WHEN variant_count > 1
+                 THEN destination_name || ' (×' || variant_count || ')'
+                 ELSE destination_name
+            END,
+            ', ' ORDER BY destination_name
+        )                                                     AS destinations,
+        ARRAY_AGG(destination_name ORDER BY destination_name) AS destinations_array,
+        COUNT(*)                                              AS destination_count
+    FROM li_dest_normalized
+    GROUP BY line_item_id
 )
 SELECT
     ad.deal_reference,
@@ -52,12 +74,14 @@ SELECT
     li.direction,
     c.name                                                  AS account_name,
     am.name                                                 AS account_manager,
-    ldk.destination_name,
-
+    li.id                                                   AS line_item_id,
+    lds.destinations                                        AS destinations,
+    to_json(lds.destinations_array)::text                   AS destinations_array,
+    lds.destination_count                                   AS destination_count,
+    t.vendors                                               AS vendors,
     to_char(ad.start_date, 'YYYY-MM-DD')                    AS start_date,
     to_char(ad.end_date,   'YYYY-MM-DD')                    AS end_date,
     ad.days_to_expiry,
-
     li.volume::numeric                                      AS committed_volume,
     COALESCE(t.consumed_volume, 0)::numeric                 AS consumed_volume,
     ROUND(
@@ -65,12 +89,10 @@ SELECT
          / NULLIF(li.volume::numeric, 0))::numeric,
         2
     )                                                       AS utilization_pct,
-
     -- INBOUND : rate = revenue,        cost_rate = approved cost ("swap draft")
     -- OUTBOUND: rate = approved cost,  cost_rate = revenue
     li.rate::numeric                                        AS approved_rate,
     li.cost_rate::numeric                                   AS approved_cost_rate,
-
     ROUND(t.live_rate_per_min::numeric, 6)                  AS live_rate_per_min,
     ROUND(
         (t.live_rate_per_min
@@ -78,21 +100,14 @@ SELECT
                 WHEN li.direction = 'OUTBOUND' THEN li.rate  END)::numeric,
         6
     )                                                       AS rate_variance_per_min,
-
     (li.paused_at IS NOT NULL)                              AS is_paused,
-
-    -- Volume-completion action is NOT modelled in the dashboard today.
-    -- Static NULL — needs product decision + schema addition to populate.
     CAST(NULL AS TEXT)                                      AS overrun_action
-
 FROM active_deals ad
 JOIN customers            c   ON c.id  = ad.customer_id
 LEFT JOIN account_managers am ON am.id = c.account_manager_id
 JOIN deal_line_items      li  ON li.deal_id = ad.deal_id
                              AND li.direction IN ('INBOUND', 'OUTBOUND')
-JOIN li_dest_keys         ldk ON ldk.line_item_id = li.id
-
--- Direction-aware traffic aggregation per (deal, LI, dst_name).
+JOIN li_dest_summary      lds ON lds.line_item_id = li.id
 LEFT JOIN LATERAL (
     SELECT
         SUM(CASE
@@ -103,10 +118,11 @@ LEFT JOIN LATERAL (
              THEN SUM(jt.term_cost)
                   / NULLIF(SUM(jt.term_volume_billed_min), 0)
              ELSE NULL
-        END                                                  AS live_rate_per_min
+        END                                                  AS live_rate_per_min,
+        STRING_AGG(DISTINCT UPPER(TRIM(jt.term_client)), '+'
+                   ORDER BY UPPER(TRIM(jt.term_client)))     AS vendors
     FROM jera_traffic jt
-    WHERE UPPER(TRIM(jt.dst_name)) = ldk.dst_name_norm
-      -- Tight window bound lets Postgres use the day index efficiently.
+    WHERE UPPER(TRIM(jt.dst_name)) = ANY(lds.dst_name_norms)
       AND jt.day >= ad.start_date
       AND jt.day <= ad.window_end
       AND (
@@ -121,27 +137,31 @@ LEFT JOIN LATERAL (
             FROM deal_line_item_destinations lid2
             JOIN destinations dst2 ON dst2.id = lid2.destination_id
             WHERE lid2.line_item_id = li.id
-              AND UPPER(TRIM(dst2.name)) = ldk.dst_name_norm
+              AND UPPER(TRIM(dst2.name)) = UPPER(TRIM(jt.dst_name))
               AND jt.day >= COALESCE(lid2.effective_from::date, ad.start_date)
               AND jt.day <= COALESCE(lid2.effective_to::date,   DATE '9999-12-31')
       )
-      -- Honour the matcher's attribution when set (prevents cross-deal double-count).
-      AND (jt.matched_deal_id IS NULL OR jt.matched_deal_id = ad.deal_id)
+      -- Matcher-attributed traffic only (prevents cross-deal double-count).
+      AND jt.matched_deal_id = ad.deal_id
 ) t ON TRUE
-
-ORDER BY li.direction, c.name, ldk.destination_name
+ORDER BY li.direction, c.name, line_item_id
 `;
 
 // Keys must match sanitizeRowKeys output: lowercase, non-alphanum runs → single underscore.
 // is_paused is emitted as a boolean and normalized to 1 (paused) / 0 (not paused) by the
 // sanitizer, so it is stored as NUMERIC. overrun_action is always NULL (not modelled yet).
+// line_item_id is a cuid (text), NOT an integer. destinations_array is JSON text.
 const SEED_COLUMNS = [
   { key: 'deal_reference',        label: 'Deal Reference',        type: 'text',    description: 'Human-readable deal reference code.' },
   { key: 'deal_status',           label: 'Deal Status',           type: 'text',    description: "Deal status (feed is restricted to 'ACTIVE' deals)." },
   { key: 'direction',             label: 'Direction',             type: 'text',    description: "Traffic direction of the line item: 'INBOUND' or 'OUTBOUND'." },
   { key: 'account_name',          label: 'Account',               type: 'text',    description: 'Customer / counterparty company name on the deal.' },
-  { key: 'account_manager',       label: 'Account Manager',       type: 'text',    description: "Account manager owning the customer." },
-  { key: 'destination_name',      label: 'Destination',           type: 'text',    description: 'Destination name for this line-item row (normalised).' },
+  { key: 'account_manager',       label: 'Account Manager',       type: 'text',    description: 'Account manager owning the customer.' },
+  { key: 'line_item_id',          label: 'Pool (LI)',             type: 'text',    description: 'Line-item (pool) identifier (a cuid); the per-row grain of this feed.' },
+  { key: 'destinations',          label: 'Destinations',          type: 'text',    description: 'Destinations in the pool, comma-joined with (×N) variant badges; precomputed.' },
+  { key: 'destinations_array',    label: 'Destinations (JSON)',   type: 'text',    description: 'JSON-text array of the pool destination names (parsed back to an array by the API); precomputed.' },
+  { key: 'destination_count',     label: 'Destination Count',     type: 'numeric', description: 'Number of distinct destinations in the pool; precomputed COUNT.' },
+  { key: 'vendors',               label: 'Vendors',               type: 'text',    description: 'Distinct routed vendors (jera_traffic term_client), "+"-joined; precomputed.' },
   { key: 'start_date',            label: 'Start Date',            type: 'date',    description: 'Deal start date (YYYY-MM-DD).' },
   { key: 'end_date',              label: 'End Date',              type: 'date',    description: 'Deal end date (YYYY-MM-DD).' },
   { key: 'days_to_expiry',        label: 'Days To Expiry',        type: 'numeric', description: 'Days from today until the deal end date (negative if past); precomputed.' },
@@ -170,6 +190,18 @@ function toYMD(v: unknown): string | null {
     return `${y}-${m}-${d}`;
   }
   return String(v).slice(0, 10);
+}
+
+/** Parse the JSON-text destinations_array back into a string[] (null-safe). */
+function parseArray(v: unknown): string[] | null {
+  if (v == null) return null;
+  if (Array.isArray(v)) return v as string[];
+  try {
+    const parsed = JSON.parse(String(v));
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 @Injectable()
@@ -251,7 +283,7 @@ export class DealsAutomationService implements OnModuleInit {
     const saved = await this.datasetRepo.save(
       this.datasetRepo.create({
         name:           DATASET_NAME,
-        description:    'Deals Automation alerting feed — one row per (active deal, line-item, destination) with utilization, live vs approved rate variance, expiry and pause state from the deals-dashboard.',
+        description:    'Deals Automation alerting feed — one row per (active deal, line-item / pool) with grouped destinations, routed vendors, utilization, live vs approved rate variance, expiry and pause state from the deals-dashboard.',
         sourceDb:       'postgresql',
         dataSourceId:   source.id,
         sqlQuery:       SEED_SQL,
@@ -292,7 +324,8 @@ export class DealsAutomationService implements OnModuleInit {
       return;
     }
 
-    // Table exists — add any columns that are missing (schema evolution)
+    // Table exists — add any columns that are missing (schema evolution).
+    // Obsolete columns from earlier versions are dropped by StageService on refresh.
     const existing: { column_name: string }[] = await this.dataSource.query(
       `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
       [STAGE],
@@ -310,7 +343,7 @@ export class DealsAutomationService implements OnModuleInit {
 
   async getData(): Promise<any> {
     const stageRows: any[] = await this.dataSource.query(
-      `SELECT * FROM ${STAGE} ORDER BY direction ASC, account_name ASC, destination_name ASC`,
+      `SELECT * FROM ${STAGE} ORDER BY direction ASC, account_name ASC, line_item_id ASC`,
     ).catch((err: Error) => {
       this.logger.error(`Failed to read ${STAGE}: ${err.message}`);
       return [];
@@ -326,7 +359,11 @@ export class DealsAutomationService implements OnModuleInit {
       direction:             r.direction ?? null,
       account_name:          r.account_name ?? null,
       account_manager:       r.account_manager ?? null,
-      destination_name:      r.destination_name ?? null,
+      line_item_id:          r.line_item_id ?? null,
+      destinations:          r.destinations ?? null,
+      destinations_array:    parseArray(r.destinations_array),
+      destination_count:     r.destination_count != null ? Number(r.destination_count) : null,
+      vendors:               r.vendors ?? null,
       start_date:            toYMD(r.start_date),
       end_date:              toYMD(r.end_date),
       days_to_expiry:        r.days_to_expiry        != null ? Number(r.days_to_expiry)        : null,
