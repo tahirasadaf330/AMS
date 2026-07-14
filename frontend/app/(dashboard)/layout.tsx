@@ -49,12 +49,14 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     if (datasets) setDatasets(datasets);
   }, [datasets, setDatasets]);
 
-  // Auth guard — only after mount, once persisted auth has been rehydrated
+  // Auth guard — only after mount, once persisted auth has been rehydrated.
+  // Redirect when either the token or the user object is missing so a partial /
+  // corrupt persisted session lands on /login instead of rendering nothing.
   React.useEffect(() => {
-    if (mounted && !token) {
+    if (mounted && (!token || !user)) {
       router.push('/login');
     }
-  }, [mounted, token, router]);
+  }, [mounted, token, user, router]);
 
   const handleLogout = async () => {
     try {

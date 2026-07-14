@@ -30,16 +30,16 @@ const api = axios.create({
 // Token injector — updated by the auth store
 let _getToken: () => string | null = () => null;
 let _onUnauthorized: () => void = () => {};
-let _onTokenRefresh: (token: string) => void = () => {};
+let _setToken: (token: string) => void = () => {};
 
 export function configureApiAuth(
   getToken: () => string | null,
   onUnauthorized: () => void,
-  onTokenRefresh?: (token: string) => void
+  setToken: (token: string) => void
 ): void {
   _getToken = getToken;
   _onUnauthorized = onUnauthorized;
-  if (onTokenRefresh) _onTokenRefresh = onTokenRefresh;
+  _setToken = setToken;
 }
 
 api.interceptors.request.use((config) => {
@@ -87,11 +87,12 @@ api.interceptors.response.use(
       try {
         const { data } = await api.post<AuthResponse>('/auth/refresh');
         const newToken = data.token;
-        _getToken = () => newToken;
-        // Push the refreshed token into the auth store too, so the WebSocket
-        // (which reads its token from the store) reconnects with a valid token
-        // instead of staying on the now-expired one.
-        _onTokenRefresh(newToken);
+        // Persist the refreshed token into the auth store (and thus storage) so a
+        // reload never starts from a stale/expired token, and the WebSocket (which
+        // reads its token from the store) reconnects with a valid token instead of
+        // the now-expired one. The request interceptor reads the live store token,
+        // so it picks this up automatically.
+        _setToken(newToken);
         _refreshQueue.forEach((cb) => cb(newToken));
         _refreshQueue = [];
         if (originalRequest.headers) {
@@ -462,7 +463,8 @@ export const voiceLiveTrafficApi = {
 
 // ── MT EDR MONITORING REPORT ──────────────────────────────────
 export const mtEdrApi = {
-  getData: () => api.get('/reports/mt-edr/data'),
+  // from/to are ISO-8601 UTC instants; omitted → the whole retained window (today+yesterday).
+  getData: (params?: { from?: string; to?: string }) => api.get('/reports/mt-edr/data', { params }),
 };
 
 // ── PRE-PAYMENT CL REPORT ─────────────────────────────────────
