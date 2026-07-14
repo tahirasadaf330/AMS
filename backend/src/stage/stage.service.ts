@@ -336,7 +336,7 @@ export class StageService implements OnModuleInit {
     columnMetadata: Record<string, unknown> | null,
     sampleRows: Record<string, unknown>[],
   ): Promise<void> {
-    const typeMap: Record<string, string> = { numeric: 'NUMERIC', date: 'DATE', text: 'TEXT' };
+    const typeMap: Record<string, string> = { numeric: 'NUMERIC', date: 'DATE', text: 'TEXT', timestamp: 'TIMESTAMPTZ' };
     const RESERVED = new Set(['id', 'refreshed_at']);
 
     const check = await this.dataSource.query(
