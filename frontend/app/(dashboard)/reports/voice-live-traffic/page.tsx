@@ -46,20 +46,26 @@ const CSS = `
 .tbl-scroll::-webkit-scrollbar{height:10px;width:10px}
 .tbl-scroll::-webkit-scrollbar-track{background:var(--sf2);border-radius:6px}
 .tbl-scroll::-webkit-scrollbar-thumb{background:var(--lns);border-radius:6px}
-/* Custom vendor dropdown */
-.vlt-dd{position:relative}
-.vlt-dd-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:200px;cursor:pointer;text-align:left}
-.vlt-dd-btn .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.vlt-dd-btn .caret{color:var(--mu);flex-shrink:0;font-size:10px}
-.vlt-dd-pop{position:absolute;top:calc(100% + 4px);right:0;width:300px;max-width:80vw;z-index:60;background:var(--sf);border:1px solid var(--lns);border-radius:8px;box-shadow:0 12px 34px rgba(0,0,0,.28);overflow:hidden}
-.vlt-dd-search{padding:8px;border-bottom:1px solid var(--ln)}
-.vlt-dd-search .vlt-di{width:100%}
-.vlt-dd-list{max-height:300px;overflow-y:auto;padding:4px}
-.vlt-dd-opt{display:block;width:100%;text-align:left;padding:7px 10px;font-size:12.5px;color:var(--ink);background:none;border:none;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.vlt-dd-opt:hover{background:var(--sf2)}
-.vlt-dd-opt.active{background:rgba(26,188,156,.14);color:var(--green-sea);font-weight:700}
-.dark .vlt-dd-opt.active{color:var(--emerald)}
-.vlt-dd-empty{padding:12px;font-size:12px;color:var(--mu);text-align:center}
+/* Per-column filter popovers */
+.vlt-fil{position:relative;width:100%}
+.vlt-fil-btn{display:flex;align-items:center;justify-content:space-between;gap:4px;width:100%;cursor:pointer;text-align:left;padding:5px 8px;font-size:11px;line-height:1.3}
+.vlt-fil-btn .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mu)}
+.vlt-fil-btn.on{border-color:var(--turquoise)}
+.vlt-fil-btn.on .lbl{color:var(--turquoise);font-weight:600}
+.vlt-fil-btn .caret{color:var(--mu);flex-shrink:0;font-size:8px}
+.vlt-pop{position:absolute;top:calc(100% + 4px);z-index:60;background:var(--sf);border:1px solid var(--lns);border-radius:8px;box-shadow:0 12px 34px rgba(0,0,0,.28);overflow:hidden}
+.vlt-pop-search{padding:8px;border-bottom:1px solid var(--ln)}
+.vlt-pop-search .vlt-di{width:100%}
+.vlt-pop-list{max-height:240px;overflow-y:auto;padding:4px}
+.vlt-pop-opt{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:6px 10px;font-size:12px;color:var(--ink);background:none;border:none;border-radius:6px;cursor:pointer}
+.vlt-pop-opt:hover{background:var(--sf2)}
+.vlt-pop-opt .val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vlt-chk{width:14px;height:14px;flex-shrink:0;border:1px solid var(--lns);border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#fff;line-height:1}
+.vlt-chk.on{background:var(--turquoise);border-color:var(--turquoise)}
+.vlt-pop-empty{padding:12px;font-size:12px;color:var(--mu);text-align:center}
+.vlt-pop-foot{padding:8px;border-top:1px solid var(--ln)}
+.vlt-pop-foot button{font-size:11px;color:var(--mu);background:none;border:none;cursor:pointer}
+.vlt-pop-lbl{display:block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mu);margin-bottom:3px}
 /* Pagination */
 .vlt-pag{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 16px;border-top:1px solid var(--ln);flex-shrink:0;flex-wrap:wrap}
 .vlt-pag-ctrls{display:flex;align-items:center;gap:4px}
@@ -71,12 +77,12 @@ const CSS = `
 
 const IC = {
   alert: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 18, height: 18 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>,
-  search: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 13, height: 13 }}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>,
   radio: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 13, height: 13 }}><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9" /><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5" /><circle cx="12" cy="12" r="2" /><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5" /><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1" /></svg>,
 };
 
 type SortDir = 'asc' | 'desc';
 interface SortState { key: string | null; dir: SortDir; set: (k: string) => void }
+type NumRange = { min: string; max: string };
 
 const fmtInt = (n: any): string => n == null ? '—' : Number(n).toLocaleString('en-US');
 const fmtDec = (n: any): string => n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -91,43 +97,83 @@ function asrColours(pct: number | null): [string, string] {
   return ['rgba(231,76,60,.18)', '#e74c3c'];
 }
 
-// Custom, anchored vendor dropdown — replaces the native <select> whose popup
-// escaped the control and overlapped the table.
-function VendorFilter({ options, value, onChange }: { options: string[]; value: string; onChange: (v: string) => void }) {
+// Close a popover on outside click.
+function useOutsideClose(open: boolean, ref: React.RefObject<HTMLDivElement>, close: () => void) {
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) close(); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open, ref, close]);
+}
+
+// Text column filter — multi-select of the column's values (with search), same
+// behaviour as the Datasets viewer's per-column filter.
+function TextColFilter({ colKey, allRows, selected, onChange, align }: {
+  colKey: string; allRows: any[]; selected: string[]; onChange: (vals: string[]) => void; align: 'left' | 'right';
+}) {
   const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState('');
   const wrapRef = React.useRef<HTMLDivElement>(null);
+  useOutsideClose(open, wrapRef, () => setOpen(false));
 
-  React.useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  const filtered = options.filter(o => o.toLowerCase().includes(q.toLowerCase()));
-  const pick = (v: string) => { onChange(v); setOpen(false); setQ(''); };
+  const values = React.useMemo(() => {
+    const set = new Set<string>();
+    for (const r of allRows) { const v = r[colKey]; if (v != null && v !== '') set.add(String(v)); }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [allRows, colKey]);
+  const filtered = values.filter(v => v.toLowerCase().includes(q.toLowerCase()));
+  const has = selected.length > 0;
+  const toggle = (v: string) => onChange(selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v]);
 
   return (
-    <div ref={wrapRef} className="vlt-dd">
-      <button type="button" className="vlt-di vlt-dd-btn" onClick={() => setOpen(v => !v)}>
-        <span className="lbl">{value || 'All Vendors'}</span>
+    <div ref={wrapRef} className="vlt-fil">
+      <button type="button" className={`vlt-di vlt-fil-btn${has ? ' on' : ''}`} onClick={() => setOpen(o => !o)}>
+        <span className="lbl">{has ? `${selected.length} selected` : 'Filter…'}</span>
         <span className="caret">▼</span>
       </button>
       {open && (
-        <div className="vlt-dd-pop">
-          <div className="vlt-dd-search">
-            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search vendors…" className="vlt-di" />
+        <div className="vlt-pop" style={{ width: 240, [align]: 0 }}>
+          <div className="vlt-pop-search">
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search values…" className="vlt-di" />
           </div>
-          <div className="vlt-dd-list">
-            <button type="button" className={`vlt-dd-opt${value === '' ? ' active' : ''}`} onClick={() => pick('')}>All Vendors</button>
-            {filtered.map(o => (
-              <button key={o} type="button" className={`vlt-dd-opt${value === o ? ' active' : ''}`} onClick={() => pick(o)} title={o}>{o}</button>
+          <div className="vlt-pop-list">
+            {filtered.length === 0 && <div className="vlt-pop-empty">No values</div>}
+            {filtered.map(v => (
+              <button key={v} type="button" className="vlt-pop-opt" onClick={() => toggle(v)} title={v}>
+                <span className={`vlt-chk${selected.includes(v) ? ' on' : ''}`}>{selected.includes(v) ? '✓' : ''}</span>
+                <span className="val">{v}</span>
+              </button>
             ))}
-            {filtered.length === 0 && <div className="vlt-dd-empty">No vendors match</div>}
           </div>
+          {has && <div className="vlt-pop-foot"><button type="button" onClick={() => { onChange([]); setQ(''); }}>Clear selection</button></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Numeric column filter — min/max range, same as the Datasets viewer.
+function NumColFilter({ value, onChange }: { value: NumRange; onChange: (v: NumRange) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+  useOutsideClose(open, wrapRef, () => setOpen(false));
+  const has = value.min !== '' || value.max !== '';
+  const label = has ? [value.min && `≥ ${value.min}`, value.max && `≤ ${value.max}`].filter(Boolean).join('  ') : 'Filter…';
+
+  return (
+    <div ref={wrapRef} className="vlt-fil">
+      <button type="button" className={`vlt-di vlt-fil-btn${has ? ' on' : ''}`} onClick={() => setOpen(o => !o)}>
+        <span className="lbl">{label}</span>
+        <span className="caret">▼</span>
+      </button>
+      {open && (
+        <div className="vlt-pop" style={{ right: 0, width: 170, padding: 10 }}>
+          <label className="vlt-pop-lbl">Min</label>
+          <input type="number" className="vlt-di" style={{ width: '100%' }} placeholder="No minimum" value={value.min} onChange={e => onChange({ ...value, min: e.target.value })} />
+          <label className="vlt-pop-lbl" style={{ marginTop: 8 }}>Max</label>
+          <input type="number" className="vlt-di" style={{ width: '100%' }} placeholder="No maximum" value={value.max} onChange={e => onChange({ ...value, max: e.target.value })} />
+          {has && <button type="button" style={{ marginTop: 8, fontSize: 11, color: 'var(--mu)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }} onClick={() => onChange({ min: '', max: '' })}>Clear</button>}
         </div>
       )}
     </div>
@@ -139,10 +185,9 @@ const TH = ({ children, left, w, colKey, sort }: { children: React.ReactNode; le
   return (
     <th onClick={colKey ? () => sort?.set(colKey) : undefined} style={{
       textAlign: left ? 'left' : 'right', position: 'sticky', top: 0,
-      background: 'var(--sf2)', zIndex: 1, padding: '10px 10px',
+      background: 'var(--sf2)', zIndex: 2, padding: '10px 10px',
       fontSize: 10, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase',
       color: isActive ? 'var(--turquoise)' : 'var(--mu)', whiteSpace: 'nowrap',
-      borderBottom: isActive ? '2px solid var(--turquoise)' : '2px solid var(--lns)',
       cursor: colKey ? 'pointer' : 'default', userSelect: 'none',
       ...(w ? { width: w, minWidth: w } : {}),
     }}>
@@ -163,6 +208,19 @@ const TD = ({ children, left, style }: { children: React.ReactNode; left?: boole
 // Text cells wrap so long account / destination / vendor names are fully visible.
 const wrapCell = (maxW: number): React.CSSProperties => ({ whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere', maxWidth: maxW });
 
+// Column layout — drives both the header and the filter row so they stay aligned.
+const COLS: { key: string; label: string; type: 'text' | 'num'; w: number; left: boolean }[] = [
+  { key: 'account', label: 'Account', type: 'text', w: 230, left: true },
+  { key: 'destination', label: 'Destination', type: 'text', w: 180, left: true },
+  { key: 'vendor', label: 'Vendor', type: 'text', w: 170, left: true },
+  { key: 'attempts', label: 'Attempts', type: 'num', w: 90, left: false },
+  { key: 'acd', label: 'ACD', type: 'num', w: 90, left: false },
+  { key: 'asr', label: 'ASR', type: 'num', w: 90, left: false },
+  { key: 'failed_calls', label: 'Failed Calls', type: 'num', w: 100, left: false },
+  { key: 'volume', label: 'Volume', type: 'num', w: 100, left: false },
+  { key: 'answered_calls', label: 'Answered Calls', type: 'num', w: 110, left: false },
+];
+
 function Skel() {
   return (
     <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -176,10 +234,11 @@ export default function VoiceLiveTrafficPage() {
   const [datasetId, setDatasetId] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [search, setSearch] = React.useState('');
-  const [filterVendor, setFilterVendor] = React.useState('');
   const [page, setPage] = React.useState(1);
   const [sort, setSort] = React.useState<{ key: string | null; dir: SortDir }>({ key: null, dir: 'desc' });
+  // Per-column filters (same system as the Datasets viewer): text = selected values, numeric = min/max.
+  const [textFilters, setTextFilters] = React.useState<Record<string, string[]>>({});
+  const [numFilters, setNumFilters] = React.useState<Record<string, NumRange>>({});
 
   const handleSort = React.useCallback((key: string) => {
     setSort(prev => {
@@ -216,27 +275,31 @@ export default function VoiceLiveTrafficPage() {
   }, [load]);
 
   // Reset to the first page whenever the visible set changes.
-  React.useEffect(() => { setPage(1); }, [search, filterVendor, sort]);
+  React.useEffect(() => { setPage(1); }, [textFilters, numFilters, sort]);
 
-  const vendorOptions: string[] = React.useMemo(() => {
-    if (!data?.rows) return [];
-    const set = new Set<string>();
-    for (const r of data.rows) { if (r.vendor) set.add(r.vendor); }
-    return Array.from(set).sort();
-  }, [data]);
+  const hasFilters =
+    Object.values(textFilters).some(v => v && v.length > 0) ||
+    Object.values(numFilters).some(v => v && (v.min !== '' || v.max !== ''));
+
+  const clearFilters = () => { setTextFilters({}); setNumFilters({}); };
 
   const rows: any[] = React.useMemo(() => {
     if (!data?.rows) return [];
-    let filtered = data.rows;
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      filtered = filtered.filter((r: any) =>
-        (r.account ?? '').toLowerCase().includes(q) ||
-        (r.destination ?? '').toLowerCase().includes(q) ||
-        (r.vendor ?? '').toLowerCase().includes(q)
-      );
+    let filtered: any[] = data.rows;
+
+    for (const c of COLS) {
+      if (c.type === 'text') {
+        const sel = textFilters[c.key];
+        if (sel && sel.length) filtered = filtered.filter((r: any) => sel.includes(String(r[c.key] ?? '')));
+      } else {
+        const nf = numFilters[c.key];
+        if (nf) {
+          if (nf.min !== '') { const mn = Number(nf.min); if (!isNaN(mn)) filtered = filtered.filter((r: any) => Number(r[c.key]) >= mn); }
+          if (nf.max !== '') { const mx = Number(nf.max); if (!isNaN(mx)) filtered = filtered.filter((r: any) => Number(r[c.key]) <= mx); }
+        }
+      }
     }
-    if (filterVendor) filtered = filtered.filter((r: any) => r.vendor === filterVendor);
+
     if (!sort.key) return filtered;
     const { key, dir } = sort;
     return [...filtered].sort((a, b) => {
@@ -247,7 +310,7 @@ export default function VoiceLiveTrafficPage() {
       const cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv));
       return dir === 'asc' ? cmp : -cmp;
     });
-  }, [data, search, filterVendor, sort]);
+  }, [data, textFilters, numFilters, sort]);
 
   const lastRefreshed: string | null = data?.last_refreshed ?? data?.lastRefreshed ?? null;
   const windowMinutes: number = data?.window_minutes ?? data?.windowMinutes ?? 10;
@@ -268,6 +331,8 @@ export default function VoiceLiveTrafficPage() {
     const asr = attempts > 0 ? (answered / attempts) * 100 : null;
     return { attempts, answered, failed, volume, asr };
   }, [rows]);
+
+  const allRows: any[] = data?.rows ?? [];
 
   return (
     <>
@@ -308,18 +373,11 @@ export default function VoiceLiveTrafficPage() {
                 {sort.key ? `Sorted by ${sort.key.replace(/_/g, ' ')} ${sort.dir === 'asc' ? '↑' : '↓'}` : 'Click a column to sort'} · {rows.length} routes
               </span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <VendorFilter options={vendorOptions} value={filterVendor} onChange={setFilterVendor} />
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--mu)', pointerEvents: 'none', display: 'flex' }}>{IC.search}</span>
-                <input type="text" placeholder="Search account / destination…" value={search} onChange={e => setSearch(e.target.value)} className="vlt-di" style={{ width: 210, paddingLeft: 28 }} />
-              </div>
-              {(filterVendor || search) && (
-                <button onClick={() => { setFilterVendor(''); setSearch(''); }} style={{ fontSize: 12, color: 'var(--mu)', background: 'none', border: '1px solid var(--lns)', borderRadius: 6, padding: '6px 10px', cursor: 'pointer' }}>
-                  Clear filters
-                </button>
-              )}
-            </div>
+            {hasFilters && (
+              <button onClick={clearFilters} style={{ fontSize: 12, color: 'var(--mu)', background: 'none', border: '1px solid var(--lns)', borderRadius: 6, padding: '6px 10px', cursor: 'pointer' }}>
+                Clear filters
+              </button>
+            )}
           </div>
 
           <div className="tbl-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: 'var(--sf2)' }}>
@@ -327,22 +385,26 @@ export default function VoiceLiveTrafficPage() {
               <table style={{ borderCollapse: 'collapse', fontSize: 12.5, minWidth: '100%' }}>
                 <thead>
                   <tr>
-                    <TH left w={230} colKey="account" sort={srt}>Account</TH>
-                    <TH left w={180} colKey="destination" sort={srt}>Destination</TH>
-                    <TH left w={170} colKey="vendor" sort={srt}>Vendor</TH>
-                    <TH w={90} colKey="attempts" sort={srt}>Attempts</TH>
-                    <TH w={90} colKey="acd" sort={srt}>ACD</TH>
-                    <TH w={90} colKey="asr" sort={srt}>ASR</TH>
-                    <TH w={100} colKey="failed_calls" sort={srt}>Failed Calls</TH>
-                    <TH w={100} colKey="volume" sort={srt}>Volume</TH>
-                    <TH w={110} colKey="answered_calls" sort={srt}>Answered Calls</TH>
+                    {COLS.map(c => (
+                      <TH key={c.key} left={c.left} w={c.w} colKey={c.key} sort={srt}>{c.label}</TH>
+                    ))}
+                  </tr>
+                  {/* Per-column filter row (same system as the Datasets viewer) */}
+                  <tr>
+                    {COLS.map(c => (
+                      <th key={c.key} style={{ position: 'sticky', top: 33, background: 'var(--sf2)', zIndex: 1, padding: '4px 6px', borderBottom: '2px solid var(--lns)', width: c.w, minWidth: c.w }}>
+                        {c.type === 'text'
+                          ? <TextColFilter colKey={c.key} allRows={allRows} selected={textFilters[c.key] ?? []} onChange={vals => setTextFilters(f => ({ ...f, [c.key]: vals }))} align={c.left ? 'left' : 'right'} />
+                          : <NumColFilter value={numFilters[c.key] ?? { min: '', max: '' }} onChange={v => setNumFilters(f => ({ ...f, [c.key]: v }))} />}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length === 0 && (
                     <tr>
                       <td colSpan={9} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--mu)', fontSize: 13 }}>
-                        {error ? 'Load failed — see error above' : (search || filterVendor) ? 'No matching routes' : 'No data — refresh the dataset first'}
+                        {error ? 'Load failed — see error above' : hasFilters ? 'No matching routes' : 'No data — refresh the dataset first'}
                       </td>
                     </tr>
                   )}
