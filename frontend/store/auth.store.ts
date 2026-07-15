@@ -18,6 +18,7 @@ interface AuthStore {
   token: string | null;
   remember: boolean;
   setAuth: (user: AuthUser, token: string, remember?: boolean) => void;
+  setToken: (token: string) => void;
   clearAuth: () => void;
   isRole: (role: UserRole | UserRole[]) => boolean;
   canAccess: (permission: string) => boolean;
@@ -64,6 +65,12 @@ export const useAuthStore = create<AuthStore>()(
         set({ user, token, remember: remember ?? get().remember });
       },
 
+      // Update just the access token (used by the API layer after a silent refresh)
+      // so the persisted store never holds a stale/expired token.
+      setToken: (token: string) => {
+        set({ token });
+      },
+
       clearAuth: () => {
         set({ user: null, token: null });
       },
@@ -87,20 +94,37 @@ export const useAuthStore = create<AuthStore>()(
         const user = get().user;
         if (!user) return false;
         if (user.role === 'admin') return true;
-        return user.dataset_access.includes(datasetId);
+        return (user.dataset_access ?? []).includes(datasetId);
       },
 
       hasReportAccess: (slug: string) => {
         const user = get().user;
         if (!user) return false;
         if (user.role === 'admin') return true;
-        return user.report_access.includes(slug);
+        return (user.report_access ?? []).includes(slug);
       },
     }),
     {
       name: 'ams-auth',
+      version: 1,
       storage: createJSONStorage(() => dualStorage),
       partialize: (s) => ({ user: s.user, token: s.token, remember: s.remember }),
+      // Normalize auth state persisted by older builds. `report_access` and
+      // `dataset_access` were added after some sessions were created, so a rehydrated
+      // `user` from before then has them undefined — and `.includes()` on undefined
+      // throws during render (white screen until the user clears storage). Coerce to
+      // arrays here; the access helpers above are also null-safe as a backstop.
+      migrate: (persisted): AuthStore => {
+        const state = (persisted ?? {}) as Partial<AuthStore>;
+        if (state.user) {
+          state.user = {
+            ...state.user,
+            dataset_access: state.user.dataset_access ?? [],
+            report_access: state.user.report_access ?? [],
+          };
+        }
+        return state as AuthStore;
+      },
     },
   ),
 );
@@ -116,6 +140,6 @@ if (typeof window !== 'undefined') {
     },
     // Keep the store token in sync with refreshes so the WebSocket reconnects
     // with a valid token (otherwise it stays on the expired one → "Invalid token").
-    (newToken) => useAuthStore.setState({ token: newToken }),
+    (token) => useAuthStore.getState().setToken(token),
   );
 }

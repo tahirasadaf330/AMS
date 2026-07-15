@@ -27,6 +27,20 @@ export class StageService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    // Ensure the rolling-overlap incremental columns exist (migration 007 is not part of the
+    // deploy.sh migration list, so guarantee them idempotently in code — matches the app's
+    // self-DDL pattern). NULL for every dataset that doesn't opt in → no behaviour change.
+    try {
+      await this.dataSource.query(
+        `ALTER TABLE datasets
+           ADD COLUMN IF NOT EXISTS incremental_overlap_minutes  INT,
+           ADD COLUMN IF NOT EXISTS incremental_timestamp_column VARCHAR(63),
+           ADD COLUMN IF NOT EXISTS retention_days               INT`,
+      );
+    } catch (err) {
+      this.logger.error('Failed to ensure rolling-overlap columns on datasets', err);
+    }
+
     try {
       const result = await this.dataSource.query(
         `UPDATE dataset_refresh_log
@@ -93,16 +107,56 @@ export class StageService implements OnModuleInit {
 
       // Incremental mode: fetch incremental config directly from DB to avoid TypeORM column-mapping issues
       const [incrConfig] = await this.dataSource.query(
-        `SELECT incremental_lookback_days, incremental_initial_date FROM datasets WHERE id = $1`,
+        `SELECT incremental_lookback_days, incremental_initial_date,
+                incremental_overlap_minutes, incremental_timestamp_column, retention_days
+         FROM datasets WHERE id = $1`,
         [dataset.id],
       ).catch(() => [null]);
 
       const lookbackDays: number = Number(incrConfig?.incremental_lookback_days) || 0;
       const initialDate: string  = incrConfig?.incremental_initial_date ?? '2020-01-01';
-      const isIncremental = lookbackDays > 0;
+
+      // Rolling-overlap incremental (opt-in via incremental_overlap_minutes > 0): first load backfills
+      // the whole retention window; later cycles re-pull only the last N minutes (by the configured
+      // timestamp column) so late-arriving updates (e.g. SMS DLRs) are captured without reloading
+      // everything, then rows older than the window are pruned. Strictly gated — datasets that leave
+      // these columns null keep the exact existing behaviour below.
+      const overlapMinutes: number = Number(incrConfig?.incremental_overlap_minutes) || 0;
+      const isOverlap = overlapMinutes > 0;
+      const tsColumn: string = String(incrConfig?.incremental_timestamp_column ?? '').replace(/[^a-z0-9_]/gi, '');
+      const retentionDays: number = Number(incrConfig?.retention_days) || 1;
+
+      const isIncremental = !isOverlap && lookbackDays > 0;
       let lookbackDate: string | null = null;
+      let overlapSince: string | null = null;
+      let overlapTableEmpty = false;
 
       let sql = dataset.sqlQuery;
+
+      if (isOverlap) {
+        if (!tsColumn) {
+          throw new Error(`Dataset ${dataset.name}: incremental_overlap_minutes is set but incremental_timestamp_column is missing`);
+        }
+        try {
+          const [cnt] = await this.dataSource.query(
+            `SELECT EXISTS (SELECT 1 FROM ${dataset.stageTableName} LIMIT 1) AS has_data`,
+          );
+          overlapTableEmpty = cnt?.has_data !== true;
+        } catch { overlapTableEmpty = true; /* table may not exist yet */ }
+
+        const now = new Date();
+        if (!overlapTableEmpty) {
+          overlapSince = new Date(now.getTime() - overlapMinutes * 60_000).toISOString();
+          this.logger.log(`Rolling-overlap refresh for ${dataset.name}: reload last ${overlapMinutes} min (since ${overlapSince})`);
+        } else {
+          // Backfill from the start of the retention window (UTC midnight, retentionDays back)
+          const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - retentionDays, 0, 0, 0));
+          overlapSince = start.toISOString();
+          this.logger.log(`Rolling-overlap initial backfill for ${dataset.name}: from ${overlapSince} (${retentionDays}d window)`);
+        }
+        sql = sql.replace(/\{\{SINCE\}\}/g, overlapSince);
+      }
+
       if (isIncremental) {
         let hasData = false;
         try {
@@ -160,7 +214,16 @@ export class StageService implements OnModuleInit {
 
       try {
         // Delete phase
-        if (isIncremental && lookbackDate) {
+        if (isOverlap) {
+          // Re-pull window: delete exactly the rows the SQL is about to re-insert (>= SINCE).
+          // On first-load backfill the table is empty, so nothing to delete.
+          if (!overlapTableEmpty && overlapSince) {
+            await queryRunner.query(
+              `DELETE FROM ${dataset.stageTableName} WHERE "${tsColumn}" >= $1::timestamptz`,
+              [overlapSince],
+            );
+          }
+        } else if (isIncremental && lookbackDate) {
           await queryRunner.query(
             `DELETE FROM ${dataset.stageTableName} WHERE "date" >= $1::date`,
             [lookbackDate],
@@ -186,6 +249,16 @@ export class StageService implements OnModuleInit {
         );
 
         await queryRunner.commitTransaction();
+
+        // Retention prune (rolling-overlap mode): drop rows older than the retention window.
+        // Keyed on the `date` column (UTC calendar date) so today+yesterday are kept for
+        // retention_days = 1. Runs after commit; failure is logged, not fatal.
+        if (isOverlap) {
+          await this.dataSource.query(
+            `DELETE FROM ${dataset.stageTableName} WHERE "date" < ((now() AT TIME ZONE 'UTC')::date - $1::int)`,
+            [retentionDays],
+          ).catch((e: Error) => this.logger.error(`Retention prune failed for ${dataset.stageTableName}: ${e.message}`));
+        }
       } catch (err) {
         await queryRunner.rollbackTransaction();
         throw err;
@@ -263,7 +336,7 @@ export class StageService implements OnModuleInit {
     columnMetadata: Record<string, unknown> | null,
     sampleRows: Record<string, unknown>[],
   ): Promise<void> {
-    const typeMap: Record<string, string> = { numeric: 'NUMERIC', date: 'DATE', text: 'TEXT' };
+    const typeMap: Record<string, string> = { numeric: 'NUMERIC', date: 'DATE', text: 'TEXT', timestamp: 'TIMESTAMPTZ' };
     const RESERVED = new Set(['id', 'refreshed_at']);
 
     const check = await this.dataSource.query(
