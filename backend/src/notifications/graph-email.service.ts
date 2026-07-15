@@ -297,6 +297,59 @@ export class GraphEmailService {
     }
   }
 
+  /**
+   * Send a pre-built HTML email with optional inline (CID) images — used by report
+   * digests (e.g. Google MO Traffic Alert) that render their own multi-table body and
+   * an embedded chart. The HTML references each image via <img src="cid:<cid>">.
+   */
+  async sendRichEmail(params: {
+    recipients: string[];
+    subject: string;
+    html: string;
+    inlineImages?: Array<{ cid: string; contentBytes: string; contentType?: string; name?: string }>;
+  }): Promise<void> {
+    const { token, senderEmail } = await this.getAccessToken();
+
+    const toRecipients: EmailRecipient[] = params.recipients.map((addr) => ({
+      emailAddress: { address: addr },
+    }));
+
+    const attachments = (params.inlineImages ?? [])
+      .filter((img) => img.cid && img.contentBytes)
+      .map((img) => ({
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: img.name ?? `${img.cid}.png`,
+        contentType: img.contentType ?? 'image/png',
+        contentBytes: img.contentBytes,
+        isInline: true,
+        contentId: img.cid,
+      }));
+
+    const message: Record<string, unknown> = {
+      subject: params.subject,
+      body: { contentType: 'HTML', content: params.html },
+      toRecipients,
+    };
+    if (attachments.length) message.attachments = attachments;
+
+    const response = await axios.post(
+      `https://graph.microsoft.com/v1.0/users/${senderEmail}/sendMail`,
+      { message, saveToSentItems: true },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 60000,
+        validateStatus: (status) => status === 202,
+      },
+    );
+
+    if (response.status !== 202) {
+      throw new Error(`Graph API returned status ${response.status}`);
+    }
+  }
+
   private buildHtml(params: {
     conditionName: string;
     datasetName: string;

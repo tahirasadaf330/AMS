@@ -6,6 +6,7 @@ import { CronJob } from 'cron';
 import { Condition } from '../common/entities/condition.entity';
 import { ConditionEvaluatorService } from './condition-evaluator.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { GraphEmailService } from '../notifications/graph-email.service';
 import { PythonExecutorService } from './python-executor.service';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class ConditionSchedulerService implements OnModuleInit {
     private dataSource: DataSource,
     private evaluatorService: ConditionEvaluatorService,
     private notificationsService: NotificationsService,
+    private graphEmail: GraphEmailService,
     private pythonExecutor: PythonExecutorService,
   ) {}
 
@@ -144,25 +146,59 @@ export class ConditionSchedulerService implements OnModuleInit {
     }
 
     try {
-      const result = await this.pythonExecutor.execute(condition.pythonScript);
+      // executeReport is a superset of execute() — it also parses html/subject/image for
+      // report-style scripts. Rows-only scripts simply leave those fields undefined.
+      const result = await this.pythonExecutor.executeReport(condition.pythonScript);
 
-      if (result.triggered) {
-        this.logger.log(`Python condition "${condition.name}": triggered (${result.rows?.length ?? 0} row(s))`);
-        await this.conditionRepo.update(condition.id, { lastTriggeredAt: new Date() });
-        await this.notificationsService.logScriptExecution({
-          condition,
-          status: 'sent',
-          message: result.message,
-          rows: result.rows,
-        });
-      } else {
+      if (!result.triggered) {
         this.logger.log(`Python condition "${condition.name}": not triggered (triggered=false)`);
         await this.notificationsService.logScriptExecution({
           condition,
           status: 'skipped',
           message: result.message,
         });
+        return;
       }
+
+      await this.conditionRepo.update(condition.id, { lastTriggeredAt: new Date() });
+
+      // Report-style script (returns HTML): actually send the rich email to the condition's
+      // recipients. Previously a manual trigger only logged "sent" and never emailed anything —
+      // so the toast said "sent" but no mail arrived. The daily digest cron path is separate
+      // (GoogleMoAlertService), so this only sends on manual/scheduled generic triggers.
+      if (result.html) {
+        const recipients = condition.channels?.email?.recipients ?? [];
+        if (!recipients.length) {
+          this.logger.warn(`Python condition "${condition.name}": report built but no email recipients — logging only`);
+          await this.notificationsService.logScriptExecution({
+            condition, status: 'skipped', message: result.message ?? 'no recipients', rows: result.rows,
+          });
+          return;
+        }
+        const subject = result.subject ?? `${condition.name} — ${new Date().toISOString().slice(0, 10)}`;
+        await this.graphEmail.sendRichEmail({
+          recipients,
+          subject,
+          html: result.html,
+          inlineImages: result.image_base64
+            ? [{ cid: result.image_cid ?? 'chart', contentBytes: result.image_base64 }]
+            : [],
+        });
+        this.logger.log(`Python condition "${condition.name}": report emailed to ${recipients.join(', ')}`);
+        await this.notificationsService.logScriptExecution({
+          condition, status: 'sent', message: result.message, rows: result.rows,
+        });
+        return;
+      }
+
+      // Rows-only python condition: preserve existing behaviour (record the run).
+      this.logger.log(`Python condition "${condition.name}": triggered (${result.rows?.length ?? 0} row(s))`);
+      await this.notificationsService.logScriptExecution({
+        condition,
+        status: 'sent',
+        message: result.message,
+        rows: result.rows,
+      });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.logger.error(`Python condition "${condition.name}" failed: ${errorMessage}`);
