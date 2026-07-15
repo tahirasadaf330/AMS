@@ -321,48 +321,47 @@ export class VoiceLiveTrafficService implements OnModuleInit {
     const HISTORY = `${STAGE}_history`;
     const routeKey = (r: any) =>
       `${r.account ?? ''} ${r.destination ?? ''} ${r.vendor ?? ''}`;
-    const histBatches: any[] = await this.dataSource
-      .query(`SELECT DISTINCT refreshed_at FROM ${HISTORY} ORDER BY refreshed_at DESC LIMIT 2`)
-      .catch(() => []);
-    const buildHistMap = async (ts: any) => {
-      const m = new Map<string, { acd: number | null; asr: number | null; failed_calls: number | null }>();
-      if (!ts) return m;
-      const hrows: any[] = await this.dataSource
-        .query(
-          `SELECT account, destination, vendor, acd, asr, failed_calls FROM ${HISTORY} WHERE refreshed_at = $1`,
-          [ts],
-        )
-        .catch(() => []);
-      for (const h of hrows) {
-        m.set(routeKey(h), {
-          acd: h.acd != null ? Number(h.acd) : null,
-          asr: h.asr != null ? Number(h.asr) : null,
-          failed_calls: h.failed_calls != null ? Number(h.failed_calls) : null,
-        });
-      }
-      return m;
-    };
-    const t1Map = await buildHistMap(histBatches[0]?.refreshed_at); // previous refresh
-    const t2Map = await buildHistMap(histBatches[1]?.refreshed_at); // two refreshes ago
+    const histRows: any[] = await this.dataSource
+      .query(`
+        SELECT account, destination, vendor,
+               max(acd)          FILTER (WHERE rnk = 1) AS acd_t1,
+               max(asr)          FILTER (WHERE rnk = 1) AS asr_t1,
+               max(failed_calls) FILTER (WHERE rnk = 1) AS failed_calls_t1,
+               max(acd)          FILTER (WHERE rnk = 2) AS acd_t2,
+               max(asr)          FILTER (WHERE rnk = 2) AS asr_t2,
+               max(failed_calls) FILTER (WHERE rnk = 2) AS failed_calls_t2
+        FROM (
+          SELECT account, destination, vendor, acd, asr, failed_calls,
+                 dense_rank() OVER (ORDER BY refreshed_at DESC) AS rnk
+          FROM ${HISTORY}
+        ) ranked
+        WHERE rnk <= 2
+        GROUP BY account, destination, vendor
+      `)
+      .catch((err: Error) => {
+        this.logger.error(`Failed to read ${HISTORY}: ${err.message}`);
+        return [];
+      });
+    const histMap = new Map<string, any>();
+    for (const h of histRows) histMap.set(routeKey(h), h);
+    const num = (v: any) => (v != null ? Number(v) : null);
 
     const rows = stageRows.map((r: any) => {
-      const k = routeKey(r);
-      const h1 = t1Map.get(k);
-      const h2 = t2Map.get(k);
+      const h = histMap.get(routeKey(r));
       return {
         account: r.account,
         destination: r.destination ?? null,
         vendor: r.vendor ?? null,
         attempts: r.attempts != null ? Number(r.attempts) : 0,
         acd: r.acd != null ? Number(r.acd) : null,
-        acd_t1: h1?.acd ?? null,
-        acd_t2: h2?.acd ?? null,
+        acd_t1: num(h?.acd_t1),
+        acd_t2: num(h?.acd_t2),
         asr: r.asr != null ? Number(r.asr) : null,
-        asr_t1: h1?.asr ?? null,
-        asr_t2: h2?.asr ?? null,
+        asr_t1: num(h?.asr_t1),
+        asr_t2: num(h?.asr_t2),
         failed_calls: r.failed_calls != null ? Number(r.failed_calls) : 0,
-        failed_calls_t1: h1?.failed_calls ?? null,
-        failed_calls_t2: h2?.failed_calls ?? null,
+        failed_calls_t1: num(h?.failed_calls_t1),
+        failed_calls_t2: num(h?.failed_calls_t2),
         volume: r.volume != null ? Number(r.volume) : 0,
         answered_calls: r.answered_calls != null ? Number(r.answered_calls) : 0,
       };

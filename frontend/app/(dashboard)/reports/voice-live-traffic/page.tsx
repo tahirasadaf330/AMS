@@ -73,6 +73,16 @@ const CSS = `
 .vlt-pag-ctrls button:disabled{opacity:.35;cursor:not-allowed}
 .vlt-pag-ctrls button:not(:disabled):hover{border-color:var(--turquoise)}
 .vlt-pag-cur{padding:0 10px;font-size:12px;font-weight:700;color:var(--ink)}
+/* Info popover */
+.vlt-info{position:relative;display:inline-flex}
+.vlt-info-btn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;border:1px solid var(--lns);background:var(--sf2);color:var(--mu);cursor:pointer;font-size:11px;font-weight:700;font-style:italic;line-height:1;padding:0;font-family:Georgia,serif}
+.vlt-info-btn:hover{border-color:var(--turquoise);color:var(--turquoise)}
+.vlt-info-pop{position:absolute;top:calc(100% + 8px);left:0;z-index:70;width:340px;max-width:86vw;background:var(--sf);border:1px solid var(--lns);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.3);padding:14px 16px;font-weight:400}
+.vlt-info-pop h4{font-size:12.5px;font-weight:700;color:var(--ink);margin-bottom:6px}
+.vlt-info-pop p{font-size:12px;line-height:1.55;color:var(--inks);margin-bottom:7px}
+.vlt-info-pop p:last-child{margin-bottom:0}
+.vlt-info-pop b{color:var(--ink);font-weight:700}
+.vlt-info-pop .mono{font-family:monospace;font-size:11.5px;background:var(--sf2);border:1px solid var(--ln);border-radius:5px;padding:3px 7px;display:inline-block;color:var(--turquoise)}
 `;
 
 const IC = {
@@ -207,6 +217,19 @@ const TD = ({ children, left, style }: { children: React.ReactNode; left?: boole
 
 // Text cells wrap so long account / destination / vendor names are fully visible.
 const wrapCell = (maxW: number): React.CSSProperties => ({ whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere', maxWidth: maxW });
+
+// Click-to-open info popover (explains the T-1 / T-2 comparison columns).
+function InfoTip({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+  useOutsideClose(open, ref, () => setOpen(false));
+  return (
+    <div ref={ref} className="vlt-info">
+      <button type="button" className="vlt-info-btn" onClick={() => setOpen(o => !o)} aria-label="What do these columns mean?" title="What do these columns mean?">i</button>
+      {open && <div className="vlt-info-pop">{children}</div>}
+    </div>
+  );
+}
 
 // Column layout — drives the header, filter row, body and footer so they stay
 // aligned. History columns (hist:true) show the two prior refreshes: T-1 = the
@@ -405,7 +428,17 @@ export default function VoiceLiveTrafficPage() {
         <div className="vlt-pnl" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', marginBottom: 14 }}>
           <div className="vlt-ph">
             <div>
-              <h2>Live Traffic (paired ASR / ACD / volume)</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h2>Live Traffic (paired ASR / ACD / volume)</h2>
+                <InfoTip>
+                  <h4>Comparison columns (T-1 / T-2)</h4>
+                  <p>Next to the latest values, each route shows its <b>last 2 refreshes</b> so you can see the trend:</p>
+                  <p><b>(T-1)</b> = the previous refresh&nbsp; ·&nbsp; <b>(T-2)</b> = two refreshes ago.<br />The plain <b>ACD / ASR / Failed Calls</b> columns are the <b>latest</b> refresh.</p>
+                  <p>Alerts use the <b>Change</b> of a metric, calculated as:</p>
+                  <p><span className="mono">Change = latest − average(last 2 refreshes)</span></p>
+                  <p>A <b>negative</b> Change means the metric <b>dropped</b>; a <b>positive</b> Change means it <b>rose</b>.</p>
+                </InfoTip>
+              </div>
               <span className="vlt-tag" style={{ display: 'block', marginTop: 2 }}>
                 {sort.key ? `Sorted by ${sort.key.replace(/_/g, ' ')} ${sort.dir === 'asc' ? '↑' : '↓'}` : 'Click a column to sort'} · {rows.length} routes
               </span>
