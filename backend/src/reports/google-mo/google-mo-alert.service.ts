@@ -280,15 +280,14 @@ try:
         "GROUP BY countryname, operatorname, vendorname ORDER BY countryname, SUM(volume) DESC", {"d2": d2})
     yrows = cur.fetchall()
     ytotal_rows = len(yrows)
-    yrows = yrows[:15]                       # only show the first 15 rows
     ybody = ""
     for c, op, ven, vol, rev, vc, mar in yrows:
         ybody += ("<tr>" + td(d2s, "left") + td(esc(c), "left") + td(esc(op), "left") + td(esc(ven), "left")
                   + td(fi(vol), "right") + td(fn(rev), "right") + td(fn(vc), "right") + td(fn(mar), "right") + "</tr>")
     if not ybody:
         ybody = '<tr><td colspan="8" style="padding:10px;text-align:center;color:#888;">No data</td></tr>'
-    ynote = ('<div style="font-size:11px;color:#666;margin:2px 0 6px;">Showing first 15 of '
-             + str(ytotal_rows) + ' rows</div>') if ytotal_rows > 15 else ""
+    ynote = ('<div style="font-size:11px;color:#666;margin:2px 0 6px;">'
+             + str(ytotal_rows) + ' rows</div>') if ytotal_rows else ""
     yest_html = (caption("Google MO Traffic Yesterday Data") + ynote
                  + '<div style="overflow-x:auto;overflow-y:auto;max-height:360px;border:1px solid #e4e9ec;border-radius:4px;">'
                  + topen()
