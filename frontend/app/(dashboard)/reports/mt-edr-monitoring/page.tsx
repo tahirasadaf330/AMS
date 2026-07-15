@@ -245,6 +245,7 @@ export default function MtEdrMonitoringPage() {
   const [error,     setError]     = React.useState<string | null>(null);
 
   const [search,     setSearch]     = React.useState('');
+  const [amFilter,   setAmFilter]   = React.useState('all');
   const [filterNeg,  setFilterNeg]  = React.useState(false);
   const [filterSpike,setFilterSpike]= React.useState(false);
   const [sort, setSort] = React.useState<{ key: string | null; dir: SortDir }>({
@@ -294,16 +295,24 @@ export default function MtEdrMonitoringPage() {
   const summary        = data?.summary     ?? {};
   const lastRefreshed  = data?.last_refreshed ?? null;
 
+  // Distinct account managers present in the current window — populates the filter dropdown.
+  const accountManagers = React.useMemo(
+    () => Array.from(new Set(allRows.map((r) => r.account_manager).filter(Boolean) as string[]))
+            .sort((a, b) => a.localeCompare(b)),
+    [allRows],
+  );
+
   const filtered = React.useMemo(() => {
     let r = allRows;
     if (search.trim()) {
       const q = search.toLowerCase();
       r = r.filter((row) => (row.customer_company ?? '').toLowerCase().includes(q));
     }
+    if (amFilter !== 'all') r = r.filter((row) => row.account_manager === amFilter);
     if (filterNeg)   r = r.filter((row) => row.negative_margin_count > 0);
     if (filterSpike) r = r.filter((row) => row.traffic_spike === 1);
     return r;
-  }, [allRows, search, filterNeg, filterSpike]);
+  }, [allRows, search, amFilter, filterNeg, filterSpike]);
 
   const sorted = React.useMemo(() => {
     if (!sort.key || !sort.dir) return filtered;
@@ -329,7 +338,7 @@ export default function MtEdrMonitoringPage() {
   const totalMsgs       = summary.total_messages          ?? 0;
   const negCount        = summary.companies_with_neg_margin ?? 0;
   const spikeCount      = summary.companies_with_spike    ?? 0;
-  const hasFilter       = search || filterNeg || filterSpike;
+  const hasFilter       = search || filterNeg || filterSpike || amFilter !== 'all';
 
   const sharedTH = { sort, onSort };
 
@@ -416,6 +425,18 @@ export default function MtEdrMonitoringPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            <select
+              className="edr-inp"
+              style={{ width: 190 }}
+              value={amFilter}
+              onChange={(e) => setAmFilter(e.target.value)}
+              title="Filter by account manager"
+            >
+              <option value="all">All Account Managers</option>
+              {accountManagers.map((am) => (
+                <option key={am} value={am}>{am}</option>
+              ))}
+            </select>
             <button
               className={`edr-tbtn${filterNeg ? ' an' : ''}`}
               onClick={() => setFilterNeg((v) => !v)}
@@ -431,7 +452,7 @@ export default function MtEdrMonitoringPage() {
             {hasFilter && (
               <button
                 className="edr-clr"
-                onClick={() => { setSearch(''); setFilterNeg(false); setFilterSpike(false); }}
+                onClick={() => { setSearch(''); setAmFilter('all'); setFilterNeg(false); setFilterSpike(false); }}
               >
                 Clear filters
               </button>
