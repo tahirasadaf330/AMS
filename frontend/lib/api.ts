@@ -136,6 +136,13 @@ export const dashboardApi = {
   getMatrix: (datasetId: string) =>
     api.get<DashboardMatrixResponse>(`/dashboard/${datasetId}/matrix`),
 
+  // Distinct values for one column across the whole table (for filter dropdowns).
+  getDistinctValues: (datasetId: string, column: string) =>
+    api.get<{ column: string; values: string[] }>(
+      `/dashboard/${datasetId}/distinct-values`,
+      { params: { column } },
+    ),
+
   triggerRefresh: (datasetId: string) =>
     api.post<{ message: string }>(`/dashboard/${datasetId}/refresh`),
 

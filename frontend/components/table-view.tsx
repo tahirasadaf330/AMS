@@ -59,21 +59,37 @@ function CellValue({ value, type }: { value: string | number | null; type?: stri
 // ── Text multi-select filter ─────────────────────────────────────────────────
 
 function TextFilter({
-  col, rows, filters, onChange,
+  col, rows, filters, onChange, fetchDistinctValues,
 }: {
   col: ColumnMeta;
   rows: DashboardRow[];
   filters: Record<string, string>;
   onChange: (changes: Record<string, string>) => void;
+  fetchDistinctValues?: (column: string) => Promise<string[]>;
 }) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
+  const [serverVals, setServerVals] = React.useState<string[] | null>(null);
   const wrapRef = React.useRef<HTMLDivElement>(null);
 
   const selected = getInSelected(filters, col.key);
-  const allVals = React.useMemo(() => uniqueVals(rows, col.key), [rows, col.key]);
+  // Prefer the full-table distinct values (fetched on first open) so the list
+  // shows EVERY value; until they arrive (or if unavailable) fall back to the
+  // values present on the current page.
+  const pageVals = React.useMemo(() => uniqueVals(rows, col.key), [rows, col.key]);
+  const allVals = serverVals ?? pageVals;
   const filtered = allVals.filter(v => v.toLowerCase().includes(search.toLowerCase()));
   const hasFilter = selected.length > 0;
+
+  // Fetch the complete value list once, the first time the dropdown opens.
+  React.useEffect(() => {
+    if (!open || serverVals !== null || !fetchDistinctValues) return;
+    let cancelled = false;
+    fetchDistinctValues(col.key)
+      .then((vals) => { if (!cancelled) setServerVals(vals); })
+      .catch(() => { /* keep the page-value fallback; retry on next open */ });
+    return () => { cancelled = true; };
+  }, [open, serverVals, fetchDistinctValues, col.key]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -345,6 +361,10 @@ export interface TableViewProps {
   onFilterChange: (changes: Record<string, string>) => void;
   visibleColumnKeys: string[];
   onVisibleColumnsChange: (keys: string[]) => void;
+  // Optional: fetch ALL distinct values for a column across the full table, so
+  // text filters list every value (not just the current page). Omit to keep the
+  // page-only behaviour.
+  fetchDistinctValues?: (column: string) => Promise<string[]>;
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
@@ -364,6 +384,7 @@ export function TableView({
   onFilterChange,
   visibleColumnKeys,
   onVisibleColumnsChange,
+  fetchDistinctValues,
 }: TableViewProps) {
   const visibleColumns = columns.filter(c => visibleColumnKeys.includes(c.key));
   const totalWidth = visibleColumns.reduce((sum, c) => sum + colWidth(c), 0);
@@ -521,7 +542,7 @@ export function TableView({
                   ) : col.type === 'date' ? (
                     <DateFilter col={col} filters={columnFilters} onChange={onFilterChange} />
                   ) : (
-                    <TextFilter col={col} rows={rows} filters={columnFilters} onChange={onFilterChange} />
+                    <TextFilter col={col} rows={rows} filters={columnFilters} onChange={onFilterChange} fetchDistinctValues={fetchDistinctValues} />
                   )}
                 </th>
               ))}
