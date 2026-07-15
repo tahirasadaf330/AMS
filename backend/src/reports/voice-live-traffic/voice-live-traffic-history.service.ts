@@ -17,7 +17,8 @@ const HISTORY = 'ds_voice_live_traffic_history';
  *     → history holds only PRIOR refreshes; the current refresh is never in it.
  *   - AFTER the refresh, per-route change columns are written back to the stage
  *     table:  *_change = latest − average(last 2 refreshes in history).
- *   - History starts empty on boot and is populated only by refreshes.
+ *   - History persists across restarts/redeploys; on boot only a crash-induced
+ *     overlap (a captured batch identical to the current stage rows) is removed.
  *
  * These methods are best-effort (never throw) so they can't affect the refresh.
  */
@@ -33,9 +34,13 @@ export class VoiceLiveTrafficHistoryService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     try {
       await this.ensureHistoryTable();
-      // Empty by default: start clean each boot (also clears anything left by the
-      // earlier poll-based model). History is (re)built by refreshes.
-      await this.dataSource.query(`DELETE FROM ${HISTORY}`);
+      // Do NOT wipe history on boot — it must survive restarts/redeploys so the
+      // change-based alerts and the report's T-1/T-2 columns keep their baseline.
+      // Only clean up a possible crash-induced overlap: if the process died after
+      // captureCurrentToHistory() copied the stage rows but before the refresh
+      // replaced them, history would hold a batch identical to the current stage
+      // table. removeOverlap() drops just that batch and preserves the rest.
+      await this.removeOverlap();
     } catch (err) {
       this.logger.error('Failed to initialise Voice Live Traffic history table', err);
     }

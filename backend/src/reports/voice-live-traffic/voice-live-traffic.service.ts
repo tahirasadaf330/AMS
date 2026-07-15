@@ -315,17 +315,58 @@ export class VoiceLiveTrafficService implements OnModuleInit {
       };
     }
 
-    const rows = stageRows.map((r: any) => ({
-      account: r.account,
-      destination: r.destination ?? null,
-      vendor: r.vendor ?? null,
-      attempts: r.attempts != null ? Number(r.attempts) : 0,
-      acd: r.acd != null ? Number(r.acd) : null,
-      asr: r.asr != null ? Number(r.asr) : null,
-      failed_calls: r.failed_calls != null ? Number(r.failed_calls) : 0,
-      volume: r.volume != null ? Number(r.volume) : 0,
-      answered_calls: r.answered_calls != null ? Number(r.answered_calls) : 0,
-    }));
+    // Pull the two most-recent PRIOR refreshes from history so the report can
+    // show each route's ACD/ASR/Failed at T-1 (previous refresh) and T-2 (two
+    // refreshes ago) — raw values, not averaged.
+    const HISTORY = `${STAGE}_history`;
+    const routeKey = (r: any) =>
+      `${r.account ?? ''} ${r.destination ?? ''} ${r.vendor ?? ''}`;
+    const histBatches: any[] = await this.dataSource
+      .query(`SELECT DISTINCT refreshed_at FROM ${HISTORY} ORDER BY refreshed_at DESC LIMIT 2`)
+      .catch(() => []);
+    const buildHistMap = async (ts: any) => {
+      const m = new Map<string, { acd: number | null; asr: number | null; failed_calls: number | null }>();
+      if (!ts) return m;
+      const hrows: any[] = await this.dataSource
+        .query(
+          `SELECT account, destination, vendor, acd, asr, failed_calls FROM ${HISTORY} WHERE refreshed_at = $1`,
+          [ts],
+        )
+        .catch(() => []);
+      for (const h of hrows) {
+        m.set(routeKey(h), {
+          acd: h.acd != null ? Number(h.acd) : null,
+          asr: h.asr != null ? Number(h.asr) : null,
+          failed_calls: h.failed_calls != null ? Number(h.failed_calls) : null,
+        });
+      }
+      return m;
+    };
+    const t1Map = await buildHistMap(histBatches[0]?.refreshed_at); // previous refresh
+    const t2Map = await buildHistMap(histBatches[1]?.refreshed_at); // two refreshes ago
+
+    const rows = stageRows.map((r: any) => {
+      const k = routeKey(r);
+      const h1 = t1Map.get(k);
+      const h2 = t2Map.get(k);
+      return {
+        account: r.account,
+        destination: r.destination ?? null,
+        vendor: r.vendor ?? null,
+        attempts: r.attempts != null ? Number(r.attempts) : 0,
+        acd: r.acd != null ? Number(r.acd) : null,
+        acd_t1: h1?.acd ?? null,
+        acd_t2: h2?.acd ?? null,
+        asr: r.asr != null ? Number(r.asr) : null,
+        asr_t1: h1?.asr ?? null,
+        asr_t2: h2?.asr ?? null,
+        failed_calls: r.failed_calls != null ? Number(r.failed_calls) : 0,
+        failed_calls_t1: h1?.failed_calls ?? null,
+        failed_calls_t2: h2?.failed_calls ?? null,
+        volume: r.volume != null ? Number(r.volume) : 0,
+        answered_calls: r.answered_calls != null ? Number(r.answered_calls) : 0,
+      };
+    });
 
     const totalAttempts = rows.reduce(
       (s: number, r: any) => s + (r.attempts ?? 0),

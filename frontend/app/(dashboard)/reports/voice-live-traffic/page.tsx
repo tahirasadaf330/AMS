@@ -208,18 +208,55 @@ const TD = ({ children, left, style }: { children: React.ReactNode; left?: boole
 // Text cells wrap so long account / destination / vendor names are fully visible.
 const wrapCell = (maxW: number): React.CSSProperties => ({ whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere', maxWidth: maxW });
 
-// Column layout — drives both the header and the filter row so they stay aligned.
-const COLS: { key: string; label: string; type: 'text' | 'num'; w: number; left: boolean }[] = [
-  { key: 'account', label: 'Account', type: 'text', w: 230, left: true },
-  { key: 'destination', label: 'Destination', type: 'text', w: 180, left: true },
-  { key: 'vendor', label: 'Vendor', type: 'text', w: 170, left: true },
-  { key: 'attempts', label: 'Attempts', type: 'num', w: 90, left: false },
-  { key: 'acd', label: 'ACD', type: 'num', w: 90, left: false },
-  { key: 'asr', label: 'ASR', type: 'num', w: 90, left: false },
-  { key: 'failed_calls', label: 'Failed Calls', type: 'num', w: 100, left: false },
-  { key: 'volume', label: 'Volume', type: 'num', w: 100, left: false },
-  { key: 'answered_calls', label: 'Answered Calls', type: 'num', w: 110, left: false },
+// Column layout — drives the header, filter row, body and footer so they stay
+// aligned. History columns (hist:true) show the two prior refreshes: T-1 = the
+// previous refresh, T-2 = two refreshes ago (raw values from the history table).
+type Col = { key: string; label: string; type: 'text' | 'num'; w: number; left: boolean; hist?: boolean };
+const COLS: Col[] = [
+  { key: 'account', label: 'Account', type: 'text', w: 210, left: true },
+  { key: 'destination', label: 'Destination', type: 'text', w: 150, left: true },
+  { key: 'vendor', label: 'Vendor', type: 'text', w: 150, left: true },
+  { key: 'attempts', label: 'Attempts', type: 'num', w: 85, left: false },
+  { key: 'acd', label: 'ACD', type: 'num', w: 70, left: false },
+  { key: 'acd_t1', label: 'ACD (T-1)', type: 'num', w: 82, left: false, hist: true },
+  { key: 'acd_t2', label: 'ACD (T-2)', type: 'num', w: 82, left: false, hist: true },
+  { key: 'asr', label: 'ASR', type: 'num', w: 80, left: false },
+  { key: 'asr_t1', label: 'ASR (T-1)', type: 'num', w: 88, left: false, hist: true },
+  { key: 'asr_t2', label: 'ASR (T-2)', type: 'num', w: 88, left: false, hist: true },
+  { key: 'failed_calls', label: 'Failed Calls', type: 'num', w: 95, left: false },
+  { key: 'failed_calls_t1', label: 'Failed (T-1)', type: 'num', w: 88, left: false, hist: true },
+  { key: 'failed_calls_t2', label: 'Failed (T-2)', type: 'num', w: 88, left: false, hist: true },
+  { key: 'volume', label: 'Volume', type: 'num', w: 90, left: false },
+  { key: 'answered_calls', label: 'Answered Calls', type: 'num', w: 105, left: false },
 ];
+const NUM_COLS = COLS.filter(c => c.type === 'num');
+
+// Renders one body cell for a column — keeps the body aligned with the header.
+function BodyCell({ col, r }: { col: Col; r: any }) {
+  if (col.type === 'text') {
+    return <TD left style={{ ...wrapCell(col.w), color: 'var(--inks)' }}>{col.key === 'account' ? r.account : (r[col.key] ?? '—')}</TD>;
+  }
+  // ASR (current + T-1 + T-2) → coloured health pill
+  if (col.key === 'asr' || col.key === 'asr_t1' || col.key === 'asr_t2') {
+    const v = r[col.key];
+    const [bg, color] = asrColours(v ?? null);
+    return (
+      <TD>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          {v == null ? <span style={{ color: 'var(--mu)' }}>—</span>
+            : <span className="asr-pill" style={{ background: bg, color, opacity: col.hist ? 0.72 : 1 }}>{fmtPct(v)}</span>}
+        </div>
+      </TD>
+    );
+  }
+  const decimals = col.key === 'volume' || col.key.startsWith('acd');
+  const val = decimals ? fmtDec(r[col.key]) : fmtInt(r[col.key]);
+  const color = col.hist ? 'var(--mu)'
+    : col.key === 'failed_calls' ? (r.failed_calls > 0 ? 'var(--neg)' : 'var(--inks)')
+    : col.key === 'answered_calls' ? 'var(--pos)'
+    : 'var(--inks)';
+  return <TD style={{ fontFamily: 'monospace', color, fontWeight: col.key === 'answered_calls' ? 600 : 400 }}>{val}</TD>;
+}
 
 function Skel() {
   return (
@@ -294,8 +331,8 @@ export default function VoiceLiveTrafficPage() {
       } else {
         const nf = numFilters[c.key];
         if (nf) {
-          if (nf.min !== '') { const mn = Number(nf.min); if (!isNaN(mn)) filtered = filtered.filter((r: any) => Number(r[c.key]) >= mn); }
-          if (nf.max !== '') { const mx = Number(nf.max); if (!isNaN(mx)) filtered = filtered.filter((r: any) => Number(r[c.key]) <= mx); }
+          if (nf.min !== '') { const mn = Number(nf.min); if (!isNaN(mn)) filtered = filtered.filter((r: any) => r[c.key] != null && Number(r[c.key]) >= mn); }
+          if (nf.max !== '') { const mx = Number(nf.max); if (!isNaN(mx)) filtered = filtered.filter((r: any) => r[c.key] != null && Number(r[c.key]) <= mx); }
         }
       }
     }
@@ -403,33 +440,16 @@ export default function VoiceLiveTrafficPage() {
                 <tbody>
                   {rows.length === 0 && (
                     <tr>
-                      <td colSpan={9} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--mu)', fontSize: 13 }}>
+                      <td colSpan={COLS.length} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--mu)', fontSize: 13 }}>
                         {error ? 'Load failed — see error above' : hasFilters ? 'No matching routes' : 'No data — refresh the dataset first'}
                       </td>
                     </tr>
                   )}
-                  {pagedRows.map((r: any, i: number) => {
-                    const [asrBg, asrColor] = asrColours(r.asr);
-                    return (
-                      <tr key={(safePage - 1) * PAGE_SIZE + i}>
-                        <TD left style={{ ...wrapCell(230), color: 'var(--inks)' }}>{r.account}</TD>
-                        <TD left style={{ ...wrapCell(180), color: 'var(--inks)' }}>{r.destination ?? '—'}</TD>
-                        <TD left style={{ ...wrapCell(170), color: 'var(--inks)' }}>{r.vendor ?? '—'}</TD>
-                        <TD style={{ fontFamily: 'monospace', color: 'var(--inks)' }}>{fmtInt(r.attempts)}</TD>
-                        <TD style={{ fontFamily: 'monospace', color: 'var(--inks)' }}>{fmtDec(r.acd)}</TD>
-                        <TD>
-                          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                            {r.asr == null
-                              ? <span style={{ color: 'var(--mu)' }}>—</span>
-                              : <span className="asr-pill" style={{ background: asrBg, color: asrColor }}>{fmtPct(r.asr)}</span>}
-                          </div>
-                        </TD>
-                        <TD style={{ fontFamily: 'monospace', color: r.failed_calls > 0 ? 'var(--neg)' : 'var(--inks)' }}>{fmtInt(r.failed_calls)}</TD>
-                        <TD style={{ fontFamily: 'monospace', color: 'var(--inks)' }}>{fmtDec(r.volume)}</TD>
-                        <TD style={{ fontFamily: 'monospace', color: 'var(--pos)', fontWeight: 600 }}>{fmtInt(r.answered_calls)}</TD>
-                      </tr>
-                    );
-                  })}
+                  {pagedRows.map((r: any, i: number) => (
+                    <tr key={(safePage - 1) * PAGE_SIZE + i}>
+                      {COLS.map(c => <BodyCell key={c.key} col={c} r={r} />)}
+                    </tr>
+                  ))}
                 </tbody>
                 {rows.length > 0 && (
                   <tfoot>
@@ -437,12 +457,18 @@ export default function VoiceLiveTrafficPage() {
                       <td colSpan={3} style={{ padding: '10px 10px', fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--lns)', background: 'var(--sf2)', position: 'sticky', bottom: 0 }}>
                         Total ({rows.length} routes)
                       </td>
-                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--lns)', background: 'var(--sf2)', position: 'sticky', bottom: 0 }}>{fmtInt(totals.attempts)}</td>
-                      <td style={{ borderTop: '2px solid var(--lns)', background: 'var(--sf2)', position: 'sticky', bottom: 0 }} />
-                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--lns)', background: 'var(--sf2)', position: 'sticky', bottom: 0 }}>{fmtPct(totals.asr)}</td>
-                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: totals.failed > 0 ? 'var(--neg)' : 'var(--ink)', borderTop: '2px solid var(--lns)', background: 'var(--sf2)', position: 'sticky', bottom: 0 }}>{fmtInt(totals.failed)}</td>
-                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--lns)', background: 'var(--sf2)', position: 'sticky', bottom: 0 }}>{fmtDec(totals.volume)}</td>
-                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--pos)', borderTop: '2px solid var(--lns)', background: 'var(--sf2)', position: 'sticky', bottom: 0 }}>{fmtInt(totals.answered)}</td>
+                      {NUM_COLS.map(c => {
+                        let content: React.ReactNode = '';
+                        let color = 'var(--ink)';
+                        if (c.key === 'attempts') content = fmtInt(totals.attempts);
+                        else if (c.key === 'asr') content = fmtPct(totals.asr);
+                        else if (c.key === 'failed_calls') { content = fmtInt(totals.failed); color = totals.failed > 0 ? 'var(--neg)' : 'var(--ink)'; }
+                        else if (c.key === 'volume') content = fmtDec(totals.volume);
+                        else if (c.key === 'answered_calls') { content = fmtInt(totals.answered); color = 'var(--pos)'; }
+                        return (
+                          <td key={c.key} style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color, borderTop: '2px solid var(--lns)', background: 'var(--sf2)', position: 'sticky', bottom: 0 }}>{content}</td>
+                        );
+                      })}
                     </tr>
                   </tfoot>
                 )}
