@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder } from 'typeorm';
+import { In, Repository, SelectQueryBuilder } from 'typeorm';
 import { NotificationLog } from '../common/entities/notification-log.entity';
 import { Condition, ConditionChannels } from '../common/entities/condition.entity';
 import { GraphEmailService } from './graph-email.service';
@@ -372,6 +372,12 @@ export class NotificationsService {
       throw new Error('Can only retry failed notifications');
     }
 
+    // 'script' report notifications have no re-sendable payload stored on the log, so a
+    // retry here would set 'retrying' and then do nothing (stuck). Reject up front.
+    if (log.channel !== 'email' && log.channel !== 'teams') {
+      throw new Error('This notification type cannot be retried');
+    }
+
     const condition = log.condition;
     if (!condition) {
       throw new Error('Condition no longer exists');
@@ -437,7 +443,11 @@ export class NotificationsService {
     const BACKOFF_MINUTES = 5;
 
     const failed = await this.notifLogRepo.find({
-      where: { status: 'failed' },
+      // Only email/teams can be auto-resent from a log. 'script' report notifications
+      // carry no re-sendable payload (the html/chart aren't stored on the log), so
+      // retrying them would send nothing yet mark them 'sent'. Leave those truthfully
+      // 'failed' rather than silently relabelling a failed report send as delivered.
+      where: { status: 'failed', channel: In(['email', 'teams']) },
       relations: ['condition', 'dataset'],
     });
 
@@ -470,10 +480,12 @@ export class NotificationsService {
       });
 
       try {
+        let handled = false;
         if (log.channel === 'email') {
           const recipients = condition.channels?.email?.recipients ?? (log.recipients as string[]) ?? [];
           const subject = `[AMS Alert] ${condition.name} — ${matchedRows.length} rows matched`;
           await this.graphEmailService.sendAlert({ recipients, subject, conditionName: condition.name, datasetName, matchedRows });
+          handled = true;
         } else if (log.channel === 'teams') {
           await this.teamsWebhookService.sendAlert({
             webhookUrl: condition.channels?.teams?.webhook_url,
@@ -483,9 +495,16 @@ export class NotificationsService {
             matchedCount: matchedRows.length,
             severity: condition.channels?.teams?.severity || 'info',
           });
+          handled = true;
         }
-        await this.notifLogRepo.update(log.id, { status: 'sent' });
-        this.logger.log(`Auto-retry succeeded for notification ${log.id}`);
+        // Only record success if a channel actually resent — never mark 'sent' for a
+        // channel this retry can't handle (defence-in-depth alongside the query filter).
+        if (handled) {
+          await this.notifLogRepo.update(log.id, { status: 'sent' });
+          this.logger.log(`Auto-retry succeeded for notification ${log.id}`);
+        } else {
+          await this.notifLogRepo.update(log.id, { status: 'failed' });
+        }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         const newCount = (log.retryCount ?? 0) + 1;

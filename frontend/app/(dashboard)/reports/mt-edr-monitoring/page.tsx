@@ -74,16 +74,17 @@ const CSS = `
 .edr-tbtn.as{background:var(--warn-bg);border-color:var(--warn-bd);color:var(--warn);font-weight:700}
 .edr-clr{height:33px;padding:0 11px;border:1px dashed #94a3b8;border-radius:7px;background:transparent;color:var(--mu);font-size:.74rem;cursor:pointer}
 
-/* Table */
-.edr-tbl-wrap{overflow-x:auto;border-radius:10px;border:1px solid var(--ln);background:var(--sf)}
-.edr-tbl{width:100%;border-collapse:collapse;font-size:.79rem;min-width:1100px}
+/* Table — scrolls within its own container (both axes); the sticky header stays pinned */
+.edr-tbl-wrap{overflow:auto;max-height:calc(100vh - 300px);min-height:260px;border-radius:10px;border:1px solid var(--ln);background:var(--sf)}
+.edr-tbl{width:100%;border-collapse:collapse;font-size:.79rem;min-width:1250px}
 .edr-tbl thead tr{background:var(--sf2);border-bottom:2px solid var(--lns)}
 
-/* Status column group headers */
-.edr-tbl th.grp-delivered{background:var(--delivered-bg);color:var(--delivered);border-bottom:2px solid var(--delivered)}
-.edr-tbl th.grp-accepted {background:var(--accepted-bg) ;color:var(--accepted) ;border-bottom:2px solid var(--accepted)}
-.edr-tbl th.grp-pending  {background:var(--pending-bg)  ;color:var(--pending)  ;border-bottom:2px solid var(--pending)}
-.edr-tbl th.grp-rejected {background:var(--rejected-bg) ;color:var(--rejected) ;border-bottom:2px solid var(--rejected)}
+/* Status column group headers — tint layered over an opaque surface so the pinned
+   header never lets scrolled rows bleed through it */
+.edr-tbl th.grp-delivered{background:linear-gradient(var(--delivered-bg),var(--delivered-bg)),var(--sf2);color:var(--delivered);border-bottom:2px solid var(--delivered)}
+.edr-tbl th.grp-accepted {background:linear-gradient(var(--accepted-bg),var(--accepted-bg)),var(--sf2)  ;color:var(--accepted) ;border-bottom:2px solid var(--accepted)}
+.edr-tbl th.grp-pending  {background:linear-gradient(var(--pending-bg),var(--pending-bg)),var(--sf2)    ;color:var(--pending)  ;border-bottom:2px solid var(--pending)}
+.edr-tbl th.grp-rejected {background:linear-gradient(var(--rejected-bg),var(--rejected-bg)),var(--sf2)  ;color:var(--rejected) ;border-bottom:2px solid var(--rejected)}
 
 .edr-tbl th{
   padding:9px 10px;text-align:right;font-size:.67rem;font-weight:700;
@@ -244,6 +245,7 @@ export default function MtEdrMonitoringPage() {
   const [error,     setError]     = React.useState<string | null>(null);
 
   const [search,     setSearch]     = React.useState('');
+  const [amFilter,   setAmFilter]   = React.useState('all');
   const [filterNeg,  setFilterNeg]  = React.useState(false);
   const [filterSpike,setFilterSpike]= React.useState(false);
   const [sort, setSort] = React.useState<{ key: string | null; dir: SortDir }>({
@@ -293,16 +295,24 @@ export default function MtEdrMonitoringPage() {
   const summary        = data?.summary     ?? {};
   const lastRefreshed  = data?.last_refreshed ?? null;
 
+  // Distinct account managers present in the current window — populates the filter dropdown.
+  const accountManagers = React.useMemo(
+    () => Array.from(new Set(allRows.map((r) => r.account_manager).filter(Boolean) as string[]))
+            .sort((a, b) => a.localeCompare(b)),
+    [allRows],
+  );
+
   const filtered = React.useMemo(() => {
     let r = allRows;
     if (search.trim()) {
       const q = search.toLowerCase();
       r = r.filter((row) => (row.customer_company ?? '').toLowerCase().includes(q));
     }
+    if (amFilter !== 'all') r = r.filter((row) => row.account_manager === amFilter);
     if (filterNeg)   r = r.filter((row) => row.negative_margin_count > 0);
     if (filterSpike) r = r.filter((row) => row.traffic_spike === 1);
     return r;
-  }, [allRows, search, filterNeg, filterSpike]);
+  }, [allRows, search, amFilter, filterNeg, filterSpike]);
 
   const sorted = React.useMemo(() => {
     if (!sort.key || !sort.dir) return filtered;
@@ -328,7 +338,7 @@ export default function MtEdrMonitoringPage() {
   const totalMsgs       = summary.total_messages          ?? 0;
   const negCount        = summary.companies_with_neg_margin ?? 0;
   const spikeCount      = summary.companies_with_spike    ?? 0;
-  const hasFilter       = search || filterNeg || filterSpike;
+  const hasFilter       = search || filterNeg || filterSpike || amFilter !== 'all';
 
   const sharedTH = { sort, onSort };
 
@@ -415,6 +425,18 @@ export default function MtEdrMonitoringPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            <select
+              className="edr-inp"
+              style={{ width: 190 }}
+              value={amFilter}
+              onChange={(e) => setAmFilter(e.target.value)}
+              title="Filter by account manager"
+            >
+              <option value="all">All Account Managers</option>
+              {accountManagers.map((am) => (
+                <option key={am} value={am}>{am}</option>
+              ))}
+            </select>
             <button
               className={`edr-tbtn${filterNeg ? ' an' : ''}`}
               onClick={() => setFilterNeg((v) => !v)}
@@ -430,7 +452,7 @@ export default function MtEdrMonitoringPage() {
             {hasFilter && (
               <button
                 className="edr-clr"
-                onClick={() => { setSearch(''); setFilterNeg(false); setFilterSpike(false); }}
+                onClick={() => { setSearch(''); setAmFilter('all'); setFilterNeg(false); setFilterSpike(false); }}
               >
                 Clear filters
               </button>
@@ -446,6 +468,7 @@ export default function MtEdrMonitoringPage() {
                 <thead>
                   <tr>
                     <TH left w={200} colKey="customer_company"      {...sharedTH}>Company</TH>
+                    <TH left w={160} colKey="account_manager"       {...sharedTH}>Account Manager</TH>
                     <TH      w={80}  colKey="total_msgs"             {...sharedTH}>Total</TH>
                     <TH      w={95}  colKey="delivered"   thClass="grp-delivered" {...sharedTH}>Delivered</TH>
                     <TH      w={95}  colKey="accepted"    thClass="grp-accepted"  {...sharedTH}>Accepted</TH>
@@ -464,7 +487,7 @@ export default function MtEdrMonitoringPage() {
                 <tbody>
                   {sorted.length === 0 && (
                     <tr>
-                      <td colSpan={14} className="edr-empty">
+                      <td colSpan={15} className="edr-empty">
                         {allRows.length === 0
                           ? 'No messages in the selected time window'
                           : 'No companies match the current filters'}
@@ -480,6 +503,11 @@ export default function MtEdrMonitoringPage() {
                       <tr key={i} className={cls || undefined}>
                         <TD left>
                           <span style={{ fontWeight: 600 }}>{row.customer_company ?? '—'}</span>
+                        </TD>
+                        <TD left>
+                          <span style={{ color: row.account_manager ? 'var(--inks)' : 'var(--mu)' }}>
+                            {row.account_manager ?? '—'}
+                          </span>
                         </TD>
                         <TD>
                           <span style={{ fontWeight: 700 }}>{total.toLocaleString()}</span>

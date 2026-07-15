@@ -23,6 +23,7 @@ SELECT
     CONVERT(VARCHAR(23), mt.SubmitDateTime, 126) + 'Z'                  AS submit_datetime,
     cust_co.Name                                                        AS customer_company,
     cust_co.CompanyId                                                   AS customer_id,
+    CONCAT(am.FirstName, ' ', am.LastName)                             AS account_manager,
     CASE
         WHEN COALESCE(e.MessageRejected, ea.MessageRejected, 0) = 1
              OR mt.DlrStatusId = 8                                      THEN 'rejected'
@@ -50,6 +51,8 @@ LEFT JOIN SMSCPhoenix.dbo.CustomerConnections cc WITH(NOLOCK)
     ON cc.CustomerConnectionId = mt.CustomerConnectionId
 LEFT JOIN SMSCPhoenix.dbo.Company cust_co WITH(NOLOCK)
     ON cust_co.CompanyId = cc.CompanyId
+LEFT JOIN SMSCPhoenix.dbo.Users am WITH(NOLOCK)
+    ON am.UserId = cust_co.SalesAccountManagerId
 LEFT JOIN SMSCPhoenix.dbo.Currency cust_cur WITH(NOLOCK)
     ON cust_cur.CurrencyId = cust_co.CurrencyId
 LEFT JOIN SMSCPhoenix.dbo.MtVendorConnection mvc WITH(NOLOCK)
@@ -66,6 +69,7 @@ const SEED_COLUMNS = [
   { key: 'submit_datetime',   label: 'Submit Time',    type: 'timestamp', description: 'UTC timestamp the message was submitted; indexed, drives the From/To filter.' },
   { key: 'customer_company',  label: 'Customer Company', type: 'text',    description: 'Customer company name.' },
   { key: 'customer_id',       label: 'Customer ID',    type: 'numeric',   description: 'Internal SMSC company id of the customer.' },
+  { key: 'account_manager',   label: 'Account Manager', type: 'text',     description: "Customer's sales account manager (full name), from Company.SalesAccountManagerId → Users." },
   { key: 'status',            label: 'Status',         type: 'text',      description: "Per-message delivery state: 'delivered' | 'accepted' | 'pending' | 'rejected'." },
   { key: 'mcc_mnc',           label: 'MCC-MNC',        type: 'text',      description: 'Destination operator code (mobile country + network code).' },
   { key: 'vendor_name',       label: 'Vendor',         type: 'text',      description: 'Terminating vendor connection name.' },
@@ -185,13 +189,15 @@ export class MtEdrService implements OnModuleInit {
       const existingSet = new Set(existing.map((r) => r.column_name));
       const wanted = new Set(SEED_COLUMNS.map((c) => c.key));
 
-      // One-time transition from the old per-company snapshot schema to the per-message schema:
-      // if the timestamp column is absent, the table holds legacy snapshot rows with none of the
-      // new columns — clear them so the next refresh does a clean full backfill (StageService only
-      // backfills when the table is empty).
-      if (!existingSet.has('submit_datetime')) {
+      // One-time schema transitions that add/replace a dimension present on every row: clear the
+      // table so the next refresh does a clean full backfill (StageService only backfills when the
+      // table is empty — rolling-overlap otherwise only re-pulls the last 30 min, leaving older
+      // rows with a NULL value for the new column).
+      //  • submit_datetime absent → legacy per-company snapshot schema.
+      //  • account_manager absent → column added after the per-message rows already existed.
+      if (!existingSet.has('submit_datetime') || !existingSet.has('account_manager')) {
         await this.dataSource.query(`TRUNCATE TABLE ${STAGE}`);
-        this.logger.log(`Cleared legacy ${STAGE} rows for per-message schema migration`);
+        this.logger.log(`Cleared ${STAGE} rows for schema migration (full backfill on next refresh)`);
       }
 
       for (const col of SEED_COLUMNS) {
@@ -243,6 +249,7 @@ export class MtEdrService implements OnModuleInit {
       SELECT
         w.customer_company,
         MAX(w.customer_id)                                                    AS customer_id,
+        MAX(w.account_manager)                                               AS account_manager,
         MAX(w.customer_currency)                                             AS customer_currency,
         string_agg(DISTINCT w.vendor_currency, ', ')
           FILTER (WHERE w.vendor_currency IS NOT NULL)                       AS vendor_currency,
@@ -276,9 +283,13 @@ export class MtEdrService implements OnModuleInit {
 
     const rows = stageRows.map((r: any) => {
       const peak = Number(r.msg_count_1min ?? 0);
+      // CONCAT(FirstName,' ',LastName) yields a lone space when the assigned user has no
+      // name — normalise whitespace-only to null so the UI shows an em-dash, not a blank.
+      const am = r.account_manager != null ? String(r.account_manager).trim() : '';
       return {
         customer_company:      r.customer_company ?? null,
         customer_id:           r.customer_id != null ? Number(r.customer_id) : null,
+        account_manager:       am || null,
         customer_currency:     r.customer_currency ?? null,
         vendor_currency:       r.vendor_currency ?? null,
         total_msgs:            Number(r.total_msgs ?? 0),
