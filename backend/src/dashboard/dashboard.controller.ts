@@ -52,6 +52,20 @@ export class DashboardController {
     });
   }
 
+  @Get(':datasetId/distinct-values')
+  async getDistinctValues(
+    @Param('datasetId') datasetId: string,
+    @CurrentUser() user: JwtUser,
+    @Query('column') column: string,
+  ) {
+    return this.dashboardService.getDistinctValues(
+      datasetId,
+      user.sub,
+      user.role as UserRole,
+      column ?? '',
+    );
+  }
+
   @Get(':datasetId/matrix')
   async getMatrix(
     @Param('datasetId') datasetId: string,

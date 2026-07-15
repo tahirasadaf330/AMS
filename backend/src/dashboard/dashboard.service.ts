@@ -166,6 +166,37 @@ export class DashboardService {
     }
   }
 
+  /**
+   * Distinct values of a single column across the FULL stage table (not just the
+   * current page), so the viewer's per-column filter can list every value — the
+   * same complete set the custom report pages show. Capped to keep it bounded.
+   */
+  async getDistinctValues(
+    datasetId: string,
+    userId: string,
+    userRole: UserRole,
+    column: string,
+  ): Promise<{ column: string; values: string[] }> {
+    await this.checkAccess(datasetId, userId, userRole);
+    // Same column-name whitelist as getData — safe to interpolate once it passes.
+    if (!/^[a-z_][a-z0-9_]*$/i.test(column)) return { column, values: [] };
+    const dataset = await this.datasetRepo.findOne({ where: { id: datasetId } });
+    if (!dataset) throw new NotFoundException('Dataset not found');
+    try {
+      const rows = await this.dataSource.query(
+        `SELECT DISTINCT "${column}"::text AS v
+         FROM ${dataset.stageTableName}
+         WHERE "${column}" IS NOT NULL AND "${column}"::text <> ''
+         ORDER BY v
+         LIMIT 5000`,
+      );
+      return { column, values: (rows as { v: string }[]).map((r) => r.v) };
+    } catch (err) {
+      this.logger.error(`Error getting distinct values for column "${column}"`, err);
+      return { column, values: [] };
+    }
+  }
+
   async getMatrix(datasetId: string, userId: string, userRole: UserRole): Promise<Record<string, unknown>> {
     await this.checkAccess(datasetId, userId, userRole);
     const dataset = await this.datasetRepo.findOne({ where: { id: datasetId } });

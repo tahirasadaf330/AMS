@@ -18,6 +18,7 @@ import {
   useDatasets,
   dashboardKeys,
 } from '@/hooks/useDashboard';
+import { dashboardApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useDatasetStore } from '@/store/dataset.store';
 import { subscribeToDataset, unsubscribeFromDataset, getCurrentSocket } from '@/lib/socket';
@@ -88,6 +89,15 @@ export default function DatasetDashboardPage() {
   };
 
   const { data: tableData, isLoading: tableLoading } = useDashboardData(datasetId, tableParams);
+
+  // Full-table distinct values for the per-column filter dropdowns, so they list
+  // EVERY value (not just the current 50-row page) — same complete set the custom
+  // report pages show. Memoised on datasetId; fetched lazily when a filter opens.
+  const fetchDistinctValues = React.useCallback(
+    (column: string) =>
+      dashboardApi.getDistinctValues(datasetId, column).then((r) => r.data.values ?? []),
+    [datasetId],
+  );
   const { data: historyData, isLoading: historyLoading } = useRefreshHistory(datasetId);
   const { data: datasetsAll } = useDatasets();
   const { data: conditions } = useConditions();
@@ -252,6 +262,7 @@ export default function DatasetDashboardPage() {
         onFilterChange={handleFilterChange}
         visibleColumnKeys={visibleColumnKeys}
         onVisibleColumnsChange={setVisibleColumnKeys}
+        fetchDistinctValues={fetchDistinctValues}
       />
 
       {/* Refresh history toggle */}
