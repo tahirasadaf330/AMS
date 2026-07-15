@@ -74,16 +74,17 @@ const CSS = `
 .edr-tbtn.as{background:var(--warn-bg);border-color:var(--warn-bd);color:var(--warn);font-weight:700}
 .edr-clr{height:33px;padding:0 11px;border:1px dashed #94a3b8;border-radius:7px;background:transparent;color:var(--mu);font-size:.74rem;cursor:pointer}
 
-/* Table */
-.edr-tbl-wrap{overflow-x:auto;border-radius:10px;border:1px solid var(--ln);background:var(--sf)}
-.edr-tbl{width:100%;border-collapse:collapse;font-size:.79rem;min-width:1100px}
+/* Table — scrolls within its own container (both axes); the sticky header stays pinned */
+.edr-tbl-wrap{overflow:auto;max-height:calc(100vh - 300px);min-height:260px;border-radius:10px;border:1px solid var(--ln);background:var(--sf)}
+.edr-tbl{width:100%;border-collapse:collapse;font-size:.79rem;min-width:1250px}
 .edr-tbl thead tr{background:var(--sf2);border-bottom:2px solid var(--lns)}
 
-/* Status column group headers */
-.edr-tbl th.grp-delivered{background:var(--delivered-bg);color:var(--delivered);border-bottom:2px solid var(--delivered)}
-.edr-tbl th.grp-accepted {background:var(--accepted-bg) ;color:var(--accepted) ;border-bottom:2px solid var(--accepted)}
-.edr-tbl th.grp-pending  {background:var(--pending-bg)  ;color:var(--pending)  ;border-bottom:2px solid var(--pending)}
-.edr-tbl th.grp-rejected {background:var(--rejected-bg) ;color:var(--rejected) ;border-bottom:2px solid var(--rejected)}
+/* Status column group headers — tint layered over an opaque surface so the pinned
+   header never lets scrolled rows bleed through it */
+.edr-tbl th.grp-delivered{background:linear-gradient(var(--delivered-bg),var(--delivered-bg)),var(--sf2);color:var(--delivered);border-bottom:2px solid var(--delivered)}
+.edr-tbl th.grp-accepted {background:linear-gradient(var(--accepted-bg),var(--accepted-bg)),var(--sf2)  ;color:var(--accepted) ;border-bottom:2px solid var(--accepted)}
+.edr-tbl th.grp-pending  {background:linear-gradient(var(--pending-bg),var(--pending-bg)),var(--sf2)    ;color:var(--pending)  ;border-bottom:2px solid var(--pending)}
+.edr-tbl th.grp-rejected {background:linear-gradient(var(--rejected-bg),var(--rejected-bg)),var(--sf2)  ;color:var(--rejected) ;border-bottom:2px solid var(--rejected)}
 
 .edr-tbl th{
   padding:9px 10px;text-align:right;font-size:.67rem;font-weight:700;
@@ -446,6 +447,7 @@ export default function MtEdrMonitoringPage() {
                 <thead>
                   <tr>
                     <TH left w={200} colKey="customer_company"      {...sharedTH}>Company</TH>
+                    <TH left w={160} colKey="account_manager"       {...sharedTH}>Account Manager</TH>
                     <TH      w={80}  colKey="total_msgs"             {...sharedTH}>Total</TH>
                     <TH      w={95}  colKey="delivered"   thClass="grp-delivered" {...sharedTH}>Delivered</TH>
                     <TH      w={95}  colKey="accepted"    thClass="grp-accepted"  {...sharedTH}>Accepted</TH>
@@ -464,7 +466,7 @@ export default function MtEdrMonitoringPage() {
                 <tbody>
                   {sorted.length === 0 && (
                     <tr>
-                      <td colSpan={14} className="edr-empty">
+                      <td colSpan={15} className="edr-empty">
                         {allRows.length === 0
                           ? 'No messages in the selected time window'
                           : 'No companies match the current filters'}
@@ -480,6 +482,11 @@ export default function MtEdrMonitoringPage() {
                       <tr key={i} className={cls || undefined}>
                         <TD left>
                           <span style={{ fontWeight: 600 }}>{row.customer_company ?? '—'}</span>
+                        </TD>
+                        <TD left>
+                          <span style={{ color: row.account_manager ? 'var(--inks)' : 'var(--mu)' }}>
+                            {row.account_manager ?? '—'}
+                          </span>
                         </TD>
                         <TD>
                           <span style={{ fontWeight: 700 }}>{total.toLocaleString()}</span>
