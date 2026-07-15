@@ -109,8 +109,12 @@ export class ConditionSchedulerService implements OnModuleInit {
       return;
     }
 
+    // No LIMIT — evaluate the FULL stage snapshot so every matching row alerts.
+    // Stage tables hold a single refresh's rows (bounded by the query output), so
+    // loading them all is safe; the old 1000-row cap silently dropped matches on
+    // any table larger than 1000 (e.g. Voice ~3000 → alerts fired for only ~1/3).
     const rows: Record<string, unknown>[] = await this.dataSource.query(
-      `SELECT * FROM ${condition.dataset.stageTableName} LIMIT 1000`,
+      `SELECT * FROM ${condition.dataset.stageTableName}`,
     );
 
     const matchedRows = this.evaluatorService.previewCondition(
