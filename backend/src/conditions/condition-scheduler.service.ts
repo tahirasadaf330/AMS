@@ -179,16 +179,18 @@ export class ConditionSchedulerService implements OnModuleInit {
           });
           return;
         }
+        const cc = condition.channels?.email?.cc ?? [];
         const subject = result.subject ?? `${condition.name} — ${new Date().toISOString().slice(0, 10)}`;
         await this.graphEmail.sendRichEmail({
           recipients,
+          cc,
           subject,
           html: result.html,
           inlineImages: result.image_base64
             ? [{ cid: result.image_cid ?? 'chart', contentBytes: result.image_base64 }]
             : [],
         });
-        this.logger.log(`Python condition "${condition.name}": report emailed to ${recipients.join(', ')}`);
+        this.logger.log(`Python condition "${condition.name}": report emailed to ${recipients.length} To + ${cc.length} Cc`);
         await this.notificationsService.logScriptExecution({
           condition, status: 'sent', message: result.message, rows: result.rows,
         });

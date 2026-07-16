@@ -20,6 +20,7 @@ export interface ConditionChannels {
   email?: {
     enabled: boolean;
     recipients: string[];
+    cc?: string[];
     text?: string;
     columns?: string[];
   };

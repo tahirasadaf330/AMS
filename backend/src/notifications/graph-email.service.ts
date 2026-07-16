@@ -304,6 +304,7 @@ export class GraphEmailService {
    */
   async sendRichEmail(params: {
     recipients: string[];
+    cc?: string[];
     subject: string;
     html: string;
     inlineImages?: Array<{ cid: string; contentBytes: string; contentType?: string; name?: string }>;
@@ -311,6 +312,9 @@ export class GraphEmailService {
     const { token, senderEmail } = await this.getAccessToken();
 
     const toRecipients: EmailRecipient[] = params.recipients.map((addr) => ({
+      emailAddress: { address: addr },
+    }));
+    const ccRecipients: EmailRecipient[] = (params.cc ?? []).map((addr) => ({
       emailAddress: { address: addr },
     }));
 
@@ -330,6 +334,7 @@ export class GraphEmailService {
       body: { contentType: 'HTML', content: params.html },
       toRecipients,
     };
+    if (ccRecipients.length) message.ccRecipients = ccRecipients;
     if (attachments.length) message.attachments = attachments;
 
     const response = await axios.post(
