@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Trash2, Send, Code2, Database, Info } from 'lucide-react';
+import { Plus, Trash2, Send, Code2, Database } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -93,9 +93,10 @@ export function ConditionBuilder({
 
   const selectedDataset = datasets.find((d) => d.id === datasetId);
   const availableColumns = selectedDataset?.column_metadata ?? [];
-  // Datasets with change-based alerts (Voice Live Traffic) expose "*_change"
-  // columns derived from the last 2 refreshes — explain them right on the form.
-  const hasChangeColumns = availableColumns.some((c) => c.key.endsWith('_change'));
+  // Change columns (`*_change`) are hidden from the alert form for now — the
+  // change-based alert flow isn't in use yet. To bring it back, drop this filter
+  // (and restore the "About the Change columns" info banner below).
+  const selectableColumns = availableColumns.filter((c) => !c.key.endsWith('_change'));
 
   const addRow = () => setRows((prev) => [...prev, { ...emptyRow }]);
 
@@ -248,24 +249,6 @@ export function ConditionBuilder({
           {/* Condition rows */}
           <div className="space-y-2">
             <Label>Conditions</Label>
-
-            {/* Change-column guidance — only for datasets that have them (Voice) */}
-            {hasChangeColumns && (
-              <div className="rounded-lg border border-blue-800/50 bg-blue-950/30 p-3 text-xs text-blue-200/90 flex gap-2.5">
-                <Info className="h-4 w-4 text-blue-400 flex-shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <p className="font-medium text-blue-300">About the Change columns</p>
-                  <p>These compare each route against its <b>last 2 refreshes</b>:</p>
-                  <p className="font-mono text-blue-100">Change = latest − average(last 2 refreshes)</p>
-                  <p>
-                    A <b>negative</b> value means the metric <b>dropped</b>; a <b>positive</b> value means it <b>rose</b>.
-                    To alert on a drop use <code className="text-blue-100">&lt;= -N</code>; on a rise use <code className="text-blue-100">&gt;= N</code> (N is a plain number, e.g. <code className="text-blue-100">ASR Change &lt;= -10</code>).
-                    Pick the <b>Change</b> columns — ASR Change, ACD Change, Failed Calls Change — not the plain metric.
-                  </p>
-                </div>
-              </div>
-            )}
-
             {rows.map((row, index) => {
               const col = availableColumns.find((c) => c.key === row.column);
               const operators = getOperatorsForType(col?.type ?? 'text');
@@ -279,7 +262,7 @@ export function ConditionBuilder({
                     error={errors[`row_${index}_column`]}
                   >
                     <option value="">Select column</option>
-                    {availableColumns.map((c) => (
+                    {selectableColumns.map((c) => (
                       <option key={c.key} value={c.key}>
                         {displayColumnLabel(c)}
                       </option>

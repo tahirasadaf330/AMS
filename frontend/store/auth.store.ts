@@ -140,6 +140,9 @@ if (typeof window !== 'undefined') {
     },
     // Keep the store token in sync with refreshes so the WebSocket reconnects
     // with a valid token (otherwise it stays on the expired one → "Invalid token").
+    //
+    // ⚠️ WEBSOCKET TOKEN SYNC — DO NOT DROP ON MERGE/DEPLOY. Live symptom if this
+    // callback is missing: dataset status stuck "Running" until a manual reload.
     (token) => useAuthStore.getState().setToken(token),
   );
 }

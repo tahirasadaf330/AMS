@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Setting } from '../common/entities/setting.entity';
 import { CredentialsService } from '../credentials/credentials.service';
+import { buildAccountDestinationTotals } from './alert-totals.util';
 import axios from 'axios';
 
 interface TokenCache {
@@ -410,6 +411,41 @@ export class GraphEmailService {
       ? `<tr><td style="padding:8px 24px 0;font-size:12px;color:#666;font-style:italic;">Showing ${VISIBLE_ROWS} of ${totalRows} matching rows. Scroll to see more.</td></tr>`
       : '';
 
+    // Totals grouped by Account + Destination (sum counts, weighted ASR/ACD) —
+    // rendered as a standalone table below the detail so it's always visible.
+    const acctDestTotals = buildAccountDestinationTotals(params.matchedRows);
+    let totalsSection = '';
+    if (acctDestTotals.length && colDefs.length) {
+      const totHeader = colDefs
+        .map((c) => `<th style="padding:8px 12px;text-align:left;font-weight:600;white-space:nowrap;background:#1f3864;color:#ffffff;font-size:12px;">${this.escapeHtml(c.label)}</th>`)
+        .join('');
+      const totBody = acctDestTotals
+        .map((t) => {
+          const synthetic: Record<string, unknown> = {
+            account: t.account, destination: t.destination, vendor: 'All vendors',
+            attempts: t.attempts, acd: t.acd, asr: t.asr,
+            failed_calls: t.failed_calls, volume: t.volume, answered_calls: t.answered_calls,
+          };
+          const cells = colDefs
+            .map((c) => `<td style="padding:7px 12px;border-bottom:1px solid #e8edf5;white-space:nowrap;font-size:13px;font-weight:700;">${this.formatCellValue(synthetic[c.key])}</td>`)
+            .join('');
+          return `<tr style="background:#eef3fa;">${cells}</tr>`;
+        })
+        .join('');
+      totalsSection = `
+    <tr>
+      <td style="padding:0 24px 20px;">
+        <div style="font-size:12px;font-weight:700;color:#1f3864;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Totals &mdash; by Account + Destination (sum, weighted ASR / ACD)</div>
+        <div style="overflow-x:auto;border:1px solid #b8cce4;border-radius:4px;">
+          <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;min-width:100%;">
+            <thead><tr>${totHeader}</tr></thead>
+            <tbody>${totBody}</tbody>
+          </table>
+        </div>
+      </td>
+    </tr>`;
+    }
+
     return `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -449,6 +485,8 @@ export class GraphEmailService {
         </div>
       </td>
     </tr>
+    <!-- Totals by Account + Destination -->
+    ${totalsSection}
     <!-- Footer -->
     <tr>
       <td style="background:#fafafa;padding:12px 24px;text-align:center;border-top:1px solid #e8e8e8;">

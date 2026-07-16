@@ -382,14 +382,45 @@ export default function VoiceLiveTrafficPage() {
   const rangeStart = rows.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
   const rangeEnd = Math.min(safePage * PAGE_SIZE, rows.length);
 
-  // Totals across the full filtered set (not just the visible page).
+  // Totals across the full filtered set (not just the visible page). All ratio
+  // metrics are call-weighted, consistent with the per-row definitions:
+  //   ASR = Σanswered / Σattempts × 100   ·   ACD = Σvolume / Σanswered   ·   Failed = Σfailed
+  // T-1/T-2 use the underlying counts fetched from history (attempts_t*, etc.).
   const totals = React.useMemo(() => {
-    const attempts = rows.reduce((s, r) => s + (r.attempts ?? 0), 0);
-    const answered = rows.reduce((s, r) => s + (r.answered_calls ?? 0), 0);
-    const failed = rows.reduce((s, r) => s + (r.failed_calls ?? 0), 0);
-    const volume = rows.reduce((s, r) => s + (r.volume ?? 0), 0);
-    const asr = attempts > 0 ? (answered / attempts) * 100 : null;
-    return { attempts, answered, failed, volume, asr };
+    let attempts = 0, answered = 0, failed = 0, volume = 0;
+    let attemptsT1 = 0, answeredT1 = 0, failedT1 = 0, volumeT1 = 0, hasT1 = false;
+    let attemptsT2 = 0, answeredT2 = 0, failedT2 = 0, volumeT2 = 0, hasT2 = false;
+    for (const r of rows) {
+      attempts += r.attempts ?? 0;
+      answered += r.answered_calls ?? 0;
+      failed   += r.failed_calls ?? 0;
+      volume   += r.volume ?? 0;
+      if (r.attempts_t1 != null) {
+        hasT1 = true;
+        attemptsT1 += r.attempts_t1 ?? 0;
+        answeredT1 += r.answered_calls_t1 ?? 0;
+        failedT1   += r.failed_calls_t1 ?? 0;
+        volumeT1   += r.volume_t1 ?? 0;
+      }
+      if (r.attempts_t2 != null) {
+        hasT2 = true;
+        attemptsT2 += r.attempts_t2 ?? 0;
+        answeredT2 += r.answered_calls_t2 ?? 0;
+        failedT2   += r.failed_calls_t2 ?? 0;
+        volumeT2   += r.volume_t2 ?? 0;
+      }
+    }
+    return {
+      attempts, answered, failed, volume,
+      asr: attempts > 0 ? (answered / attempts) * 100 : null,
+      acd: answered > 0 ? volume / answered : null,
+      asr_t1: hasT1 && attemptsT1 > 0 ? (answeredT1 / attemptsT1) * 100 : null,
+      acd_t1: hasT1 && answeredT1 > 0 ? volumeT1 / answeredT1 : null,
+      failed_t1: hasT1 ? failedT1 : null,
+      asr_t2: hasT2 && attemptsT2 > 0 ? (answeredT2 / attemptsT2) * 100 : null,
+      acd_t2: hasT2 && answeredT2 > 0 ? volumeT2 / answeredT2 : null,
+      failed_t2: hasT2 ? failedT2 : null,
+    };
   }, [rows]);
 
   const allRows: any[] = data?.rows ?? [];
@@ -494,8 +525,15 @@ export default function VoiceLiveTrafficPage() {
                         let content: React.ReactNode = '';
                         let color = 'var(--ink)';
                         if (c.key === 'attempts') content = fmtInt(totals.attempts);
+                        else if (c.key === 'acd') content = fmtDec(totals.acd);
+                        else if (c.key === 'acd_t1') { content = fmtDec(totals.acd_t1); color = 'var(--mu)'; }
+                        else if (c.key === 'acd_t2') { content = fmtDec(totals.acd_t2); color = 'var(--mu)'; }
                         else if (c.key === 'asr') content = fmtPct(totals.asr);
+                        else if (c.key === 'asr_t1') { content = fmtPct(totals.asr_t1); color = 'var(--mu)'; }
+                        else if (c.key === 'asr_t2') { content = fmtPct(totals.asr_t2); color = 'var(--mu)'; }
                         else if (c.key === 'failed_calls') { content = fmtInt(totals.failed); color = totals.failed > 0 ? 'var(--neg)' : 'var(--ink)'; }
+                        else if (c.key === 'failed_calls_t1') { content = fmtInt(totals.failed_t1); color = (totals.failed_t1 ?? 0) > 0 ? 'var(--neg)' : 'var(--mu)'; }
+                        else if (c.key === 'failed_calls_t2') { content = fmtInt(totals.failed_t2); color = (totals.failed_t2 ?? 0) > 0 ? 'var(--neg)' : 'var(--mu)'; }
                         else if (c.key === 'volume') content = fmtDec(totals.volume);
                         else if (c.key === 'answered_calls') { content = fmtInt(totals.answered); color = 'var(--pos)'; }
                         return (

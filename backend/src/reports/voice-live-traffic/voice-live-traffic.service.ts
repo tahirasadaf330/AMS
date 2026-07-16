@@ -324,14 +324,20 @@ export class VoiceLiveTrafficService implements OnModuleInit {
     const histRows: any[] = await this.dataSource
       .query(`
         SELECT account, destination, vendor,
-               max(acd)          FILTER (WHERE rnk = 1) AS acd_t1,
-               max(asr)          FILTER (WHERE rnk = 1) AS asr_t1,
-               max(failed_calls) FILTER (WHERE rnk = 1) AS failed_calls_t1,
-               max(acd)          FILTER (WHERE rnk = 2) AS acd_t2,
-               max(asr)          FILTER (WHERE rnk = 2) AS asr_t2,
-               max(failed_calls) FILTER (WHERE rnk = 2) AS failed_calls_t2
+               max(acd)            FILTER (WHERE rnk = 1) AS acd_t1,
+               max(asr)            FILTER (WHERE rnk = 1) AS asr_t1,
+               max(failed_calls)   FILTER (WHERE rnk = 1) AS failed_calls_t1,
+               max(attempts)       FILTER (WHERE rnk = 1) AS attempts_t1,
+               max(volume)         FILTER (WHERE rnk = 1) AS volume_t1,
+               max(answered_calls) FILTER (WHERE rnk = 1) AS answered_calls_t1,
+               max(acd)            FILTER (WHERE rnk = 2) AS acd_t2,
+               max(asr)            FILTER (WHERE rnk = 2) AS asr_t2,
+               max(failed_calls)   FILTER (WHERE rnk = 2) AS failed_calls_t2,
+               max(attempts)       FILTER (WHERE rnk = 2) AS attempts_t2,
+               max(volume)         FILTER (WHERE rnk = 2) AS volume_t2,
+               max(answered_calls) FILTER (WHERE rnk = 2) AS answered_calls_t2
         FROM (
-          SELECT account, destination, vendor, acd, asr, failed_calls,
+          SELECT account, destination, vendor, acd, asr, failed_calls, attempts, volume, answered_calls,
                  dense_rank() OVER (ORDER BY refreshed_at DESC) AS rnk
           FROM ${HISTORY}
         ) ranked
@@ -364,6 +370,14 @@ export class VoiceLiveTrafficService implements OnModuleInit {
         failed_calls_t2: num(h?.failed_calls_t2),
         volume: r.volume != null ? Number(r.volume) : 0,
         answered_calls: r.answered_calls != null ? Number(r.answered_calls) : 0,
+        // Underlying T-1/T-2 counts — not displayed; used only to compute the
+        // weighted footer totals for ACD(T-1/T-2) and ASR(T-1/T-2).
+        attempts_t1: num(h?.attempts_t1),
+        attempts_t2: num(h?.attempts_t2),
+        answered_calls_t1: num(h?.answered_calls_t1),
+        answered_calls_t2: num(h?.answered_calls_t2),
+        volume_t1: num(h?.volume_t1),
+        volume_t2: num(h?.volume_t2),
       };
     });
 

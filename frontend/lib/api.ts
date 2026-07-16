@@ -92,6 +92,11 @@ api.interceptors.response.use(
         // reads its token from the store) reconnects with a valid token instead of
         // the now-expired one. The request interceptor reads the live store token,
         // so it picks this up automatically.
+        //
+        // ⚠️ WEBSOCKET TOKEN SYNC — DO NOT DROP ON MERGE/DEPLOY.
+        // Without this line, on production a dataset refresh completes on the
+        // backend but the UI stays stuck on "Running" until a manual page reload
+        // (the socket keeps its expired token → "Invalid token" → no live events).
         _setToken(newToken);
         _refreshQueue.forEach((cb) => cb(newToken));
         _refreshQueue = [];
