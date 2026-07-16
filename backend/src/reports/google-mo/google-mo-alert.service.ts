@@ -2,13 +2,22 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Condition } from '../../common/entities/condition.entity';
+import { Condition, ConditionChannels } from '../../common/entities/condition.entity';
 import { PythonExecutorService } from '../../conditions/python-executor.service';
 import { GraphEmailService } from '../../notifications/graph-email.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 
 const ALERT_NAME = 'Google MO Traffic Alert';
-const DEFAULT_RECIPIENTS = ['bilal.waris@hayo.net'];
+// Daily distribution list. Merged into the alert condition on startup (added, never removing
+// addresses added via the Alerts UI). To = primary audience; CC = FYI/managers.
+const DEFAULT_RECIPIENTS = [
+  'minahil.azeem@hayo.net',
+  'hassan.kashif@hayo.net', 'sergio@hayo.net', 'khiza.fiaz@hayo.net', 'gabriela@hayo.net',
+  'mladen.jankovic@hayo.net', 'lauren@hayo.net', 'atif@hayo.net', 'sarkari@hayo.net',
+  'munam.khalid@hayo.net', 'bilal@hayo.net', 'abdoulaye.dabo@hayo.net',
+];
+// ahmad/imran/paul = managers; bilal.waris (developer) monitors via CC.
+const DEFAULT_CC = ['ahmad.farooq@hayo.net', 'imran@hayo.net', 'paul@hayo.net', 'bilal.waris@hayo.net'];
 
 // Python report script. Uses String.raw so Python backslash escapes (\n, \t) survive
 // the TS template literal; the script contains no `${` or backticks. It queries the AMS
@@ -314,6 +323,8 @@ try:
                   ' may be partial (latest loaded date: ' + latest + ').</div>')
 
     header = ('<div style="font-family:Segoe UI,Arial,sans-serif;color:' + NAVY +
+              ';font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:3px;">Alert Management System</div>'
+              '<div style="font-family:Segoe UI,Arial,sans-serif;color:' + NAVY +
               ';font-size:20px;font-weight:700;margin-bottom:2px;">Google MO Traffic Alert</div>'
               '<div style="font-family:Segoe UI,Arial,sans-serif;color:#666;font-size:12px;margin-bottom:8px;">'
               'Report for ' + d2s + ' (yesterday). Comparisons: Date 2 = yesterday; Date 1 = yesterday minus 1/2/7/28 days.</div>')
@@ -364,8 +375,9 @@ export class GoogleMoAlertService implements OnModuleInit {
   /**
    * Seed the "Google MO Traffic Alert" condition idempotently. triggerCron stays NULL
    * so the generic ConditionSchedulerService ignores it — this service's @Cron owns the
-   * 04:00 schedule (no double-send). Recipients/isActive are user-editable in the Alerts
-   * UI and are never overwritten here; only the script is refreshed when it changes.
+   * 04:00 schedule (no double-send). The script is refreshed when it changes, and the
+   * DEFAULT_RECIPIENTS/DEFAULT_CC distribution list is MERGED into the condition (added,
+   * never removing addresses added via the Alerts UI) so the required audience is always set.
    */
   async onModuleInit(): Promise<void> {
     try {
@@ -379,15 +391,37 @@ export class GoogleMoAlertService implements OnModuleInit {
             triggerCron: null,
             logic: 'AND',
             conditionRows: [],
-            channels: { email: { enabled: true, recipients: DEFAULT_RECIPIENTS } },
+            channels: { email: { enabled: true, recipients: DEFAULT_RECIPIENTS, cc: DEFAULT_CC } },
             isActive: true,
             createdBy: null,
           }),
         );
         this.logger.log(`Seeded "${ALERT_NAME}" condition`);
-      } else if (existing.pythonScript !== GOOGLE_MO_ALERT_SCRIPT) {
-        await this.conditionRepo.update(existing.id, { pythonScript: GOOGLE_MO_ALERT_SCRIPT });
-        this.logger.log(`Updated "${ALERT_NAME}" script`);
+        return;
+      }
+
+      const patch: { pythonScript?: string; channels?: ConditionChannels } = {};
+      if (existing.pythonScript !== GOOGLE_MO_ALERT_SCRIPT) patch.pythonScript = GOOGLE_MO_ALERT_SCRIPT;
+
+      // Merge the required distribution list — add any missing To/Cc addresses, keep the rest.
+      const email = existing.channels?.email;
+      const curTo = email?.recipients ?? [];
+      const curCc = email?.cc ?? [];
+      const mergedCc = Array.from(new Set([...curCc, ...DEFAULT_CC]));
+      // To = existing ∪ defaults, minus anything designated CC (an address is never in both).
+      const mergedTo = Array.from(new Set([...curTo, ...DEFAULT_RECIPIENTS])).filter((a) => !mergedCc.includes(a));
+      const sameSet = (a: string[], b: string[]) =>
+        a.length === b.length && [...a].sort().join(',') === [...b].sort().join(',');
+      if (!sameSet(mergedTo, curTo) || !sameSet(mergedCc, curCc)) {
+        patch.channels = {
+          ...(existing.channels ?? {}),
+          email: { ...(email ?? {}), enabled: email?.enabled ?? true, recipients: mergedTo, cc: mergedCc },
+        };
+      }
+
+      if (Object.keys(patch).length) {
+        await this.conditionRepo.update(existing.id, patch);
+        this.logger.log(`Updated "${ALERT_NAME}" (${Object.keys(patch).join(', ')})`);
       }
     } catch (err) {
       this.logger.error('Failed to seed Google MO Traffic Alert condition', err as Error);
@@ -416,6 +450,8 @@ export class GoogleMoAlertService implements OnModuleInit {
     }
 
     const recipients = overrideRecipients ?? condition.channels?.email?.recipients ?? [];
+    // A targeted override (verification send) goes To-only; the scheduled run also CCs.
+    const cc = overrideRecipients ? [] : (condition.channels?.email?.cc ?? []);
     if (!recipients.length) {
       this.logger.warn(`${ALERT_NAME} has no recipients — skipping`);
       return { sent: false, message: 'no recipients' };
@@ -432,6 +468,7 @@ export class GoogleMoAlertService implements OnModuleInit {
       const subject = result.subject ?? `${ALERT_NAME} — ${new Date().toISOString().slice(0, 10)}`;
       await this.graphEmail.sendRichEmail({
         recipients,
+        cc,
         subject,
         html: result.html,
         inlineImages: result.image_base64
@@ -441,7 +478,7 @@ export class GoogleMoAlertService implements OnModuleInit {
 
       await this.conditionRepo.update(condition.id, { lastTriggeredAt: new Date() });
       await this.notifications.logScriptExecution({ condition, status: 'sent', message: result.message });
-      this.logger.log(`${ALERT_NAME} sent to ${recipients.join(', ')}`);
+      this.logger.log(`${ALERT_NAME} sent to ${recipients.length} To + ${cc.length} Cc`);
       return { sent: true };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
