@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { buildAccountDestinationTotals } from './alert-totals.util';
 import axios from 'axios';
 
 type Severity = 'critical' | 'warning' | 'info';
@@ -75,6 +76,40 @@ export class TeamsWebhookService {
       if (i < params.matchedRows.length - 1) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
+    }
+
+    // Totals card(s) — one per Account + Destination group (sum counts,
+    // weighted ASR/ACD). No-op for datasets without those columns.
+    const totals = buildAccountDestinationTotals(params.matchedRows);
+    for (const t of totals) {
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // pace vs Teams rate limit
+      const card = {
+        '@type':    'MessageCard',
+        '@context': 'https://schema.org/extensions',
+        themeColor,
+        summary: `AMS Alert Totals: ${params.conditionName}`,
+        sections: [
+          {
+            activityTitle:    `**AMS Alert — Total:** ${params.conditionName}`,
+            activitySubtitle: `${params.datasetName} · ${timeLabel} · Total for ${t.account || '—'} / ${t.destination || '—'}`,
+            facts: [
+              { name: 'Account',        value: t.account || '—' },
+              { name: 'Destination',    value: t.destination || '—' },
+              { name: 'Attempts',       value: String(t.attempts) },
+              { name: 'ACD',            value: t.acd == null ? '—' : t.acd.toFixed(2) },
+              { name: 'ASR',            value: t.asr == null ? '—' : `${t.asr.toFixed(2)}%` },
+              { name: 'Failed Calls',   value: String(t.failed_calls) },
+              { name: 'Volume',         value: t.volume.toFixed(2) },
+              { name: 'Answered Calls', value: String(t.answered_calls) },
+            ],
+            markdown: true,
+          },
+        ],
+      };
+      await axios.post(webhookUrl, card, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 15000,
+      });
     }
   }
 
