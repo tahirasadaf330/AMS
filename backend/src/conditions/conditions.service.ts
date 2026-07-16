@@ -181,8 +181,11 @@ export class ConditionsService {
     }
 
     try {
+      // No LIMIT — evaluate the full stage snapshot so every matching row is counted.
+      // The old 1000-row cap silently under-counted matches on larger tables; mirrors the
+      // scheduled-eval fix in condition-scheduler (voice branch: ~3000 rows only ~1/3 alerted).
       const stageResult = await this.dataSource.query(
-        `SELECT * FROM ${condition.dataset.stageTableName} ORDER BY id DESC LIMIT 1000`,
+        `SELECT * FROM ${condition.dataset.stageTableName} ORDER BY id DESC`,
       );
 
       const matchedRows = this.evaluatorService.previewCondition(
@@ -243,8 +246,9 @@ export class ConditionsService {
       const dataset = await this.datasetRepo.findOne({ where: { id: datasetId } });
       if (!dataset) throw new NotFoundException('Dataset not found');
 
+      // No LIMIT — evaluate the full snapshot so the test reflects real alert behaviour.
       const stageResult: Record<string, unknown>[] = await this.dataSource.query(
-        `SELECT * FROM ${dataset.stageTableName} ORDER BY id DESC LIMIT 100`,
+        `SELECT * FROM ${dataset.stageTableName} ORDER BY id DESC`,
       );
 
       const conditionRows: ConditionRow[] = dto.condition_rows ?? dto.conditionRows ?? [];
@@ -286,8 +290,9 @@ export class ConditionsService {
 
       if (!condition.dataset) throw new NotFoundException('Dataset not found for condition');
 
+      // No LIMIT — evaluate the full snapshot so the test reflects real alert behaviour.
       const stageResult: Record<string, unknown>[] = await this.dataSource.query(
-        `SELECT * FROM ${condition.dataset.stageTableName} ORDER BY id DESC LIMIT 100`,
+        `SELECT * FROM ${condition.dataset.stageTableName} ORDER BY id DESC`,
       );
 
       const matchedRows = this.evaluatorService.previewCondition(
