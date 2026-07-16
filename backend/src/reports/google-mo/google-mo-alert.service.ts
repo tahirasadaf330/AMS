@@ -281,11 +281,22 @@ try:
     yrows = cur.fetchall()
     ytotal_rows = len(yrows)
     ybody = ""
+    y_vol = 0; y_rev = 0.0; y_vc = 0.0; y_mar = 0.0
     for c, op, ven, vol, rev, vc, mar in yrows:
+        y_vol += int(vol or 0); y_rev += float(rev or 0); y_vc += float(vc or 0); y_mar += float(mar or 0)
         ybody += ("<tr>" + td(d2s, "left") + td(esc(c), "left") + td(esc(op), "left") + td(esc(ven), "left")
                   + td(fi(vol), "right") + td(fn(rev), "right") + td(fn(vc), "right") + td(fn(mar), "right") + "</tr>")
     if not ybody:
         ybody = '<tr><td colspan="8" style="padding:10px;text-align:center;color:#888;">No data</td></tr>'
+        ytotal = ""
+    else:
+        ts = 'padding:6px 9px;border-top:2px solid #b7c6de;color:' + NAVY + ';font-weight:700;'
+        ytotal = ('<tr style="background:' + HEADBG + ';">'
+                  + '<td colspan="4" style="text-align:left;' + ts + '">Total</td>'
+                  + '<td style="text-align:right;' + ts + '">' + fi(y_vol) + '</td>'
+                  + '<td style="text-align:right;' + ts + '">' + fn(y_rev) + '</td>'
+                  + '<td style="text-align:right;' + ts + '">' + fn(y_vc) + '</td>'
+                  + '<td style="text-align:right;' + ts + '">' + fn(y_mar) + '</td></tr>')
     ynote = ('<div style="font-size:11px;color:#666;margin:2px 0 6px;">'
              + str(ytotal_rows) + ' rows</div>') if ytotal_rows else ""
     yest_html = (caption("Google MO Traffic Yesterday Data") + ynote
@@ -293,7 +304,7 @@ try:
                  + topen()
                  + thead([("Date", "left"), ("Country Name", "left"), ("Operator Name", "left"), ("Vendor Name", "left"),
                           ("Volume", "right"), ("Revenue", "right"), ("Vendor Cost", "right"), ("Margin", "right")], True)
-                 + "<tbody>" + ybody + "</tbody></table></div>")
+                 + "<tbody>" + ybody + ytotal + "</tbody></table></div>")
 
     banner = ""
     if partial:
