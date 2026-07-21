@@ -22,6 +22,7 @@ export interface PythonReportResult {
   html?: string;
   image_base64?: string;
   image_cid?: string;
+  images?: Array<{ cid: string; base64: string }>;
   message?: string;
   rows?: Record<string, unknown>[];
 }
@@ -171,6 +172,9 @@ export class PythonExecutorService {
         html: typeof parsed.html === 'string' ? parsed.html : undefined,
         image_base64: typeof parsed.image_base64 === 'string' ? parsed.image_base64 : undefined,
         image_cid: typeof parsed.image_cid === 'string' ? parsed.image_cid : undefined,
+        images: Array.isArray(parsed.images)
+          ? parsed.images.filter((i: any) => i && typeof i.cid === 'string' && typeof i.base64 === 'string')
+          : undefined,
         message: typeof parsed.message === 'string' ? parsed.message : undefined,
         rows: Array.isArray(parsed.rows) ? parsed.rows : undefined,
       };

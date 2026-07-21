@@ -319,6 +319,10 @@ export class GraphEmailService {
       emailAddress: { address: addr },
     }));
 
+    // Inline (cid) images are attached to the single /sendMail action. Note: Outlook desktop
+    // reliably renders cid images only when there is ONE inline image — multiple inline images
+    // sent this way show as broken (red X) in the Word-based desktop client. Report scripts that
+    // need several charts must composite them into a single image (one cid), not many.
     const attachments = (params.inlineImages ?? [])
       .filter((img) => img.cid && img.contentBytes)
       .map((img) => ({
