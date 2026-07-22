@@ -28,6 +28,9 @@ interface GraphCredentials {
 export class GraphEmailService {
   private readonly logger = new Logger(GraphEmailService.name);
   private tokenCache: TokenCache | null = null;
+  // Coalesces concurrent cache-miss token requests (e.g. a burst of alerts at a cron boundary)
+  // into a single in-flight POST, instead of each caller firing its own and stampeding the endpoint.
+  private tokenInflight: Promise<{ token: string; senderEmail: string }> | null = null;
 
   private readonly envTenantId: string;
   private readonly envClientId: string;
@@ -83,6 +86,22 @@ export class GraphEmailService {
       return { token: this.tokenCache.token, senderEmail: creds.senderEmail };
     }
 
+    // Cache miss: coalesce concurrent callers onto one in-flight request.
+    if (this.tokenInflight) return this.tokenInflight;
+
+    this.tokenInflight = this.fetchAccessToken(creds, fingerprint);
+    try {
+      return await this.tokenInflight;
+    } finally {
+      this.tokenInflight = null;
+    }
+  }
+
+  /** Fetch a fresh app-only token: 30s timeout with one retry (the endpoint can be slow under load). */
+  private async fetchAccessToken(
+    creds: GraphCredentials,
+    fingerprint: string,
+  ): Promise<{ token: string; senderEmail: string }> {
     const tokenUrl = `https://login.microsoftonline.com/${creds.tenantId}/oauth2/v2.0/token`;
     const params = new URLSearchParams({
       client_id: creds.clientId,
@@ -91,19 +110,27 @@ export class GraphEmailService {
       grant_type: 'client_credentials',
     });
 
-    const response = await axios.post(tokenUrl, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      timeout: 15000,
-    });
-
-    const expiresIn: number = response.data.expires_in || 3600;
-    this.tokenCache = {
-      token: response.data.access_token,
-      expiresAt: Date.now() + expiresIn * 1000,
-      credFingerprint: fingerprint,
-    };
-
-    return { token: this.tokenCache.token, senderEmail: creds.senderEmail };
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const response = await axios.post(tokenUrl, params.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          timeout: 30000,
+        });
+        const expiresIn: number = response.data.expires_in || 3600;
+        this.tokenCache = {
+          token: response.data.access_token,
+          expiresAt: Date.now() + expiresIn * 1000,
+          credFingerprint: fingerprint,
+        };
+        return { token: this.tokenCache.token, senderEmail: creds.senderEmail };
+      } catch (err) {
+        lastErr = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Graph token request attempt ${attempt}/2 failed: ${msg}`);
+      }
+    }
+    throw lastErr;
   }
 
   isTokenValid(): boolean {

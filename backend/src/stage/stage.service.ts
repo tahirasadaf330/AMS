@@ -133,6 +133,12 @@ export class StageService implements OnModuleInit {
 
       let sql = dataset.sqlQuery;
 
+      // Defence-in-depth: stageTableName is interpolated into DDL/DML below. Assert it matches the
+      // safe identifier pattern enforced at dataset creation, in case a value was ever set otherwise.
+      if (!/^[a-z_][a-z0-9_]{0,127}$/i.test(dataset.stageTableName)) {
+        throw new Error(`Unsafe stage table name: ${dataset.stageTableName}`);
+      }
+
       if (isOverlap) {
         if (!tsColumn) {
           throw new Error(`Dataset ${dataset.name}: incremental_overlap_minutes is set but incremental_timestamp_column is missing`);
@@ -200,6 +206,18 @@ export class StageService implements OnModuleInit {
         this.logger.log(`Traffic window for ${dataset.name}: ${windowMinutes} minutes`);
       }
 
+      // Full-refresh data-loss guard: remember whether the table currently holds data, so we can
+      // refuse to commit a wipe if the source unexpectedly returns 0 rows (transient source failure).
+      let fullTableHadData = false;
+      if (!isOverlap && !isIncremental) {
+        try {
+          const [cnt] = await this.dataSource.query(
+            `SELECT EXISTS (SELECT 1 FROM ${dataset.stageTableName} LIMIT 1) AS has_data`,
+          );
+          fullTableHadData = cnt?.has_data === true;
+        } catch { /* table may not exist yet */ }
+      }
+
       // Ensure stage table exists before streaming (DDL must run outside a transaction)
       await this.ensureStageTable(dataset.stageTableName, dataset.columnMetadata, []);
 
@@ -247,6 +265,13 @@ export class StageService implements OnModuleInit {
           500,
           signal,
         );
+
+        // Full-refresh data-loss guard: never commit a wipe when the source returned 0 rows but the
+        // table had data — abort (rollback in catch) so the previous snapshot is preserved and the
+        // cycle is retried, rather than publishing an empty table that silently stops alerts.
+        if (!isOverlap && !isIncremental && fullTableHadData && totalRows === 0) {
+          throw new Error(`Full refresh for ${dataset.name} returned 0 rows but the table had data — aborting to preserve existing data`);
+        }
 
         await queryRunner.commitTransaction();
 
