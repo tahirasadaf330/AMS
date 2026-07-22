@@ -137,7 +137,7 @@ export default function ZamaniSenderIdPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [lastLoaded, setLastLoaded] = React.useState<Date | null>(null);
 
-  const [view, setView] = React.useState<'senders' | 'aggregators'>('senders');
+  const [view, setView] = React.useState<'senders' | 'aggregators' | 'routing'>('senders');
   const [search, setSearch] = React.useState('');
   const [amFilter, setAmFilter] = React.useState('all');
   const [misOnly, setMisOnly] = React.useState(false);
@@ -170,7 +170,7 @@ export default function ZamaniSenderIdPage() {
   React.useEffect(() => { load(); }, [load]);
 
   const t = data?.totals;
-  const baseRows: any[] = view === 'senders' ? (data?.senders ?? []) : (data?.aggregators ?? []);
+  const baseRows: any[] = view === 'senders' ? (data?.senders ?? []) : view === 'aggregators' ? (data?.aggregators ?? []) : (data?.routing ?? []);
   const accountManagers = React.useMemo(
     () => Array.from(new Set(baseRows.map((r) => r.account_manager).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b)),
     [baseRows],
@@ -180,12 +180,12 @@ export default function ZamaniSenderIdPage() {
     let r = baseRows;
     if (search.trim()) {
       const q = search.toLowerCase();
-      r = r.filter((row) => (row.sender_id ?? '').toLowerCase().includes(q) || (row.aggregator ?? '').toLowerCase().includes(q));
+      r = r.filter((row) => (row.sender_id ?? '').toLowerCase().includes(q) || (row.aggregator ?? '').toLowerCase().includes(q) || (row.vendor ?? '').toLowerCase().includes(q));
     }
-    if (amFilter !== 'all') r = r.filter((row) => row.account_manager === amFilter);
-    if (misOnly) r = r.filter((row) => row.misrouted > 0);
+    if (view !== 'routing' && amFilter !== 'all') r = r.filter((row) => row.account_manager === amFilter);
+    if (view !== 'routing' && misOnly) r = r.filter((row) => row.misrouted > 0);
     return r;
-  }, [baseRows, search, amFilter, misOnly]);
+  }, [baseRows, search, amFilter, misOnly, view]);
 
   const sorted = React.useMemo(() => {
     if (!sort.key || !sort.dir) return filtered;
@@ -206,7 +206,7 @@ export default function ZamaniSenderIdPage() {
 
   const hasFilter = !!(search || misOnly || amFilter !== 'all');
   const sharedTH = { sort, onSort };
-  const cols = view === 'senders' ? 8 : 7;
+  const cols = view === 'senders' ? 8 : view === 'aggregators' ? 7 : 4;
 
   return (
     <>
@@ -270,6 +270,7 @@ export default function ZamaniSenderIdPage() {
             <span className="edr-seg">
               <button className={view === 'senders' ? 'on' : ''} onClick={() => setView('senders')}>By Sender ID</button>
               <button className={view === 'aggregators' ? 'on' : ''} onClick={() => setView('aggregators')}>By Aggregator</button>
+              <button className={view === 'routing' ? 'on' : ''} onClick={() => setView('routing')}>Routing Errors{(t?.misrouted ?? 0) > 0 ? ` (${data?.routing.length ?? 0})` : ''}</button>
             </span>
             <input className="edr-inp" type="text" placeholder="Search sender / aggregator…" value={search} onChange={(e) => setSearch(e.target.value)} />
             <select className="edr-inp" style={{ width: 190 }} value={amFilter} onChange={(e) => setAmFilter(e.target.value)} title="Filter by account manager">
@@ -299,7 +300,7 @@ export default function ZamaniSenderIdPage() {
                         <TH w={90} colKey="misrouted" {...sharedTH}>Mis-routed</TH>
                         <TH w={140} colKey="last_seen" {...sharedTH}>Last Seen (UTC)</TH>
                       </>
-                    ) : (
+                    ) : view === 'aggregators' ? (
                       <>
                         <TH left w={200} colKey="aggregator" {...sharedTH}>Aggregator</TH>
                         <TH left w={160} colKey="account_manager" {...sharedTH}>Account Manager</TH>
@@ -309,15 +310,22 @@ export default function ZamaniSenderIdPage() {
                         <TH w={80} colKey="dlr_pct" {...sharedTH}>DLR %</TH>
                         <TH w={90} colKey="misrouted" {...sharedTH}>Mis-routed</TH>
                       </>
+                    ) : (
+                      <>
+                        <TH left w={200} colKey="sender_id" {...sharedTH}>Sender ID</TH>
+                        <TH left w={180} colKey="aggregator" {...sharedTH}>Aggregator</TH>
+                        <TH left w={220} colKey="vendor" {...sharedTH}>Sent To (wrong vendor)</TH>
+                        <TH w={110} colKey="msgs" {...sharedTH}>Messages</TH>
+                      </>
                     )}
                   </tr>
                 </thead>
                 <tbody>
                   {sorted.length === 0 && (
-                    <tr><td colSpan={cols} className="edr-empty">{baseRows.length === 0 ? 'No traffic in the selected time window' : 'No rows match the current filters'}</td></tr>
+                    <tr><td colSpan={cols} className="edr-empty">{baseRows.length === 0 ? (view === 'routing' ? 'No mis-routed records in this window — all Zamani traffic went to the correct vendor (564)' : 'No traffic in the selected time window') : 'No rows match the current filters'}</td></tr>
                   )}
                   {sorted.map((row: any, i: number) => (
-                    <tr key={i} className={row.misrouted > 0 ? 'rn' : undefined}>
+                    <tr key={i} className={(view === 'routing' || row.misrouted > 0) ? 'rn' : undefined}>
                       {view === 'senders' ? (
                         <>
                           <TD left><span style={{ fontWeight: 600 }}>{row.sender_id || '—'}</span></TD>
@@ -329,7 +337,7 @@ export default function ZamaniSenderIdPage() {
                           <TD>{row.misrouted > 0 ? <span className="bdg bdg-neg">{fmtN(row.misrouted)}</span> : <span style={{ color: 'var(--mu)' }}>—</span>}</TD>
                           <TD mono>{row.last_seen || '—'}</TD>
                         </>
-                      ) : (
+                      ) : view === 'aggregators' ? (
                         <>
                           <TD left><span style={{ fontWeight: 600 }}>{row.aggregator || '—'}</span></TD>
                           <TD left><span style={{ color: row.account_manager ? 'var(--inks)' : 'var(--mu)' }}>{row.account_manager || '—'}</span></TD>
@@ -338,6 +346,13 @@ export default function ZamaniSenderIdPage() {
                           <TD>{fmtN(row.delivered)}</TD>
                           <TD><span className={dlrCls(row.dlr_pct)}>{row.dlr_pct}%</span></TD>
                           <TD>{row.misrouted > 0 ? <span className="bdg bdg-neg">{fmtN(row.misrouted)}</span> : <span style={{ color: 'var(--mu)' }}>—</span>}</TD>
+                        </>
+                      ) : (
+                        <>
+                          <TD left><span style={{ fontWeight: 600 }}>{row.sender_id || '—'}</span></TD>
+                          <TD left>{row.aggregator || '—'}</TD>
+                          <TD left><span style={{ color: 'var(--rejected)', fontWeight: 600 }}>{row.vendor || `vendor ${row.vendor_id}`}</span></TD>
+                          <TD><span style={{ fontWeight: 700 }}>{fmtN(row.msgs)}</span></TD>
                         </>
                       )}
                     </tr>
@@ -348,7 +363,7 @@ export default function ZamaniSenderIdPage() {
           </div>
 
           {!loading && sorted.length > 0 && (
-            <div className="edr-footer">{sorted.length.toLocaleString()} of {baseRows.length.toLocaleString()} {view === 'senders' ? 'sender IDs' : 'aggregators'}</div>
+            <div className="edr-footer">{sorted.length.toLocaleString()} of {baseRows.length.toLocaleString()} {view === 'senders' ? 'sender IDs' : view === 'aggregators' ? 'aggregators' : 'routing errors'}</div>
           )}
 
         </div>
