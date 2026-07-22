@@ -43,7 +43,9 @@ import { GoogleMoModule } from "./reports/google-mo/google-mo.module";
 import { PrepaymentClModule } from "./reports/prepayment-cl/prepayment-cl.module";
 import { ReportsRegistryModule } from "./admin/reports/reports-registry.module";
 import { MtEdrModule } from "./reports/mt-edr/mt-edr.module";
+import { ZamaniSenderIdModule } from "./reports/zamani-senderid/zamani-senderid.module";
 import { SmsReportModule } from "./reports/sms-report/sms-report.module";
+import { NegativeMarginModule } from "./reports/negative-margin/negative-margin.module";
 import { AdminGroupsModule } from "./admin/groups/groups.module";
 import { DealsAutomationModule } from "./reports/deals-automation/deals-automation.module";
 import { VoiceLiveTrafficModule } from "./reports/voice-live-traffic/voice-live-traffic.module";
@@ -116,7 +118,9 @@ import { AppleTrafficModule } from "./reports/apple-traffic/apple-traffic.module
     GoogleMoModule,
     PrepaymentClModule,
     MtEdrModule,
+    ZamaniSenderIdModule,
     SmsReportModule,
+    NegativeMarginModule,
     DealsAutomationModule,
     VoiceLiveTrafficModule,
     AppleTrafficModule,
