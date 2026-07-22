@@ -3,6 +3,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Dataset } from '../../common/entities/dataset.entity';
 import { ExternalDataSource } from '../../common/entities/data-source.entity';
+import { CredentialsService } from '../../credentials/credentials.service';
 
 const STAGE         = 'stage_negative_margin';
 const DATASET_NAME  = 'Voice Negative Margin';
@@ -84,15 +85,50 @@ export class NegativeMarginService implements OnModuleInit {
     private readonly datasetRepo: Repository<Dataset>,
     @InjectRepository(ExternalDataSource)
     private readonly dsRepo: Repository<ExternalDataSource>,
+    private readonly credentials: CredentialsService,
   ) {}
 
   async onModuleInit(): Promise<void> {
     try {
+      await this.ensureJerasoftDatasource();
       await this.ensureDatasetRecord();
       await this.ensureStageTable();
     } catch (err) {
       this.logger.error('Negative Margin dataset seed failed', err);
     }
+  }
+
+  /**
+   * Auto-seed the 'Jerasoft' Postgres datasource from JERASOFT_* env (same pattern the Zamani
+   * report uses for ASMSC), so the Negative Margin dataset can be created without a manual
+   * Admin → Data Sources step. No-op if the datasource already exists or the env isn't set.
+   */
+  private async ensureJerasoftDatasource(): Promise<void> {
+    const existing = await this.dsRepo.findOne({ where: { name: DATASOURCE } });
+    if (existing) return;
+    const host = process.env.JERASOFT_HOST;
+    const db = process.env.JERASOFT_DB;
+    const user = process.env.JERASOFT_USER;
+    const pass = process.env.JERASOFT_PASS;
+    if (!host || !db || !user || !pass) {
+      this.logger.warn('JERASOFT_* env not set — cannot auto-seed Jerasoft datasource');
+      return;
+    }
+    await this.dsRepo.save(
+      this.dsRepo.create({
+        name:      DATASOURCE,
+        type:      'postgresql',
+        host,
+        port:      Number(process.env.JERASOFT_PORT ?? 5432),
+        db,
+        username:  user,
+        password:  this.credentials.encrypt(pass),
+        sslMode:   'disable',
+        isActive:  true,
+        createdBy: null,
+      }),
+    );
+    this.logger.log('Seeded Jerasoft datasource from JERASOFT_* env');
   }
 
   private async ensureDatasetRecord(): Promise<void> {
