@@ -125,6 +125,7 @@ export class NotificationsService {
           condition,
           datasetName,
           matchedRows,
+          columnMeta,
           selectedColumns: channels.email?.columns,
           webhookUrl: channels.teams.webhook_url,
           severity: channels.teams.severity || 'info',
@@ -216,6 +217,7 @@ export class NotificationsService {
     condition: Condition;
     datasetName: string;
     matchedRows: Record<string, unknown>[];
+    columnMeta?: ColumnMeta[];
     selectedColumns?: string[];
     webhookUrl?: string;
     severity: 'critical' | 'warning' | 'info';
@@ -242,6 +244,7 @@ export class NotificationsService {
         severity: params.severity,
         timestamp: new Date().toISOString(),
         selectedColumns: params.selectedColumns,
+        columnMeta: params.columnMeta,
       });
 
       await this.notifLogRepo.update(saved.id, { status: 'sent' });
@@ -429,6 +432,7 @@ export class NotificationsService {
           matchedRows,
           matchedCount: matchedRows.length,
           severity: teamsChannels?.severity || 'info',
+          columnMeta: Array.isArray(log.dataset?.columnMetadata) ? (log.dataset?.columnMetadata as any[]) : undefined,
         });
         await this.notifLogRepo.update(id, { status: 'sent' });
       } catch (err) {
@@ -525,6 +529,7 @@ export class NotificationsService {
             matchedRows,
             matchedCount: matchedRows.length,
             severity: condition.channels?.teams?.severity || 'info',
+            columnMeta: Array.isArray(log.dataset?.columnMetadata) ? (log.dataset?.columnMetadata as any[]) : undefined,
           });
           handled = true;
         }

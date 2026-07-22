@@ -28,6 +28,7 @@ export class TeamsWebhookService {
     severity?: Severity;
     timestamp?: string;
     selectedColumns?: string[];
+    columnMeta?: Array<{ key: string; label: string; visible: boolean }>;
   }): Promise<void> {
     const webhookUrl = params.webhookUrl || this.defaultWebhookUrl;
     if (!webhookUrl) {
@@ -35,15 +36,22 @@ export class TeamsWebhookService {
     }
 
     const INTERNAL = new Set(['id', 'refreshed_at']);
+    // Columns the dataset marks visible:false (e.g. Voice Live Traffic's *_change
+    // helper columns) are dropped from the card — mirroring the email renderer and
+    // the dashboard viewer. Column order and fact labels are unchanged.
+    const hiddenKeys = new Set(
+      (params.columnMeta ?? []).filter((c) => c.visible === false).map((c) => c.key),
+    );
     const ts = params.timestamp || new Date().toISOString();
     const severity: Severity = params.severity || 'info';
     const themeColor = THEME_COLORS[severity];
     const timeLabel = new Date(ts).toLocaleString('en-GB');
 
     const allColumns = params.matchedRows.length > 0 ? Object.keys(params.matchedRows[0]) : [];
-    const columns = params.selectedColumns?.length
+    const columns = (params.selectedColumns?.length
       ? allColumns.filter((c) => (params.selectedColumns as string[]).includes(c))
-      : allColumns.filter((c) => !INTERNAL.has(c));
+      : allColumns.filter((c) => !INTERNAL.has(c))
+    ).filter((c) => !hiddenKeys.has(c));
 
     // One MessageCard per row — same proven format as the Python webhook script
     for (let i = 0; i < params.matchedRows.length; i++) {

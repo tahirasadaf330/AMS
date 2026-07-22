@@ -26,6 +26,14 @@ import { formatDatetimeFull, formatNumber } from '@/lib/utils';
 import { RefreshHistoryTable } from '@/components/refresh-history-table';
 import { useConditions } from '@/hooks/useConditions';
 
+// Voice Live Traffic account values are "client / account". Show just the
+// account (second) part in the account filter so long combined names don't
+// overflow the dropdown — the stored/matched value is unchanged.
+const accountShort = (v: string): string => {
+  const i = v.indexOf(' / ');
+  return i >= 0 ? v.slice(i + 3) : v;
+};
+
 export default function DatasetDashboardPage() {
   const params = useParams();
   const datasetId = params.datasetId as string;
@@ -98,6 +106,30 @@ export default function DatasetDashboardPage() {
       dashboardApi.getDistinctValues(datasetId, column).then((r) => r.data.values ?? []),
     [datasetId],
   );
+
+  // Voice Live Traffic totals row — format the backend's call-weighted figures
+  // exactly as the custom report footer does (int / 2-dp / percent). The backend
+  // only returns `totals` for that dataset, so this is undefined elsewhere and no
+  // footer renders.
+  const voiceTotals = React.useMemo<Record<string, string> | undefined>(() => {
+    const t = tableData?.totals;
+    if (!t) return undefined;
+    const fmtInt = (n: number | null) => (n == null ? '—' : Number(n).toLocaleString('en-US'));
+    const fmtDec = (n: number | null) => (n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    const fmtPct = (n: number | null) => (n == null ? '—' : `${Number(n).toFixed(2)}%`);
+    return {
+      attempts: fmtInt(t.attempts),
+      acd: fmtDec(t.acd),
+      asr: fmtPct(t.asr),
+      failed_calls: fmtInt(t.failed_calls),
+      volume: fmtDec(t.volume),
+      answered_calls: fmtInt(t.answered_calls),
+    };
+  }, [tableData?.totals]);
+
+  const voiceTotalsLabel = tableData?.totals
+    ? `Total (${(tableData?.total ?? 0).toLocaleString('en-US')} routes)`
+    : undefined;
   const { data: historyData, isLoading: historyLoading } = useRefreshHistory(datasetId);
   const { data: datasetsAll } = useDatasets();
   const { data: conditions } = useConditions();
@@ -263,6 +295,13 @@ export default function DatasetDashboardPage() {
         visibleColumnKeys={visibleColumnKeys}
         onVisibleColumnsChange={setVisibleColumnKeys}
         fetchDistinctValues={fetchDistinctValues}
+        formatFilterLabel={
+          dataset?.stage_table_name === 'ds_voice_live_traffic'
+            ? (colKey, value) => (colKey === 'account' ? accountShort(value) : value)
+            : undefined
+        }
+        totals={voiceTotals}
+        totalsLabel={voiceTotalsLabel}
       />
 
       {/* Refresh history toggle */}
