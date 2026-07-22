@@ -16,6 +16,19 @@ export interface DataQuery {
   columnFilters?: Record<string, string>;
 }
 
+// Call-weighted totals row for the Voice Live Traffic dataset viewer — the same
+// figures the custom report footer shows, computed over the full filtered set.
+export interface VoiceTotals {
+  attempts: number;
+  answered_calls: number;
+  failed_calls: number;
+  volume: number;
+  acd: number | null;
+  asr: number | null;
+}
+
+const VOICE_STAGE = 'ds_voice_live_traffic';
+
 @Injectable()
 export class DashboardService {
   private readonly logger = new Logger(DashboardService.name);
@@ -85,7 +98,7 @@ export class DashboardService {
     userId: string,
     userRole: UserRole,
     query: DataQuery,
-  ): Promise<{ rows: Record<string, unknown>[]; total: number; page: number; limit: number; dataset: Dataset }> {
+  ): Promise<{ rows: Record<string, unknown>[]; total: number; page: number; limit: number; dataset: Dataset; totals?: VoiceTotals }> {
     await this.checkAccess(datasetId, userId, userRole);
     const dataset = await this.datasetRepo.findOne({ where: { id: datasetId } });
     if (!dataset) throw new NotFoundException('Dataset not found');
@@ -153,12 +166,38 @@ export class DashboardService {
       const countResult = await this.dataSource.query(countSql, params);
       const dataResult = await this.dataSource.query(dataSql, params);
 
+      // Voice Live Traffic gets a totals row matching the custom report footer:
+      // sums for the count/volume columns, and call-weighted ACD/ASR — computed
+      // over the FULL filtered set (same WHERE, no LIMIT), not just this page.
+      let totals: VoiceTotals | undefined;
+      if (dataset.stageTableName === VOICE_STAGE) {
+        const totalsSql = `
+          SELECT COALESCE(SUM(attempts), 0)       AS attempts,
+                 COALESCE(SUM(answered_calls), 0) AS answered_calls,
+                 COALESCE(SUM(failed_calls), 0)   AS failed_calls,
+                 COALESCE(SUM(volume), 0)         AS volume
+          FROM ${dataset.stageTableName} t ${whereSql}`;
+        const [agg] = await this.dataSource.query(totalsSql, params);
+        const attempts = Number(agg?.attempts ?? 0);
+        const answered = Number(agg?.answered_calls ?? 0);
+        totals = {
+          attempts,
+          answered_calls: answered,
+          failed_calls: Number(agg?.failed_calls ?? 0),
+          volume: Number(agg?.volume ?? 0),
+          // ACD = Σvolume / Σanswered · ASR = Σanswered / Σattempts × 100
+          acd: answered > 0 ? Number(agg?.volume ?? 0) / answered : null,
+          asr: attempts > 0 ? (answered / attempts) * 100 : null,
+        };
+      }
+
       return {
         rows: dataResult as Record<string, unknown>[],
         total: parseInt(countResult[0]?.count || '0', 10),
         page,
         limit,
         dataset,
+        totals,
       };
     } catch (err) {
       this.logger.error('Error getting dataset data', err);

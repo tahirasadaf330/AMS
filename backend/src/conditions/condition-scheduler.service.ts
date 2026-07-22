@@ -146,6 +146,7 @@ export class ConditionSchedulerService implements OnModuleInit {
       condition.conditionRows,
       condition.logic,
       rows,
+      table,
     );
 
     if (matchedRows.length === 0) {

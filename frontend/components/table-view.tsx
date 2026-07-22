@@ -59,13 +59,16 @@ function CellValue({ value, type }: { value: string | number | null; type?: stri
 // ── Text multi-select filter ─────────────────────────────────────────────────
 
 function TextFilter({
-  col, rows, filters, onChange, fetchDistinctValues,
+  col, rows, filters, onChange, fetchDistinctValues, formatLabel,
 }: {
   col: ColumnMeta;
   rows: DashboardRow[];
   filters: Record<string, string>;
   onChange: (changes: Record<string, string>) => void;
   fetchDistinctValues?: (column: string) => Promise<string[]>;
+  // Optional: shorten the displayed option text (e.g. long "client / account"
+  // names). Display-only — the underlying value is still used for matching.
+  formatLabel?: (value: string) => string;
 }) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
@@ -78,7 +81,14 @@ function TextFilter({
   // values present on the current page.
   const pageVals = React.useMemo(() => uniqueVals(rows, col.key), [rows, col.key]);
   const allVals = serverVals ?? pageVals;
-  const filtered = allVals.filter(v => v.toLowerCase().includes(search.toLowerCase()));
+  // Pin selected values to the top so the current selection is visible the
+  // moment the dropdown reopens, instead of being buried alphabetically in a
+  // long list (which forced a search to find it). `allVals` is already
+  // alphabetical and Array.sort is stable, so order within each group is kept.
+  const selSet = new Set(selected);
+  const filtered = allVals
+    .filter(v => v.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => Number(selSet.has(b)) - Number(selSet.has(a)));
   const hasFilter = selected.length > 0;
 
   // Fetch the complete value list once, the first time the dropdown opens.
@@ -175,7 +185,7 @@ function TextFilter({
                   >
                     {selected.includes(val) && <Check className="h-2.5 w-2.5 text-white" />}
                   </span>
-                  <span className="truncate" title={val}>{val}</span>
+                  <span className="truncate" title={val}>{formatLabel ? formatLabel(val) : val}</span>
                 </button>
               ))
             )}
@@ -365,6 +375,14 @@ export interface TableViewProps {
   // text filters list every value (not just the current page). Omit to keep the
   // page-only behaviour.
   fetchDistinctValues?: (column: string) => Promise<string[]>;
+  // Optional: shorten the label shown for a text filter's options (display-only;
+  // the underlying value is unchanged). Return the value as-is to leave it alone.
+  formatFilterLabel?: (colKey: string, value: string) => string;
+  // Optional: a totals row rendered as a sticky footer. Keys are column keys →
+  // already-formatted display strings; `totalsLabel` names the row in the first
+  // column that has no total of its own. Omit both to render no footer.
+  totals?: Record<string, string>;
+  totalsLabel?: string;
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
@@ -385,8 +403,14 @@ export function TableView({
   visibleColumnKeys,
   onVisibleColumnsChange,
   fetchDistinctValues,
+  formatFilterLabel,
+  totals,
+  totalsLabel,
 }: TableViewProps) {
   const visibleColumns = columns.filter(c => visibleColumnKeys.includes(c.key));
+  // The totals label sits in the first visible column that has no total of its
+  // own (e.g. the leading text column).
+  const totalsLabelKey = totals ? visibleColumns.find(c => totals[c.key] == null)?.key : undefined;
   const totalWidth = visibleColumns.reduce((sum, c) => sum + colWidth(c), 0);
   const totalPages = Math.ceil(total / limit);
   const activeFilterCount = Object.values(columnFilters).filter(Boolean).length;
@@ -542,7 +566,7 @@ export function TableView({
                   ) : col.type === 'date' ? (
                     <DateFilter col={col} filters={columnFilters} onChange={onFilterChange} />
                   ) : (
-                    <TextFilter col={col} rows={rows} filters={columnFilters} onChange={onFilterChange} fetchDistinctValues={fetchDistinctValues} />
+                    <TextFilter col={col} rows={rows} filters={columnFilters} onChange={onFilterChange} fetchDistinctValues={fetchDistinctValues} formatLabel={formatFilterLabel ? (v) => formatFilterLabel(col.key, v) : undefined} />
                   )}
                 </th>
               ))}
@@ -616,6 +640,30 @@ export function TableView({
               })
             )}
           </tbody>
+
+          {/* Sticky totals footer (Voice Live Traffic) — mirrors the report */}
+          {totals && !isLoading && rows.length > 0 && (
+            <tfoot className="sticky bottom-0 z-10">
+              <tr className="bg-gray-100 dark:bg-gray-800 border-t-2 border-gray-300 dark:border-gray-600">
+                {visibleColumns.map(col => {
+                  const val = totals[col.key];
+                  return (
+                    <td
+                      key={col.key}
+                      className={cn(
+                        'px-3 py-2.5 text-sm font-semibold',
+                        col.type === 'numeric'
+                          ? 'text-right font-mono tabular-nums text-gray-800 dark:text-gray-100'
+                          : 'text-left text-gray-700 dark:text-gray-200',
+                      )}
+                    >
+                      {val != null ? val : col.key === totalsLabelKey ? (totalsLabel ?? 'Total') : ''}
+                    </td>
+                  );
+                })}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 
