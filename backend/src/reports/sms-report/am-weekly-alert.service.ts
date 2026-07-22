@@ -1,5 +1,4 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Condition, ConditionChannels } from '../../common/entities/condition.entity';
@@ -7,19 +6,20 @@ import { PythonExecutorService } from '../../conditions/python-executor.service'
 import { GraphEmailService } from '../../notifications/graph-email.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 
-// One weekly alert per account manager. Each Monday 05:00 UTC every AM here gets an email
-// comparing their customers' received-message volume for last week (Mon–Sun) vs the week
-// before, split into Increases and Decreases tables (with totals). Recipients are code-managed:
-// set authoritatively from this config on startup (To = the AM; Cc = their managers).
-interface AmConfig { am: string; to: string[]; cc: string[]; }
+// One weekly alert per account manager: an email comparing their customers' received-message
+// volume for last week (Mon–Sun) vs the week before, split into Increases and Decreases tables
+// (with totals). Recipients are code-managed (To = the AM; Cc = their managers). The SCHEDULE is
+// user-managed via the Alerts UI (condition.trigger_cron); defaultCron is only the initial value
+// seeded for a fresh condition.
+interface AmConfig { am: string; to: string[]; cc: string[]; defaultCron: string; }
 // Shared Cc for every weekly AM alert: the managers + Dev (bilal.waris) + Hassan Kashif.
 const COMMON_CC = [
   'gabriela@hayo.net', 'mladen.jankovic@hayo.net', 'atif@hayo.net', 'ahmad.farooq@hayo.net',
   'minahil.azeem@hayo.net', 'bilal.waris@hayo.net', 'hassan.kashif@hayo.net',
 ];
 const AM_CONFIGS: AmConfig[] = [
-  { am: 'Ghazal Khonyagar', to: ['ghazal@hayo.net'],         cc: COMMON_CC },
-  { am: 'Franz Stiglich',   to: ['franz.stiglich@hayo.net'], cc: COMMON_CC },
+  { am: 'Ghazal Khonyagar', to: ['ghazal@hayo.net'],         cc: COMMON_CC, defaultCron: '6 4 * * 1' },
+  { am: 'Franz Stiglich',   to: ['franz.stiglich@hayo.net'], cc: COMMON_CC, defaultCron: '7 4 * * 1' },
 ];
 
 // Python report script. `{{AM_NAME}}` is substituted with the account-manager name at run time
@@ -220,7 +220,7 @@ export class AmWeeklyVolumeAlertService implements OnModuleInit {
           name,
           type: 'python',
           pythonScript: script,
-          triggerCron: null, // this service's @Cron owns the schedule; generic scheduler ignores it
+          triggerCron: cfg.defaultCron, // initial weekly schedule; user-adjustable in the Alerts UI
           logic: 'AND',
           conditionRows: [],
           channels: { email: { enabled: true, recipients: cfg.to, cc: cfg.cc } },
@@ -232,11 +232,10 @@ export class AmWeeklyVolumeAlertService implements OnModuleInit {
       return;
     }
 
-    const patch: { pythonScript?: string; channels?: ConditionChannels; triggerCron?: string | null } = {};
+    const patch: { pythonScript?: string; channels?: ConditionChannels } = {};
     if (existing.pythonScript !== script) patch.pythonScript = script;
-    // This service owns the schedule via @Cron; a leftover triggerCron on a pre-existing condition
-    // makes the generic ConditionSchedulerService double-fire it. Reset it to null.
-    if (existing.triggerCron !== null) patch.triggerCron = null;
+    // Schedule (trigger_cron) is user-managed via the Alerts UI — the code never overrides it here;
+    // the generic ConditionSchedulerService runs each AM's condition at the time the user set.
 
     // Recipients are code-managed for these alerts — set them authoritatively from AM_CONFIGS
     // (To = the AM, Cc = managers), so the exact list is enforced and stale addresses are dropped.
@@ -258,12 +257,8 @@ export class AmWeeklyVolumeAlertService implements OnModuleInit {
     }
   }
 
-  @Cron('0 5 * * 1', { name: 'am-weekly-volume', timeZone: 'UTC' })
-  async runWeekly(): Promise<void> {
-    for (const cfg of AM_CONFIGS) {
-      await this.run(cfg);
-    }
-  }
+  // No @Cron: each AM's schedule is user-managed via the Alerts UI (condition.trigger_cron) and run
+  // by the generic ConditionSchedulerService. runNow()/run() below remain for manual "play" triggers.
 
   /** Manual trigger for verification. Optional am filter + recipient override (To-only). */
   async runNow(am?: string, overrideRecipients?: string[]): Promise<Array<{ am: string; sent: boolean; message?: string }>> {

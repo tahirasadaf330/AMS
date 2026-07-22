@@ -1,5 +1,4 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Condition, ConditionChannels } from '../../common/entities/condition.entity';
@@ -388,7 +387,7 @@ export class GoogleMoAlertService implements OnModuleInit {
             name: ALERT_NAME,
             type: 'python',
             pythonScript: GOOGLE_MO_ALERT_SCRIPT,
-            triggerCron: null,
+            triggerCron: '10 4 * * *', // initial daily schedule; user-adjustable in the Alerts UI
             logic: 'AND',
             conditionRows: [],
             channels: { email: { enabled: true, recipients: DEFAULT_RECIPIENTS, cc: DEFAULT_CC } },
@@ -400,12 +399,10 @@ export class GoogleMoAlertService implements OnModuleInit {
         return;
       }
 
-      const patch: { pythonScript?: string; channels?: ConditionChannels; triggerCron?: string | null } = {};
+      const patch: { pythonScript?: string; channels?: ConditionChannels } = {};
       if (existing.pythonScript !== GOOGLE_MO_ALERT_SCRIPT) patch.pythonScript = GOOGLE_MO_ALERT_SCRIPT;
-      // This service owns the schedule via @Cron; the condition must NOT also carry a triggerCron, or
-      // the generic ConditionSchedulerService double-fires it (duplicate emails, double load at the
-      // cron boundary). Reset any leftover cron on a pre-existing condition.
-      if (existing.triggerCron !== null) patch.triggerCron = null;
+      // Schedule (trigger_cron) is user-managed via the Alerts UI — the code never touches it here;
+      // the generic ConditionSchedulerService runs the condition at whatever time the user set.
 
       // Merge the required distribution list — add any missing To/Cc addresses, keep the rest.
       const email = existing.channels?.email;
@@ -432,12 +429,8 @@ export class GoogleMoAlertService implements OnModuleInit {
     }
   }
 
-  // 04:15 UTC (not 04:00): the 04:00:00 boundary is a storm (7 dataset refreshes + ~112 credit-limit
-  // condition emails all requesting Graph tokens at once) that made the send time out. 04:15 is clear.
-  @Cron('15 4 * * *', { name: 'google-mo-daily', timeZone: 'UTC' })
-  async runDailyAlert(): Promise<void> {
-    await this.run();
-  }
+  // No @Cron: the schedule is user-managed via the Alerts UI (condition.trigger_cron) and run by
+  // the generic ConditionSchedulerService. run()/runNow() below remain for manual "play" triggers.
 
   /** Manual trigger for verification; optionally override recipients. */
   async runNow(overrideRecipients?: string[]): Promise<{ sent: boolean; message?: string }> {

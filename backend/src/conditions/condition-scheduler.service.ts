@@ -208,9 +208,13 @@ export class ConditionSchedulerService implements OnModuleInit {
             cc,
             subject,
             html: result.html,
-            inlineImages: result.image_base64
-              ? [{ cid: result.image_cid ?? 'chart', contentBytes: result.image_base64 }]
-              : [],
+            // Support both the multi-image contract (images[] — e.g. Zamani's single composite
+            // chart) and the legacy single image_base64 (e.g. Google MO).
+            inlineImages: (result.images && result.images.length)
+              ? result.images.map((im) => ({ cid: im.cid, contentBytes: im.base64 }))
+              : result.image_base64
+                ? [{ cid: result.image_cid ?? 'chart', contentBytes: result.image_base64 }]
+                : [],
           });
           // Email is out — from here on nothing may throw back into the retry loop.
           this.logger.log(`Python condition "${condition.name}": report emailed to ${recipients.length} To + ${cc.length} Cc`);

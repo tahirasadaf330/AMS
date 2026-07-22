@@ -1,5 +1,4 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Condition, ConditionChannels } from '../../common/entities/condition.entity';
@@ -317,7 +316,7 @@ export class ZamaniDailyAlertService implements OnModuleInit {
     private readonly notifications: NotificationsService,
   ) {}
 
-  /** Seed/refresh the condition. triggerCron stays NULL — this service's @Cron owns the schedule. */
+  /** Seed/refresh the condition. Schedule (trigger_cron) is user-managed via the Alerts UI. */
   async onModuleInit(): Promise<void> {
     try {
       const existing = await this.conditionRepo.findOne({ where: { name: ALERT_NAME } });
@@ -327,7 +326,7 @@ export class ZamaniDailyAlertService implements OnModuleInit {
             name: ALERT_NAME,
             type: 'python',
             pythonScript: ZAMANI_DAILY_SCRIPT,
-            triggerCron: null,
+            triggerCron: '8 4 * * *', // initial daily schedule; user-adjustable in the Alerts UI
             logic: 'AND',
             conditionRows: [],
             channels: { email: { enabled: true, recipients: TO, cc: CC } },
@@ -361,10 +360,8 @@ export class ZamaniDailyAlertService implements OnModuleInit {
     }
   }
 
-  @Cron('5 4 * * *', { name: 'zamani-daily', timeZone: 'UTC' })
-  async runDaily(): Promise<void> {
-    await this.run();
-  }
+  // No @Cron: the schedule is user-managed via the Alerts UI (condition.trigger_cron) and run by
+  // the generic ConditionSchedulerService. run()/runNow() below remain for manual "play" triggers.
 
   /** Manual trigger for verification; optional recipient override (To-only). */
   async runNow(overrideRecipients?: string[]): Promise<{ sent: boolean; message?: string }> {
