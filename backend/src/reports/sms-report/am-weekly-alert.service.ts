@@ -232,8 +232,11 @@ export class AmWeeklyVolumeAlertService implements OnModuleInit {
       return;
     }
 
-    const patch: { pythonScript?: string; channels?: ConditionChannels } = {};
+    const patch: { pythonScript?: string; channels?: ConditionChannels; triggerCron?: string | null } = {};
     if (existing.pythonScript !== script) patch.pythonScript = script;
+    // This service owns the schedule via @Cron; a leftover triggerCron on a pre-existing condition
+    // makes the generic ConditionSchedulerService double-fire it. Reset it to null.
+    if (existing.triggerCron !== null) patch.triggerCron = null;
 
     // Recipients are code-managed for these alerts — set them authoritatively from AM_CONFIGS
     // (To = the AM, Cc = managers), so the exact list is enforced and stale addresses are dropped.
