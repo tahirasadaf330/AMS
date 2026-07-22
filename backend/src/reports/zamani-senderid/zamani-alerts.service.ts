@@ -169,14 +169,14 @@ const STOPPED_SID_BODY = String.raw`
             SELECT terminated_senderid AS sid, MAX(customer_connection) AS agg, COUNT(*) AS c,
                    to_char(MAX(submit_datetime) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS last_seen
             FROM stage_zamani_senderid
-            WHERE submit_datetime >= now() - interval '24 hours'
-              AND submit_datetime <  now() - interval '30 minutes'
-            GROUP BY 1 HAVING COUNT(*) >= 50
+            WHERE submit_datetime >= now() - interval '6 hours'
+              AND submit_datetime <  now() - interval '60 minutes'
+            GROUP BY 1 HAVING COUNT(*) >= 100
         ),
         recent AS (
             SELECT DISTINCT terminated_senderid AS sid
             FROM stage_zamani_senderid
-            WHERE submit_datetime >= now() - interval '30 minutes'
+            WHERE submit_datetime >= now() - interval '60 minutes'
         )
         SELECT p.sid, p.agg, p.c, p.last_seen
         FROM prior p WHERE p.sid NOT IN (SELECT sid FROM recent)
@@ -184,11 +184,11 @@ const STOPPED_SID_BODY = String.raw`
     """)
     rows = cur.fetchall()
     if not rows:
-        fail("No established sender IDs have stopped in the last 30 minutes")
+        fail("No established sender IDs have stopped in the last 60 minutes")
     trows = [[esc(r[0]), esc(r[1]), fi(r[2]), esc(r[3]) + " UTC"] for r in rows]
-    inner = table(["Sender ID", "Aggregator", "Msgs (prior 24h)", "Last seen"], ["left", "left", "right", "left"], trows)
-    intro = ("An established sender ID that was working has STOPPED — it sent regularly over the past 24h but 0 in "
-             "the last 30 minutes. Could be a route break or the client stopping traffic.")
+    inner = table(["Sender ID", "Aggregator", "Msgs (prior 6h)", "Last seen"], ["left", "left", "right", "left"], trows)
+    intro = ("An established sender ID that was working has STOPPED — it sent ≥ 100 messages in the prior 6h but 0 "
+             "in the last 60 minutes. Could be a route break or the client stopping traffic.")
     emit({"triggered": True, "subject": "[Zamani] A sender ID that was working has stopped",
           "html": wrap("Zamani — Sender ID Stopped", intro, inner), "message": str(len(rows)) + " stopped sender ID(s)"})
 `;
