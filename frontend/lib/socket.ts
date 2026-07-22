@@ -3,7 +3,23 @@ import { io, type Socket } from 'socket.io-client';
 let _socket: Socket | null = null;
 let _currentToken: string | null = null;
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'http://localhost:3001';
+const WS_RAW = process.env.NEXT_PUBLIC_WS_URL ?? 'http://localhost:3001';
+
+// Split the configured URL into ORIGIN + base path. Socket.io must receive the origin as its URL —
+// any path in the io() URL is treated as a NAMESPACE (the backend gateway is '/', so '/api' would
+// fail) — and the base path must be passed via {path} instead. This makes the handshake hit the
+// right route in every environment:
+//   prod  'https://host/api'    → io('https://host',  { path: '/api/socket.io' })  (nginx /api/ → backend)
+//   local 'http://localhost:3001' → io('http://localhost:3001', { path: '/socket.io' }) (direct)
+function wsTarget(): { origin: string; path: string } {
+  try {
+    const u = new URL(WS_RAW);
+    const base = u.pathname.replace(/\/+$/, '');
+    return { origin: u.origin, path: `${base}/socket.io` };
+  } catch {
+    return { origin: WS_RAW, path: '/socket.io' };
+  }
+}
 
 /**
  * Returns the existing socket or creates a new one with the given token.
@@ -25,7 +41,9 @@ export function getSocket(token: string): Socket {
   }
 
   _currentToken = token;
-  _socket = io(WS_URL, {
+  const { origin, path } = wsTarget();
+  _socket = io(origin, {
+    path,
     auth: { token },
     reconnection: true,
     reconnectionAttempts: Infinity,
