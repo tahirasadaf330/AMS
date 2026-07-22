@@ -485,6 +485,11 @@ export const mtEdrApi = {
   getData: (params?: { from?: string; to?: string }) => api.get('/reports/mt-edr/data', { params }),
 };
 
+// ── NEGATIVE MARGIN REPORT ────────────────────────────────────
+export const negativeMarginApi = {
+  getData: () => api.get('/reports/negative-margin/data'),
+};
+
 // ── PRE-PAYMENT CL REPORT ─────────────────────────────────────
 export const prepaymentClApi = {
   getData: () => api.get('/reports/prepayment-cl/data'),
