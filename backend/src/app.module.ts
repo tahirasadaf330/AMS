@@ -43,6 +43,7 @@ import { PrepaymentClModule } from "./reports/prepayment-cl/prepayment-cl.module
 import { ReportsRegistryModule } from "./admin/reports/reports-registry.module";
 import { MtEdrModule } from "./reports/mt-edr/mt-edr.module";
 import { SmsReportModule } from "./reports/sms-report/sms-report.module";
+import { NegativeMarginModule } from "./reports/negative-margin/negative-margin.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -111,6 +112,7 @@ import { SmsReportModule } from "./reports/sms-report/sms-report.module";
     PrepaymentClModule,
     MtEdrModule,
     SmsReportModule,
+    NegativeMarginModule,
     ReportsRegistryModule,
   ],
 })
