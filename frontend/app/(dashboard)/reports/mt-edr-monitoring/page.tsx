@@ -9,9 +9,9 @@ import { useDatasetSocket } from '@/hooks/useDatasetSocket';
 // ──────────────────────────────────────────────────────────────────────────────
 const CSS = `
 .edr{
-  --sf:#ffffff;--sf2:#f5f8fa;
-  --ink:#1e293b;--inks:#475569;--mu:#94a3b8;
-  --ln:#e2e8f0;--lns:#cbd5e1;
+  --sf:#ffffff;--sf2:#f5f7f8;
+  --ink:#2c3e50;--inks:#5d6d7e;--mu:#95a5a6;
+  --ln:#e4e9ec;--lns:#d3dadf;
   --delivered:#16a34a;--delivered-bg:rgba(22,163,74,.10);--delivered-bd:rgba(22,163,74,.28);
   --accepted:#2563eb;--accepted-bg:rgba(37,99,235,.10);--accepted-bd:rgba(37,99,235,.28);
   --pending:#d97706;--pending-bg:rgba(217,119,6,.10);--pending-bd:rgba(217,119,6,.28);
@@ -22,9 +22,9 @@ const CSS = `
   color:var(--ink);
 }
 .dark .edr{
-  --sf:#1e293b;--sf2:#162032;
-  --ink:#e2e8f0;--inks:#94a3b8;--mu:#64748b;
-  --ln:#1e3a5f;--lns:#2d4e6e;
+  --sf:#22303f;--sf2:#1d2a37;
+  --ink:#ecf0f1;--inks:#bdc8d2;--mu:#7f8c9a;
+  --ln:#2f4151;--lns:#3b5063;
   --delivered-bg:rgba(22,163,74,.14);--delivered-bd:rgba(22,163,74,.35);
   --accepted-bg:rgba(37,99,235,.14);--accepted-bd:rgba(37,99,235,.35);
   --pending-bg:rgba(217,119,6,.14);--pending-bd:rgba(217,119,6,.35);
@@ -74,16 +74,17 @@ const CSS = `
 .edr-tbtn.as{background:var(--warn-bg);border-color:var(--warn-bd);color:var(--warn);font-weight:700}
 .edr-clr{height:33px;padding:0 11px;border:1px dashed #94a3b8;border-radius:7px;background:transparent;color:var(--mu);font-size:.74rem;cursor:pointer}
 
-/* Table */
-.edr-tbl-wrap{overflow-x:auto;border-radius:10px;border:1px solid var(--ln);background:var(--sf)}
-.edr-tbl{width:100%;border-collapse:collapse;font-size:.79rem;min-width:1100px}
+/* Table — scrolls within its own container (both axes); the sticky header stays pinned */
+.edr-tbl-wrap{overflow:auto;max-height:calc(100vh - 300px);min-height:260px;border-radius:10px;border:1px solid var(--ln);background:var(--sf)}
+.edr-tbl{width:100%;border-collapse:collapse;font-size:.79rem;min-width:1250px}
 .edr-tbl thead tr{background:var(--sf2);border-bottom:2px solid var(--lns)}
 
-/* Status column group headers */
-.edr-tbl th.grp-delivered{background:var(--delivered-bg);color:var(--delivered);border-bottom:2px solid var(--delivered)}
-.edr-tbl th.grp-accepted {background:var(--accepted-bg) ;color:var(--accepted) ;border-bottom:2px solid var(--accepted)}
-.edr-tbl th.grp-pending  {background:var(--pending-bg)  ;color:var(--pending)  ;border-bottom:2px solid var(--pending)}
-.edr-tbl th.grp-rejected {background:var(--rejected-bg) ;color:var(--rejected) ;border-bottom:2px solid var(--rejected)}
+/* Status column group headers — tint layered over an opaque surface so the pinned
+   header never lets scrolled rows bleed through it */
+.edr-tbl th.grp-delivered{background:linear-gradient(var(--delivered-bg),var(--delivered-bg)),var(--sf2);color:var(--delivered);border-bottom:2px solid var(--delivered)}
+.edr-tbl th.grp-accepted {background:linear-gradient(var(--accepted-bg),var(--accepted-bg)),var(--sf2)  ;color:var(--accepted) ;border-bottom:2px solid var(--accepted)}
+.edr-tbl th.grp-pending  {background:linear-gradient(var(--pending-bg),var(--pending-bg)),var(--sf2)    ;color:var(--pending)  ;border-bottom:2px solid var(--pending)}
+.edr-tbl th.grp-rejected {background:linear-gradient(var(--rejected-bg),var(--rejected-bg)),var(--sf2)  ;color:var(--rejected) ;border-bottom:2px solid var(--rejected)}
 
 .edr-tbl th{
   padding:9px 10px;text-align:right;font-size:.67rem;font-weight:700;
@@ -211,6 +212,29 @@ const fmtDT   = (dt: string | null) => dt ? new Date(dt).toLocaleString('en-GB')
 const fmtN    = (n: number | null)  => n  != null ? Number(n).toLocaleString() : '—';
 const fmtRate = (n: number | null)  => n  != null ? Number(n).toFixed(6) : '—';
 
+// datetime-local input value (browser local tz) for the From/To time-window filters.
+const toLocalInput = (d: Date) => {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+// Quick-range presets. Relative presets are recomputed from "now" on every load so they roll
+// live with each refresh; 'custom' uses the From/To inputs verbatim.
+type EdrPreset = '2m' | '1h' | '6h' | '12h' | 'day' | 'custom';
+const PRESET_MS: Record<'2m' | '1h' | '6h' | '12h', number> = {
+  '2m': 2 * 60_000, '1h': 3_600_000, '6h': 6 * 3_600_000, '12h': 12 * 3_600_000,
+};
+const PRESET_LABEL: Record<Exclude<EdrPreset, 'custom'>, string> = {
+  '2m': 'Last 2 min', '1h': '1h', '6h': '6h', '12h': '12h', 'day': 'Full Day',
+};
+function presetWindow(p: Exclude<EdrPreset, 'custom'>): { start: Date; end: Date } {
+  const end = new Date();
+  const start = new Date(end);
+  if (p === 'day') start.setHours(0, 0, 0, 0);
+  else start.setTime(end.getTime() - PRESET_MS[p]);
+  return { start, end };
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Page
 // ──────────────────────────────────────────────────────────────────────────────
@@ -221,24 +245,48 @@ export default function MtEdrMonitoringPage() {
   const [error,     setError]     = React.useState<string | null>(null);
 
   const [search,     setSearch]     = React.useState('');
+  const [amFilter,   setAmFilter]   = React.useState('all');
   const [filterNeg,  setFilterNeg]  = React.useState(false);
   const [filterSpike,setFilterSpike]= React.useState(false);
   const [sort, setSort] = React.useState<{ key: string | null; dir: SortDir }>({
     key: 'total_msgs', dir: 'desc',
   });
 
+  // Time window — defaults to the live "Last 2 min" view (rolls with each refresh). Editing a
+  // From/To input switches to a fixed 'custom' window.
+  const [preset, setPreset]         = React.useState<EdrPreset>('2m');
+  const [customFrom, setCustomFrom] = React.useState('');
+  const [customTo,   setCustomTo]   = React.useState('');
+
+  // Displayed input values: a relative preset shows its (live) window; custom shows the edits.
+  const dispFrom = preset === 'custom' ? customFrom : toLocalInput(presetWindow(preset).start);
+  const dispTo   = preset === 'custom' ? customTo   : toLocalInput(presetWindow(preset).end);
+
+  const editFrom = (v: string) => { setCustomFrom(v); setCustomTo((t) => t || dispTo); setPreset('custom'); };
+  const editTo   = (v: string) => { setCustomTo(v);   setCustomFrom((f) => f || dispFrom); setPreset('custom'); };
+
   const load = React.useCallback(() => {
     setLoading(true);
     setError(null);
+    let fromISO: string | undefined;
+    let toISO: string | undefined;
+    if (preset === 'custom') {
+      fromISO = customFrom ? new Date(customFrom).toISOString() : undefined;
+      toISO   = customTo   ? new Date(customTo).toISOString()   : undefined;
+    } else {
+      const { start, end } = presetWindow(preset);   // recomputed from "now" → rolls live
+      fromISO = start.toISOString();
+      toISO   = end.toISOString();
+    }
     mtEdrApi
-      .getData()
+      .getData({ from: fromISO, to: toISO })
       .then((r) => {
         setData(r.data);
         setDatasetId(r.data?.dataset_id ?? null);
       })
       .catch((err: any) => setError(err?.response?.data?.message ?? err?.message ?? 'Failed to load data'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [preset, customFrom, customTo]);
 
   React.useEffect(() => { load(); }, [load]);
   useDatasetSocket(datasetId, load);
@@ -247,16 +295,24 @@ export default function MtEdrMonitoringPage() {
   const summary        = data?.summary     ?? {};
   const lastRefreshed  = data?.last_refreshed ?? null;
 
+  // Distinct account managers present in the current window — populates the filter dropdown.
+  const accountManagers = React.useMemo(
+    () => Array.from(new Set(allRows.map((r) => r.account_manager).filter(Boolean) as string[]))
+            .sort((a, b) => a.localeCompare(b)),
+    [allRows],
+  );
+
   const filtered = React.useMemo(() => {
     let r = allRows;
     if (search.trim()) {
       const q = search.toLowerCase();
       r = r.filter((row) => (row.customer_company ?? '').toLowerCase().includes(q));
     }
+    if (amFilter !== 'all') r = r.filter((row) => row.account_manager === amFilter);
     if (filterNeg)   r = r.filter((row) => row.negative_margin_count > 0);
     if (filterSpike) r = r.filter((row) => row.traffic_spike === 1);
     return r;
-  }, [allRows, search, filterNeg, filterSpike]);
+  }, [allRows, search, amFilter, filterNeg, filterSpike]);
 
   const sorted = React.useMemo(() => {
     if (!sort.key || !sort.dir) return filtered;
@@ -282,7 +338,7 @@ export default function MtEdrMonitoringPage() {
   const totalMsgs       = summary.total_messages          ?? 0;
   const negCount        = summary.companies_with_neg_margin ?? 0;
   const spikeCount      = summary.companies_with_spike    ?? 0;
-  const hasFilter       = search || filterNeg || filterSpike;
+  const hasFilter       = search || filterNeg || filterSpike || amFilter !== 'all';
 
   const sharedTH = { sort, onSort };
 
@@ -298,7 +354,7 @@ export default function MtEdrMonitoringPage() {
               <div className="edr-title">MT EDR Monitoring</div>
               <div className="edr-sub">
                 <span className="edr-dot" />
-                Real-time · Last 2 minutes · One row per company
+                Per company · rolling incremental · today + yesterday retained
               </div>
             </div>
             <div className="edr-lu">
@@ -348,6 +404,20 @@ export default function MtEdrMonitoringPage() {
 
           {/* Filters */}
           <div className="edr-filt">
+            {(['2m', '1h', '6h', '12h', 'day'] as const).map((p) => (
+              <button
+                key={p}
+                className="edr-tbtn"
+                onClick={() => setPreset(p)}
+                style={preset === p ? { borderColor: '#2563eb', color: '#2563eb', fontWeight: 700 } : undefined}
+              >
+                {PRESET_LABEL[p]}
+              </button>
+            ))}
+            <span style={{ fontSize: '.72rem', color: 'var(--mu)', fontWeight: 600 }}>From</span>
+            <input className="edr-inp" style={{ width: 195 }} type="datetime-local" value={dispFrom} onChange={(e) => editFrom(e.target.value)} />
+            <span style={{ fontSize: '.72rem', color: 'var(--mu)', fontWeight: 600 }}>To</span>
+            <input className="edr-inp" style={{ width: 195 }} type="datetime-local" value={dispTo} onChange={(e) => editTo(e.target.value)} />
             <input
               className="edr-inp"
               type="text"
@@ -355,6 +425,18 @@ export default function MtEdrMonitoringPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            <select
+              className="edr-inp"
+              style={{ width: 190 }}
+              value={amFilter}
+              onChange={(e) => setAmFilter(e.target.value)}
+              title="Filter by account manager"
+            >
+              <option value="all">All Account Managers</option>
+              {accountManagers.map((am) => (
+                <option key={am} value={am}>{am}</option>
+              ))}
+            </select>
             <button
               className={`edr-tbtn${filterNeg ? ' an' : ''}`}
               onClick={() => setFilterNeg((v) => !v)}
@@ -370,7 +452,7 @@ export default function MtEdrMonitoringPage() {
             {hasFilter && (
               <button
                 className="edr-clr"
-                onClick={() => { setSearch(''); setFilterNeg(false); setFilterSpike(false); }}
+                onClick={() => { setSearch(''); setAmFilter('all'); setFilterNeg(false); setFilterSpike(false); }}
               >
                 Clear filters
               </button>
@@ -386,6 +468,7 @@ export default function MtEdrMonitoringPage() {
                 <thead>
                   <tr>
                     <TH left w={200} colKey="customer_company"      {...sharedTH}>Company</TH>
+                    <TH left w={160} colKey="account_manager"       {...sharedTH}>Account Manager</TH>
                     <TH      w={80}  colKey="total_msgs"             {...sharedTH}>Total</TH>
                     <TH      w={95}  colKey="delivered"   thClass="grp-delivered" {...sharedTH}>Delivered</TH>
                     <TH      w={95}  colKey="accepted"    thClass="grp-accepted"  {...sharedTH}>Accepted</TH>
@@ -404,9 +487,9 @@ export default function MtEdrMonitoringPage() {
                 <tbody>
                   {sorted.length === 0 && (
                     <tr>
-                      <td colSpan={14} className="edr-empty">
+                      <td colSpan={15} className="edr-empty">
                         {allRows.length === 0
-                          ? 'No messages in the last 2 minutes'
+                          ? 'No messages in the selected time window'
                           : 'No companies match the current filters'}
                       </td>
                     </tr>
@@ -420,6 +503,11 @@ export default function MtEdrMonitoringPage() {
                       <tr key={i} className={cls || undefined}>
                         <TD left>
                           <span style={{ fontWeight: 600 }}>{row.customer_company ?? '—'}</span>
+                        </TD>
+                        <TD left>
+                          <span style={{ color: row.account_manager ? 'var(--inks)' : 'var(--mu)' }}>
+                            {row.account_manager ?? '—'}
+                          </span>
                         </TD>
                         <TD>
                           <span style={{ fontWeight: 700 }}>{total.toLocaleString()}</span>
@@ -444,14 +532,20 @@ export default function MtEdrMonitoringPage() {
                           )}
                         </TD>
                         <TD mono>
-                          {row.negative_margin_count > 0
-                            ? <span style={{ color: 'var(--rejected)', fontWeight: 600 }}>{fmtRate(row.avg_neg_vendor_rate)}</span>
-                            : <span style={{ color: 'var(--mu)' }}>—</span>}
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                            {row.negative_margin_count > 0
+                              ? <span style={{ color: 'var(--rejected)', fontWeight: 600 }}>{fmtRate(row.avg_neg_vendor_rate)}</span>
+                              : <span style={{ color: 'var(--mu)' }}>—</span>}
+                            <span style={{ fontSize: '.62rem', color: 'var(--mu)' }}>{row.vendor_currency ?? '—'}</span>
+                          </div>
                         </TD>
                         <TD mono>
-                          {row.negative_margin_count > 0
-                            ? <span style={{ color: 'var(--accepted)', fontWeight: 600 }}>{fmtRate(row.avg_neg_customer_rate)}</span>
-                            : <span style={{ color: 'var(--mu)' }}>—</span>}
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                            {row.negative_margin_count > 0
+                              ? <span style={{ color: 'var(--accepted)', fontWeight: 600 }}>{fmtRate(row.avg_neg_customer_rate)}</span>
+                              : <span style={{ color: 'var(--mu)' }}>—</span>}
+                            <span style={{ fontSize: '.62rem', color: 'var(--mu)' }}>{row.customer_currency ?? '—'}</span>
+                          </div>
                         </TD>
                         <TD>
                           {isSpike

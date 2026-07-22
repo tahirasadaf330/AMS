@@ -18,6 +18,18 @@ export interface User {
   last_login?: string;
   created_at: string;
   updated_at: string;
+  group_id?: string | null;
+  group_name?: string | null;
+}
+
+export interface AdminGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  user_count: number;
+  dataset_access: string[];
+  report_access: string[];
 }
 
 export interface AuthResponse {
@@ -50,6 +62,8 @@ export interface ColumnMeta {
   label: string;
   type: 'text' | 'numeric' | 'date';
   visible: boolean;
+  // One-line meaning of the column (unit/currency, whether precomputed) for AI consumers (Atlas).
+  description?: string;
 }
 
 export interface DatasetLastRefresh {
@@ -73,6 +87,8 @@ export interface Dataset {
   created_at: string;
   updated_at: string;
   last_refresh?: DatasetLastRefresh;
+  /** Traffic window (minutes) for datasets whose SQL uses {{WINDOW_MINUTES}}. */
+  window_minutes?: number | null;
 }
 
 // ── Dashboard Data ───────────────────────────────────────────

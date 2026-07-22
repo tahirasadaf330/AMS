@@ -6,9 +6,14 @@ import { StageService } from '../stage/stage.service';
 import { Dataset } from '../common/entities/dataset.entity';
 import { GoogleMoService } from '../reports/google-mo/google-mo.service';
 import { SharePointSyncService, SpTarget } from '../reports/google-mo/sharepoint-sync.service';
+import { VoiceLiveTrafficHistoryService } from '../reports/voice-live-traffic/voice-live-traffic-history.service';
 
 const MAX_BACKOFF_MS = 60 * 1000;
 const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, MAX_BACKOFF_MS];
+// Stop auto-retrying after this many consecutive failures so a persistently
+// failing dataset (e.g. a query that keeps timing out) can't hammer the source
+// forever. The counter resets on success and at each scheduled run.
+const MAX_RETRIES = 3;
 
 interface JobState {
   retryCount: number;
@@ -27,6 +32,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private stageService: StageService,
     private googleMoService: GoogleMoService,
     private sharePointSync: SharePointSyncService,
+    private voiceHistoryService: VoiceLiveTrafficHistoryService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -87,7 +93,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         if (!this.inFlight.has(dataset.id)) {
           const ctrl = new AbortController();
           this.inFlight.set(dataset.id, ctrl);
-          this.runRefreshCycle(dataset, ctrl.signal)
+          // Each scheduled run starts with a fresh retry budget.
+          const st = this.jobStates.get(dataset.id);
+          if (st) st.retryCount = 0;
+          this.runRefreshCycle(dataset, ctrl.signal, true)
             .finally(() => this.inFlight.delete(dataset.id))
             .catch((err) => {
               this.logger.error(`Unhandled error in refresh cycle for ${dataset.id}`, err);
@@ -149,7 +158,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     this.inFlight.set(datasetId, controller);
     const dataset = await this.datasetsService.findOne(datasetId);
     try {
-      await this.runRefreshCycle(dataset, controller.signal);
+      // Manual refresh: do not auto-retry on failure — surface the error and stop.
+      await this.runRefreshCycle(dataset, controller.signal, false);
     } finally {
       this.inFlight.delete(datasetId);
     }
@@ -170,10 +180,20 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     return this.inFlight.has(datasetId);
   }
 
-  private async runRefreshCycle(dataset: Dataset, signal?: AbortSignal): Promise<void> {
+  private async runRefreshCycle(dataset: Dataset, signal?: AbortSignal, retryOnFailure = true): Promise<void> {
     this.logger.log(`Starting refresh cycle for dataset: ${dataset.name}`);
 
+    // Voice Live Traffic keeps the last 2 refreshes in a separate history table
+    // so its alerts can compare metrics across refreshes. These calls are scoped
+    // to that one dataset and best-effort (never throw) — no other dataset,
+    // report, or the refresh itself is affected.
+    const isVoice = this.voiceHistoryService.isVoiceDataset(dataset);
+
     try {
+      // Move the CURRENT stage rows (previous refresh) into history before the
+      // refresh overwrites them — so the stage table and history never overlap.
+      if (isVoice) await this.voiceHistoryService.captureCurrentToHistory();
+
       // Run refresh and get rows
       const result = await this.stageService.refreshDataset(dataset, signal);
 
@@ -188,6 +208,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         this.jobStates.set(dataset.id, state);
       }
 
+      // Compute per-route change metrics (latest − avg of last 2) now that the
+      // new data is in place.
+      if (isVoice) await this.voiceHistoryService.computeChanges();
+
       // When the Google MO Traffic dataset refreshes, pull its SharePoint-backed
       // Costs + Estimates files so they update in lockstep. Best-effort and
       // fire-and-forget: a SharePoint failure must never fail the dataset refresh.
@@ -197,12 +221,15 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
 
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      // Refresh rolled back → the batch we captured now duplicates the unchanged
+      // stage rows; drop it so history never overlaps the stage table.
+      if (isVoice) await this.voiceHistoryService.removeOverlap();
       if (errorMsg === 'Refresh cancelled') {
         this.logger.log(`Refresh cancelled for dataset ${dataset.name}`);
         return;
       }
       this.logger.error(`Refresh cycle failed for ${dataset.name}: ${errorMsg}`);
-      this.scheduleRetry(dataset);
+      if (retryOnFailure) this.scheduleRetry(dataset);
     }
   }
 
@@ -221,6 +248,14 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
 
   private scheduleRetry(dataset: Dataset): void {
     const state = this.jobStates.get(dataset.id) || { retryCount: 0, retryTimeout: null };
+
+    if (state.retryCount >= MAX_RETRIES) {
+      this.logger.warn(
+        `Dataset ${dataset.name}: giving up after ${state.retryCount} consecutive failures — will try again at the next scheduled run`,
+      );
+      this.jobStates.set(dataset.id, state);
+      return;
+    }
 
     if (state.retryTimeout) {
       clearTimeout(state.retryTimeout);

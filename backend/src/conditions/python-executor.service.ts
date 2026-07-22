@@ -11,6 +11,22 @@ export interface PythonExecutionResult {
   rows?: Record<string, unknown>[];
 }
 
+/**
+ * Extended result for scripts that build a full email report (HTML + inline chart)
+ * rather than returning matched rows. Superset of PythonExecutionResult so the same
+ * "last JSON line on stdout" contract is reused.
+ */
+export interface PythonReportResult {
+  triggered: boolean;
+  subject?: string;
+  html?: string;
+  image_base64?: string;
+  image_cid?: string;
+  images?: Array<{ cid: string; base64: string }>;
+  message?: string;
+  rows?: Record<string, unknown>[];
+}
+
 @Injectable()
 export class PythonExecutorService {
   private readonly logger = new Logger(PythonExecutorService.name);
@@ -26,6 +42,24 @@ export class PythonExecutorService {
       const env = await this.buildEnv();
       const output = await this.runScript(tmpPath, env);
       return this.parseOutput(output);
+    } finally {
+      await unlink(tmpPath).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Run a report-building script and parse the extended JSON contract
+   * ({triggered, subject, html, image_base64, image_cid, message}). Same env +
+   * temp-file + spawn flow as execute(); only the parsing differs.
+   */
+  async executeReport(script: string): Promise<PythonReportResult> {
+    const tmpPath = join(tmpdir(), `ams_report_${Date.now()}.py`);
+
+    try {
+      await writeFile(tmpPath, script, 'utf8');
+      const env = await this.buildEnv();
+      const output = await this.runScript(tmpPath, env);
+      return this.parseReport(output);
     } finally {
       await unlink(tmpPath).catch(() => undefined);
     }
@@ -49,6 +83,15 @@ export class PythonExecutorService {
     } catch (err) {
       this.logger.warn('Could not load Jerasoft credentials for script env', err);
     }
+
+    // AMS Postgres creds — so scripts can query the app DB (e.g. google_mo_traffic).
+    // These are already present via the process.env spread above; set explicitly to
+    // document the contract report scripts rely on.
+    for (const key of ['AMS_PG_HOST', 'AMS_PG_PORT', 'AMS_PG_DB', 'AMS_PG_USER', 'AMS_PG_PASS']) {
+      const val = process.env[key];
+      if (val) env[key] = val;
+    }
+
     return env;
   }
 
@@ -109,6 +152,35 @@ export class PythonExecutorService {
     } catch {
       this.logger.error(`Failed to parse Python script output as JSON: ${trimmed.slice(0, 200)}`);
       throw new Error('Python script must print a JSON object: {"triggered": true/false, "message": "...", "rows": [...]}');
+    }
+  }
+
+  private parseReport(raw: string): PythonReportResult {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      this.logger.warn('Python report script produced no output — treating as not triggered');
+      return { triggered: false };
+    }
+
+    try {
+      const lines = trimmed.split('\n').reverse();
+      const jsonLine = lines.find((l) => l.trimStart().startsWith('{'));
+      const parsed = JSON.parse(jsonLine ?? trimmed) as PythonReportResult;
+      return {
+        triggered: Boolean(parsed.triggered),
+        subject: typeof parsed.subject === 'string' ? parsed.subject : undefined,
+        html: typeof parsed.html === 'string' ? parsed.html : undefined,
+        image_base64: typeof parsed.image_base64 === 'string' ? parsed.image_base64 : undefined,
+        image_cid: typeof parsed.image_cid === 'string' ? parsed.image_cid : undefined,
+        images: Array.isArray(parsed.images)
+          ? parsed.images.filter((i: any) => i && typeof i.cid === 'string' && typeof i.base64 === 'string')
+          : undefined,
+        message: typeof parsed.message === 'string' ? parsed.message : undefined,
+        rows: Array.isArray(parsed.rows) ? parsed.rows : undefined,
+      };
+    } catch {
+      this.logger.error(`Failed to parse Python report output as JSON: ${trimmed.slice(0, 200)}`);
+      throw new Error('Python report script must print a JSON object with at least {"triggered": true/false}');
     }
   }
 }

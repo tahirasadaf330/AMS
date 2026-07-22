@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
 import { Toaster } from '@/components/ui/toaster';
+import { RouteLoadingBar } from '@/components/route-loading-bar';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body suppressHydrationWarning className={`${inter.variable} font-sans bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 antialiased`}>
         <Providers>
+          <RouteLoadingBar />
           {children}
           <Toaster />
         </Providers>

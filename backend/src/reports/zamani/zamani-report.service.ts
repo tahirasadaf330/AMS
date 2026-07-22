@@ -163,19 +163,19 @@ ORDER BY
 
 // Column names match sanitizeRowKeys() output: lowercase, non-alnum → _
 const SEED_COLUMNS = [
-  { key: 'receiveddate',       label: 'Record Date',      type: 'date'    },
-  { key: 'terminatedsenderid', label: 'Sender ID',        type: 'text'    },
-  { key: 'customerconnection', label: 'Customer',         type: 'text'    },
-  { key: 'accountmanager',     label: 'Account Manager',  type: 'text'    },
-  { key: 'country',            label: 'Country',          type: 'text'    },
-  { key: 'operator',           label: 'Operator',         type: 'text'    },
-  { key: 'vendorconnection',   label: 'Destination',      type: 'text'    },
-  { key: 'numbersofmessages',  label: 'Messages',         type: 'numeric' },
-  { key: 'revenue',            label: 'Revenue',          type: 'numeric' },
-  { key: 'deliveredmessages',  label: 'DLR SMS',          type: 'numeric' },
-  { key: 'negativemargin',     label: 'Margin',           type: 'numeric' },
-  { key: 'cost',               label: 'Cost',             type: 'numeric' },
-  { key: 'dlrpercentage',      label: 'DLR %',            type: 'numeric' },
+  { key: 'receiveddate',       label: 'Record Date',      type: 'date',    description: 'Calendar date the traffic was received; grouping key.' },
+  { key: 'terminatedsenderid', label: 'Sender ID',        type: 'text',    description: 'Originator / sender ID shown on the messages.' },
+  { key: 'customerconnection', label: 'Customer',         type: 'text',    description: 'Customer connection name sending the traffic.' },
+  { key: 'accountmanager',     label: 'Account Manager',  type: 'text',    description: "Customer's sales account manager (full name)." },
+  { key: 'country',            label: 'Country',          type: 'text',    description: 'Destination country name (from MCC/MNC lookup).' },
+  { key: 'operator',           label: 'Operator',         type: 'text',    description: 'Destination mobile operator name (from MCC/MNC lookup).' },
+  { key: 'vendorconnection',   label: 'Destination',      type: 'text',    description: 'Terminating vendor connection name.' },
+  { key: 'numbersofmessages',  label: 'Messages',         type: 'numeric', description: 'Number of message parts received; precomputed SUM.' },
+  { key: 'revenue',            label: 'Revenue',          type: 'numeric', description: 'Customer revenue in USD; precomputed SUM.' },
+  { key: 'deliveredmessages',  label: 'DLR SMS',          type: 'numeric', description: 'Message parts confirmed delivered (DLR = Delivered); precomputed SUM.' },
+  { key: 'negativemargin',     label: 'Margin',           type: 'numeric', description: 'Revenue minus vendor cost in USD (margin, may be negative); precomputed.' },
+  { key: 'cost',               label: 'Cost',             type: 'numeric', description: 'Vendor cost in USD; precomputed SUM.' },
+  { key: 'dlrpercentage',      label: 'DLR %',            type: 'numeric', description: 'Delivered messages as a percent of messages sent; precomputed.' },
 ];
 
 export interface ZamaniTotals {

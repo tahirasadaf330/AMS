@@ -9,13 +9,16 @@ import { TableView } from '@/components/table-view';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   useDashboardData,
   useRefreshHistory,
   useTriggerRefresh,
   useCancelRefresh,
   useDatasets,
+  dashboardKeys,
 } from '@/hooks/useDashboard';
+import { dashboardApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useDatasetStore } from '@/store/dataset.store';
 import { subscribeToDataset, unsubscribeFromDataset, getCurrentSocket } from '@/lib/socket';
@@ -27,6 +30,7 @@ export default function DatasetDashboardPage() {
   const params = useParams();
   const datasetId = params.datasetId as string;
   const canRefresh = useAuthStore((s) => s.canAccess('trigger_refresh'));
+  const queryClient = useQueryClient();
 
   const [page, setPage] = React.useState(1);
   const [sort, setSort] = React.useState<string | undefined>(undefined);
@@ -55,6 +59,13 @@ export default function DatasetDashboardPage() {
       if (event.dataset_id === datasetId) {
         setIsRefreshing(false);
         refreshGuard.current = false;
+        // Refetch status/history/data now that the refresh has completed, so the
+        // status badge and refresh history flip to success without a page reload.
+        // (The mutation's fixed 2s-delay refetch fires while the refresh is still
+        // running, so we tie the refetch to the completion event instead.)
+        void queryClient.invalidateQueries({ queryKey: dashboardKeys.datasets() });
+        void queryClient.invalidateQueries({ queryKey: dashboardKeys.history(datasetId) });
+        void queryClient.invalidateQueries({ queryKey: [...dashboardKeys.all, 'data', datasetId] });
       }
     };
     socket.on('dataset:refresh_started', onStarted);
@@ -65,7 +76,7 @@ export default function DatasetDashboardPage() {
       socket.off('dataset:refreshed', onDone);
       socket.off('dataset:refresh_failed', onDone);
     };
-  }, [datasetId, token]);
+  }, [datasetId, token, queryClient]);
 
   const tableParams = {
     page,
@@ -78,6 +89,15 @@ export default function DatasetDashboardPage() {
   };
 
   const { data: tableData, isLoading: tableLoading } = useDashboardData(datasetId, tableParams);
+
+  // Full-table distinct values for the per-column filter dropdowns, so they list
+  // EVERY value (not just the current 50-row page) — same complete set the custom
+  // report pages show. Memoised on datasetId; fetched lazily when a filter opens.
+  const fetchDistinctValues = React.useCallback(
+    (column: string) =>
+      dashboardApi.getDistinctValues(datasetId, column).then((r) => r.data.values ?? []),
+    [datasetId],
+  );
   const { data: historyData, isLoading: historyLoading } = useRefreshHistory(datasetId);
   const { data: datasetsAll } = useDatasets();
   const { data: conditions } = useConditions();
@@ -166,7 +186,8 @@ export default function DatasetDashboardPage() {
                 Refresh Now
               </Button>
             )}
-            {canRefresh && isRefreshing && (
+            {/* Voice Live Traffic refreshes in a few seconds, so its Cancel button is noise — hide it there only. */}
+            {canRefresh && isRefreshing && dataset?.stage_table_name !== 'ds_voice_live_traffic' && (
               <Button
                 variant="destructive"
                 size="sm"
@@ -241,6 +262,7 @@ export default function DatasetDashboardPage() {
         onFilterChange={handleFilterChange}
         visibleColumnKeys={visibleColumnKeys}
         onVisibleColumnsChange={setVisibleColumnKeys}
+        fetchDistinctValues={fetchDistinctValues}
       />
 
       {/* Refresh history toggle */}

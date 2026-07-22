@@ -71,16 +71,16 @@ GROUP BY
 ORDER BY ReceivedDate DESC, CountryName, OperatorName`;
 
 const SEED_COLUMNS = [
-  { key: "receiveddate", label: "Date", type: "date" },
-  { key: "mccmnc", label: "MCC/MNC", type: "text" },
-  { key: "countryname", label: "Country Name", type: "text" },
-  { key: "operatorname", label: "Operator Name", type: "text" },
-  { key: "vendorname", label: "Vendor Name", type: "text" },
-  { key: "customername", label: "Customer Name", type: "text" },
-  { key: "volume", label: "Volume", type: "numeric" },
-  { key: "revenue", label: "Revenue", type: "numeric" },
-  { key: "vendorcost", label: "Vendor Cost", type: "numeric" },
-  { key: "margin", label: "Margin", type: "numeric" },
+  { key: "receiveddate", label: "Date", type: "date", description: "Calendar date the MO traffic was received; grouping key." },
+  { key: "mccmnc", label: "MCC/MNC", type: "text", description: "Combined mobile country + network code of the origin operator." },
+  { key: "countryname", label: "Country Name", type: "text", description: "Origin country name (from MCC/MNC lookup)." },
+  { key: "operatorname", label: "Operator Name", type: "text", description: "Origin mobile operator name (from MCC/MNC lookup)." },
+  { key: "vendorname", label: "Vendor Name", type: "text", description: "Vendor/supplier connection carrying the MO traffic." },
+  { key: "customername", label: "Customer Name", type: "text", description: "Customer receiving the Google MO traffic." },
+  { key: "volume", label: "Volume", type: "numeric", description: "Number of MO messages that day; precomputed SUM." },
+  { key: "revenue", label: "Revenue", type: "numeric", description: "Customer revenue in USD; precomputed SUM." },
+  { key: "vendorcost", label: "Vendor Cost", type: "numeric", description: "Vendor cost in USD; precomputed SUM." },
+  { key: "margin", label: "Margin", type: "numeric", description: "Revenue minus vendor cost in USD; precomputed." },
 ];
 
 @Injectable()
@@ -897,12 +897,15 @@ export class GoogleMoService implements OnModuleInit {
   }) {
     if (!(await this.stageExists())) return { rows: [], totals: null };
 
-    // Always last 30 days including today — never follows the date picker
+    // Last 30 COMPLETE days ending yesterday (excludes today's partial day) — never follows
+    // the date picker. Matches the Google MO alert's estimation window (CURRENT_DATE-30 .. -1).
     const today = new Date();
-    const thirtyAgo = new Date(today);
-    thirtyAgo.setDate(today.getDate() - 29);
-    const dateStart = this.fmtDate(thirtyAgo);
-    const dateEnd = this.fmtDate(today);
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const thirtyStart = new Date(today);
+    thirtyStart.setDate(today.getDate() - 30);
+    const dateStart = this.fmtDate(thirtyStart);
+    const dateEnd = this.fmtDate(yesterday);
 
     // Hard filter used for both queries — same as getData()
     const BASE = `customername = 'Google_DIR' AND COALESCE(vendorname, '') <> 'Iristel_p2p'`;

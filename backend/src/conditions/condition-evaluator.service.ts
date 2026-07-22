@@ -92,7 +92,23 @@ export class ConditionEvaluatorService {
     const condValue = condition.value;
 
     if (rawValue === undefined || rawValue === null) {
-      return condition.operator === '!=';
+      // Rows with NO value are INCLUDED for threshold comparisons (<, <=, >, >=)
+      // so e.g. `ACD <= N` also catches routes whose ACD is null (shown as "—").
+      // EXCEPTION: the Voice change columns (`*_change`) — a NULL there means
+      // "no baseline yet" and must NOT match, otherwise drop/rise alerts like
+      // `asr_change <= -10` would fire for routes with no history.
+      const isChangeCol = condition.column.endsWith('_change');
+      switch (condition.operator) {
+        case '!=':
+          return true;
+        case '<':
+        case '<=':
+        case '>':
+        case '>=':
+          return !isChangeCol;
+        default:
+          return false; // ==, contains, starts_with, ends_with → null never matches
+      }
     }
 
     const strRaw = String(rawValue);

@@ -4,9 +4,10 @@ import { SchedulesController } from './schedules.controller';
 import { DatasetsModule } from '../datasets/datasets.module';
 import { StageModule } from '../stage/stage.module';
 import { GoogleMoModule } from '../reports/google-mo/google-mo.module';
+import { VoiceLiveTrafficModule } from '../reports/voice-live-traffic/voice-live-traffic.module';
 
 @Module({
-  imports: [DatasetsModule, StageModule, GoogleMoModule],
+  imports: [DatasetsModule, StageModule, GoogleMoModule, VoiceLiveTrafficModule],
   controllers: [SchedulesController],
   providers: [SchedulerService],
   exports: [SchedulerService],

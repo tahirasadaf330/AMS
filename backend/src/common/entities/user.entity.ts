@@ -52,6 +52,9 @@ export class User {
   @Column({ name: 'is_protected', type: 'boolean', default: false })
   isProtected: boolean;
 
+  @Column({ name: 'group_id', type: 'uuid', nullable: true })
+  groupId: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

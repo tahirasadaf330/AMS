@@ -10,6 +10,7 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { User, UserRole } from '../../common/entities/user.entity';
 import { Session } from '../../common/entities/session.entity';
 import { PasswordHistory } from '../../common/entities/password-history.entity';
@@ -20,13 +21,34 @@ import { GraphEmailService } from '../../notifications/graph-email.service';
 const BCRYPT_ROUNDS = 12;
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{10,}$/;
 
+// Temp passwords are generated server-side (admin no longer types one).
+// 14 chars, at least one of each required class, unambiguous alphabet.
+function generateTempPassword(): string {
+  const upper = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+  const lower = 'abcdefghjkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const special = '!@#$%^&*';
+  const all = upper + lower + digits + special;
+  const pick = (set: string) => set[crypto.randomInt(set.length)];
+  const chars = [pick(upper), pick(lower), pick(digits), pick(special)];
+  while (chars.length < 14) chars.push(pick(all));
+  // Fisher–Yates so the guaranteed classes aren't always at the front
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
+
 export interface CreateUserDto {
   email: string;
   name: string;
-  password: string;
+  /** Optional — when omitted the server generates a temp password and returns it once. */
+  password?: string;
   role: UserRole;
   datasetAccess?: string[];
   reportAccess?: string[];
+  groupId?: string | null;
 }
 
 export interface UpdateUserDto {
@@ -37,6 +59,7 @@ export interface UpdateUserDto {
   mustChangePassword?: boolean;
   datasetAccess?: string[];
   reportAccess?: string[];
+  groupId?: string | null;
 }
 
 @Injectable()
@@ -94,15 +117,18 @@ export class AdminUsersService implements OnModuleInit {
     }
   }
 
-  async findAll(): Promise<(Omit<User, 'passwordHash'> & { dataset_access: string[]; report_access: string[] })[]> {
+  async findAll(): Promise<(Omit<User, 'passwordHash'> & { dataset_access: string[]; report_access: string[]; group_name: string | null })[]> {
     try {
       const users = await this.userRepo.find({ order: { createdAt: 'DESC' } });
-      const [accesses, reportAccesses] = await Promise.all([
+      const [accesses, reportAccesses, groups] = await Promise.all([
         this.dataSource.query<{ user_id: string; dataset_id: string }[]>(
           `SELECT user_id, dataset_id FROM user_dataset_access`,
         ),
         this.dataSource.query<{ user_id: string; report_slug: string }[]>(
           `SELECT user_id, report_slug FROM user_report_access`,
+        ),
+        this.dataSource.query<{ id: string; name: string }[]>(
+          `SELECT id, name FROM user_groups`,
         ),
       ]);
 
@@ -120,10 +146,14 @@ export class AdminUsersService implements OnModuleInit {
         reportMap.set(r.user_id, list);
       }
 
+      const groupNameMap = new Map<string, string>();
+      for (const g of groups) groupNameMap.set(g.id, g.name);
+
       return users.map(({ passwordHash, ...u }) => ({
         ...(u as Omit<User, 'passwordHash'>),
         dataset_access: accessMap.get(u.id) ?? [],
         report_access:  reportMap.get(u.id)  ?? [],
+        group_name:     u.groupId ? (groupNameMap.get(u.groupId) ?? null) : null,
       }));
     } catch (err) {
       this.logger.error('Error finding users', err);
@@ -150,8 +180,12 @@ export class AdminUsersService implements OnModuleInit {
     };
   }
 
-  async create(dto: CreateUserDto, createdBy: string): Promise<Omit<User, 'passwordHash'>> {
-    if (!PASSWORD_REGEX.test(dto.password)) {
+  async create(
+    dto: CreateUserDto,
+    createdBy: string,
+  ): Promise<Omit<User, 'passwordHash'> & { tempPassword: string }> {
+    const tempPassword = dto.password?.trim() ? dto.password : generateTempPassword();
+    if (!PASSWORD_REGEX.test(tempPassword)) {
       throw new BadRequestException(
         'Password must be at least 10 characters with uppercase, lowercase, digit, and special character',
       );
@@ -163,7 +197,7 @@ export class AdminUsersService implements OnModuleInit {
     }
 
     try {
-      const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+      const passwordHash = await bcrypt.hash(tempPassword, BCRYPT_ROUNDS);
       const user = this.userRepo.create({
         email: dto.email.toLowerCase(),
         name: dto.name,
@@ -173,6 +207,7 @@ export class AdminUsersService implements OnModuleInit {
         mustChangePassword: true,
         failedLoginCount: 0,
         createdBy,
+        groupId: dto.groupId ?? null,
       });
 
       const saved = await this.userRepo.save(user);
@@ -182,9 +217,15 @@ export class AdminUsersService implements OnModuleInit {
         this.passwordHistoryRepo.create({ userId: saved.id, passwordHash }),
       );
 
+      // Accept both camelCase and snake_case (the inbound camelCase middleware is a
+      // no-op, so the frontend's snake_case keys arrive unconverted) — mirrors update().
+      const raw = dto as unknown as Record<string, unknown>;
+      const datasetAccess = (dto.datasetAccess ?? raw['dataset_access']) as string[] | undefined;
+      const reportAccess  = (dto.reportAccess  ?? raw['report_access'])  as string[] | undefined;
+
       // Grant dataset access
-      if (dto.datasetAccess?.length) {
-        for (const datasetId of dto.datasetAccess) {
+      if (datasetAccess?.length) {
+        for (const datasetId of datasetAccess) {
           await this.dataSource.query(
             `INSERT INTO user_dataset_access (user_id, dataset_id, granted_by) VALUES ($1, $2, $3)`,
             [saved.id, datasetId, createdBy],
@@ -193,8 +234,8 @@ export class AdminUsersService implements OnModuleInit {
       }
 
       // Grant report access
-      if (dto.reportAccess?.length) {
-        for (const reportSlug of dto.reportAccess) {
+      if (reportAccess?.length) {
+        for (const reportSlug of reportAccess) {
           await this.dataSource.query(
             `INSERT INTO user_report_access (user_id, report_slug, granted_by) VALUES ($1, $2, $3)`,
             [saved.id, reportSlug, createdBy],
@@ -203,12 +244,14 @@ export class AdminUsersService implements OnModuleInit {
       }
 
       // Send welcome email (fire and forget)
-      this.sendWelcomeEmail(saved, dto.password).catch((err) => {
+      this.sendWelcomeEmail(saved, tempPassword).catch((err) => {
         this.logger.error('Failed to send welcome email', err);
       });
 
       const { passwordHash: _, ...result } = saved;
-      return result as Omit<User, 'passwordHash'>;
+      // Returned exactly once so the admin can hand it to the user;
+      // never stored or logged in plaintext.
+      return { ...(result as Omit<User, 'passwordHash'>), tempPassword };
     } catch (err) {
       if ((err as any).code === '23505') {
         throw new ConflictException('Email already in use');
@@ -231,13 +274,18 @@ export class AdminUsersService implements OnModuleInit {
     }
 
     try {
-      await this.userRepo.update(id, {
+      const patch: Partial<User> = {
         name: dto.name ?? user.name,
         email: dto.email ? dto.email.toLowerCase() : user.email,
         role: dto.role ?? user.role,
         isActive: dto.isActive ?? user.isActive,
         mustChangePassword: dto.mustChangePassword ?? user.mustChangePassword,
-      });
+      };
+      // Allow explicit null to clear group assignment
+      if ('groupId' in dto) {
+        patch.groupId = (dto.groupId as string | null | undefined) ?? null;
+      }
+      await this.userRepo.update(id, patch);
 
       // Accept both camelCase (bodyToCamel converted) and snake_case (raw body)
       const raw = dto as Record<string, unknown>;

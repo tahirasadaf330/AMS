@@ -10,6 +10,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  HttpException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import {
@@ -27,6 +28,11 @@ import { UserRole } from '../common/entities/user.entity';
 @Controller('conditions')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ConditionsController {
+  // Per-condition cooldown for manual trigger-now, so a double-click / rapid re-trigger can't
+  // blast the real recipient list repeatedly. In-memory (AMS runs single-instance).
+  private readonly lastManualTrigger = new Map<string, number>();
+  private static readonly MANUAL_TRIGGER_COOLDOWN_MS = 20_000;
+
   constructor(
     private conditionsService: ConditionsService,
     private auditService: AuditService,
@@ -124,6 +130,19 @@ export class ConditionsController {
     @CurrentUser() user: JwtUser,
     @Req() req: Request,
   ) {
+    // Cooldown: reject a repeat manual trigger of the same condition within the window, so an
+    // accidental double-click can't send the alert to its real recipients twice.
+    const now = Date.now();
+    const last = this.lastManualTrigger.get(id) ?? 0;
+    if (now - last < ConditionsController.MANUAL_TRIGGER_COOLDOWN_MS) {
+      const waitS = Math.ceil((ConditionsController.MANUAL_TRIGGER_COOLDOWN_MS - (now - last)) / 1000);
+      throw new HttpException(
+        `This alert was triggered moments ago — please wait ${waitS}s before triggering it again.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    this.lastManualTrigger.set(id, now);
+
     // Fire-and-forget — long-running scripts (e.g. Python MTD loops) exceed
     // proxy timeouts if we await here. Return immediately; execution continues
     // in the background and emits a WebSocket event when done.

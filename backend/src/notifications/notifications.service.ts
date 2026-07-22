@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder } from 'typeorm';
+import { In, Repository, SelectQueryBuilder } from 'typeorm';
 import { NotificationLog } from '../common/entities/notification-log.entity';
 import { Condition, ConditionChannels } from '../common/entities/condition.entity';
 import { GraphEmailService } from './graph-email.service';
@@ -100,32 +100,41 @@ export class NotificationsService {
     const channelsDispatched: string[] = [];
 
     const subject = `[AMS Alert] ${condition.name} — ${matchedRows.length} rows matched`;
+    const tasks: Promise<void>[] = [];
 
     // Dispatch email independently
     if (channels.email?.enabled && channels.email.recipients?.length > 0) {
       channelsDispatched.push('email');
-      this.dispatchEmail({
-        condition,
-        datasetName,
-        matchedRows,
-        columnMeta,
-        subject,
-        recipients: channels.email.recipients,
-      }).catch((err) => this.logger.error('Email dispatch unhandled error', err));
+      tasks.push(
+        this.dispatchEmail({
+          condition,
+          datasetName,
+          matchedRows,
+          columnMeta,
+          subject,
+          recipients: channels.email.recipients,
+        }).catch((err) => this.logger.error('Email dispatch unhandled error', err)),
+      );
     }
 
     // Dispatch Teams independently
     if (channels.teams?.enabled) {
       channelsDispatched.push('teams');
-      this.dispatchTeams({
-        condition,
-        datasetName,
-        matchedRows,
-        selectedColumns: channels.email?.columns,
-        webhookUrl: channels.teams.webhook_url,
-        severity: channels.teams.severity || 'info',
-      }).catch((err) => this.logger.error('Teams dispatch unhandled error', err));
+      tasks.push(
+        this.dispatchTeams({
+          condition,
+          datasetName,
+          matchedRows,
+          selectedColumns: channels.email?.columns,
+          webhookUrl: channels.teams.webhook_url,
+          severity: channels.teams.severity || 'info',
+        }).catch((err) => this.logger.error('Teams dispatch unhandled error', err)),
+      );
     }
+
+    // Await both channels so the caller knows dispatch finished — each is independent (its own
+    // catch above), so one channel failing never blocks the other.
+    await Promise.allSettled(tasks);
 
     // Emit WebSocket event
     if (channelsDispatched.length > 0 && this.eventsGateway) {
@@ -372,6 +381,12 @@ export class NotificationsService {
       throw new Error('Can only retry failed notifications');
     }
 
+    // 'script' report notifications have no re-sendable payload stored on the log, so a
+    // retry here would set 'retrying' and then do nothing (stuck). Reject up front.
+    if (log.channel !== 'email' && log.channel !== 'teams') {
+      throw new Error('This notification type cannot be retried');
+    }
+
     const condition = log.condition;
     if (!condition) {
       throw new Error('Condition no longer exists');
@@ -435,9 +450,35 @@ export class NotificationsService {
   async autoRetryFailed(): Promise<void> {
     const MAX_RETRIES = 3;
     const BACKOFF_MINUTES = 5;
+    const STALE_MINUTES = 15;
+
+    // Reclaim email/teams notifications stuck in 'pending'/'retrying' (e.g. the process died
+    // mid-send) so they aren't orphaned forever. Only rows older than STALE_MINUTES, so a
+    // genuinely in-flight send is never disturbed. Script rows can't be resent from a log and
+    // are left as-is. Reclaimed rows then fall through to the failed-retry loop below.
+    const staleCutoffMs = Date.now() - STALE_MINUTES * 60 * 1000;
+    const stuck = await this.notifLogRepo.find({
+      where: [
+        { status: 'pending', channel: In(['email', 'teams']) },
+        { status: 'retrying', channel: In(['email', 'teams']) },
+      ],
+    });
+    for (const s of stuck) {
+      const ref = s.lastRetryAt ?? s.triggeredAt;
+      if (ref && new Date(ref).getTime() < staleCutoffMs) {
+        await this.notifLogRepo.update(s.id, {
+          status: 'failed',
+          errorMessage: `Reclaimed: stuck in '${s.status}' > ${STALE_MINUTES}m`,
+        });
+      }
+    }
 
     const failed = await this.notifLogRepo.find({
-      where: { status: 'failed' },
+      // Only email/teams can be auto-resent from a log. 'script' report notifications
+      // carry no re-sendable payload (the html/chart aren't stored on the log), so
+      // retrying them would send nothing yet mark them 'sent'. Leave those truthfully
+      // 'failed' rather than silently relabelling a failed report send as delivered.
+      where: { status: 'failed', channel: In(['email', 'teams']) },
       relations: ['condition', 'dataset'],
     });
 
@@ -470,10 +511,12 @@ export class NotificationsService {
       });
 
       try {
+        let handled = false;
         if (log.channel === 'email') {
           const recipients = condition.channels?.email?.recipients ?? (log.recipients as string[]) ?? [];
           const subject = `[AMS Alert] ${condition.name} — ${matchedRows.length} rows matched`;
           await this.graphEmailService.sendAlert({ recipients, subject, conditionName: condition.name, datasetName, matchedRows });
+          handled = true;
         } else if (log.channel === 'teams') {
           await this.teamsWebhookService.sendAlert({
             webhookUrl: condition.channels?.teams?.webhook_url,
@@ -483,9 +526,16 @@ export class NotificationsService {
             matchedCount: matchedRows.length,
             severity: condition.channels?.teams?.severity || 'info',
           });
+          handled = true;
         }
-        await this.notifLogRepo.update(log.id, { status: 'sent' });
-        this.logger.log(`Auto-retry succeeded for notification ${log.id}`);
+        // Only record success if a channel actually resent — never mark 'sent' for a
+        // channel this retry can't handle (defence-in-depth alongside the query filter).
+        if (handled) {
+          await this.notifLogRepo.update(log.id, { status: 'sent' });
+          this.logger.log(`Auto-retry succeeded for notification ${log.id}`);
+        } else {
+          await this.notifLogRepo.update(log.id, { status: 'failed' });
+        }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         const newCount = (log.retryCount ?? 0) + 1;

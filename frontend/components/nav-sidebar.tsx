@@ -35,6 +35,23 @@ interface NavItem {
   children?: NavItem[];
 }
 
+// Report links for the sidebar, kept alphabetical (A→Z) by label. Each is gated
+// by hasReportAccess(slug); adding a report here is the only place to register it
+// in the nav.
+const REPORT_LINKS: { slug: string; href: string; label: string }[] = [
+  { slug: 'apple-traffic', href: '/reports/apple-traffic', label: 'Apple Traffic' },
+  { slug: 'deals-automation', href: '/reports/deals-automation', label: 'Deals Automation' },
+  { slug: 'google_mo', href: '/reports/google-mo-traffic', label: 'Google MO Traffic' },
+  { slug: 'mt-edr', href: '/reports/mt-edr-monitoring', label: 'MT EDR Monitoring' },
+  { slug: 'prepayment-cl', href: '/reports/prepayment-cl', label: 'Pre-Payment Limit' },
+  { slug: 'sms-credit-limit', href: '/reports/sms-credit-limit', label: 'SMS Credit Limit' },
+  { slug: 'sms-report', href: '/reports/sms-report', label: 'SMS Report' },
+  { slug: 'vcs-balance', href: '/reports/vcs-balance', label: 'Voice Credit Limit' },
+  { slug: 'voice-live-traffic', href: '/reports/voice-live-traffic', label: 'Voice Live Traffic' },
+  { slug: 'negative-margin', href: '/reports/negative-margin', label: 'Voice Negative Margin' },
+  { slug: 'zamani', href: '/reports/zamani-traffic', label: 'Zamani Traffic' },
+].sort((a, b) => a.label.localeCompare(b.label));
+
 export function NavSidebar() {
   const pathname = usePathname();
   const { user, canAccess, hasReportAccess } = useAuthStore();
@@ -104,8 +121,9 @@ export function NavSidebar() {
               <Clock className="h-5 w-5" />
             </Link>
           )}
-          {(hasReportAccess('zamani') || hasReportAccess('vcs-balance') || hasReportAccess('sms-credit-limit') || hasReportAccess('prepayment-cl') || hasReportAccess('google_mo') || hasReportAccess('mt-edr') || hasReportAccess('sms-report') || hasReportAccess('negative-margin')) && (
-            <Link href={hasReportAccess('zamani') ? '/reports/zamani-traffic' : hasReportAccess('google_mo') ? '/reports/google-mo-traffic' : hasReportAccess('vcs-balance') ? '/reports/vcs-balance' : hasReportAccess('sms-credit-limit') ? '/reports/sms-credit-limit' : hasReportAccess('mt-edr') ? '/reports/mt-edr-monitoring' : '/reports/sms-report'} className={cn('p-2 rounded-lg hover:bg-gray-700', isActive('/reports') ? 'text-blue-400' : 'text-gray-400')} title="Reports">
+          {(hasReportAccess('zamani') || hasReportAccess('vcs-balance') || hasReportAccess('sms-credit-limit') || hasReportAccess('prepayment-cl') || hasReportAccess('google_mo') || hasReportAccess('mt-edr') || hasReportAccess('sms-report') || hasReportAccess('deals-automation') || hasReportAccess('voice-live-traffic') || hasReportAccess('apple-traffic') || hasReportAccess('negative-margin')) && (
+            <Link href={hasReportAccess('zamani') ? '/reports/zamani-traffic' : hasReportAccess('google_mo') ? '/reports/google-mo-traffic' : hasReportAccess('vcs-balance') ? '/reports/vcs-balance' : hasReportAccess('sms-credit-limit') ? '/reports/sms-credit-limit' : hasReportAccess('mt-edr') ? '/reports/mt-edr-monitoring' : hasReportAccess('deals-automation') ? '/reports/deals-automation' : hasReportAccess('voice-live-traffic') ? '/reports/voice-live-traffic' : hasReportAccess('negative-margin') ? '/reports/negative-margin' : '/reports/sms-report'} className={cn('p-2 rounded-lg hover:bg-gray-700', isActive('/reports') ? 'text-blue-400' : 'text-gray-400')} title="Reports">
+
               <BarChart2 className="h-5 w-5" />
             </Link>
           )}
@@ -216,126 +234,22 @@ export function NavSidebar() {
 
           {reportsOpen && (
             <div className="space-y-0.5 mt-1">
-              {hasReportAccess('zamani') && (
+              {REPORT_LINKS.filter((r) => hasReportAccess(r.slug)).map((r) => (
                 <Link
-                  href="/reports/zamani-traffic"
+                  key={r.href}
+                  href={r.href}
                   className={cn(
                     'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
                     'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
-                    isActive('/reports/zamani-traffic')
+                    isActive(r.href)
                       ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
                       : 'text-gray-500 dark:text-gray-400'
                   )}
                 >
                   <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>Zamani Traffic</span>
+                  <span>{r.label}</span>
                 </Link>
-              )}
-              {hasReportAccess('google_mo') && (
-                <Link
-                  href="/reports/google-mo-traffic"
-                  className={cn(
-                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
-                    'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
-                    isActive('/reports/google-mo-traffic')
-                      ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
-                      : 'text-gray-500 dark:text-gray-400'
-                  )}
-                >
-                  <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>Google MO Traffic</span>
-                </Link>
-              )}
-              {hasReportAccess('vcs-balance') && (
-                <Link
-                  href="/reports/vcs-balance"
-                  className={cn(
-                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
-                    'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
-                    isActive('/reports/vcs-balance')
-                      ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
-                      : 'text-gray-500 dark:text-gray-400'
-                  )}
-                >
-                  <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>Voice Credit Limit</span>
-                </Link>
-              )}
-              {hasReportAccess('sms-report') && (
-                <Link
-                  href="/reports/sms-report"
-                  className={cn(
-                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
-                    'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
-                    isActive('/reports/sms-report')
-                      ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
-                      : 'text-gray-500 dark:text-gray-400'
-                  )}
-                >
-                  <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>SMS Report</span>
-                </Link>
-              )}
-              {hasReportAccess('sms-credit-limit') && (
-                <Link
-                  href="/reports/sms-credit-limit"
-                  className={cn(
-                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
-                    'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
-                    isActive('/reports/sms-credit-limit')
-                      ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
-                      : 'text-gray-500 dark:text-gray-400'
-                  )}
-                >
-                  <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>SMS Credit Limit</span>
-                </Link>
-              )}
-              {hasReportAccess('mt-edr') && (
-                <Link
-                  href="/reports/mt-edr-monitoring"
-                  className={cn(
-                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
-                    'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
-                    isActive('/reports/mt-edr-monitoring')
-                      ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
-                      : 'text-gray-500 dark:text-gray-400'
-                  )}
-                >
-                  <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>MT EDR Monitoring</span>
-                </Link>
-              )}
-              {hasReportAccess('prepayment-cl') && (
-                <Link
-                  href="/reports/prepayment-cl"
-                  className={cn(
-                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
-                    'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
-                    isActive('/reports/prepayment-cl')
-                      ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
-                      : 'text-gray-500 dark:text-gray-400'
-                  )}
-                >
-                  <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>Pre-Payment Limit</span>
-                </Link>
-              )}
-              {hasReportAccess('negative-margin') && (
-                <Link
-                  href="/reports/negative-margin"
-                  className={cn(
-                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
-                    'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
-                    isActive('/reports/negative-margin')
-                      ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
-                      : 'text-gray-500 dark:text-gray-400'
-                  )}
-                >
-                  <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>Voice Negative Margin</span>
-                </Link>
-              )}
+              ))}
             </div>
           )}
         </div>

@@ -239,26 +239,26 @@ LEFT JOIN CompanyLookup cl ON cl.CustomerConnectionId = rs.CustomerConnectionId
 
 // Keys must match sanitizeRowKeys output: lowercase, non-alphanum runs → single underscore
 const SEED_COLUMNS = [
-  { key: 'date',                 label: 'Date',                  type: 'date'    },
-  { key: 'customer_company',     label: 'Customer Company',      type: 'text'    },
-  { key: 'customer_id',          label: 'Customer ID',           type: 'numeric' },
-  { key: 'customer_connection',  label: 'Customer Connection',   type: 'text'    },
-  { key: 'country',              label: 'Country',               type: 'text'    },
-  { key: 'operator',             label: 'Operator',              type: 'text'    },
-  { key: 'mcc_mnc',              label: 'MCC MNC',               type: 'text'    },
-  { key: 'mcc',                  label: 'MCC',                   type: 'text'    },
-  { key: 'mnc',                  label: 'MNC',                   type: 'text'    },
-  { key: 'sender_id',            label: 'Sender ID',             type: 'text'    },
-  { key: 'vendor_name',          label: 'Vendor Name',           type: 'text'    },
-  { key: 'received_messages',    label: 'Received Messages',     type: 'numeric' },
-  { key: 'successful_sent',      label: 'Successful Sent',       type: 'numeric' },
-  { key: 'failed',               label: 'Failed',                type: 'numeric' },
-  { key: 'delivered',            label: 'Delivered',             type: 'numeric' },
-  { key: 'expenses',             label: 'Expenses',              type: 'numeric' },
-  { key: 'income',               label: 'Income',                type: 'numeric' },
-  { key: 'profit',               label: 'Profit',                type: 'numeric' },
-  { key: 'margin_age',           label: 'Margin %',              type: 'numeric' },
-  { key: 'account_manager',      label: 'Account Manager',       type: 'text'    },
+  { key: 'date',                 label: 'Date',                  type: 'date',    description: 'Calendar date of the traffic (message submit date); grouping key.' },
+  { key: 'customer_company',     label: 'Customer Company',      type: 'text',    description: 'Customer company name.' },
+  { key: 'customer_id',          label: 'Customer ID',           type: 'numeric', description: 'Internal SMSC company ID of the customer.' },
+  { key: 'customer_connection',  label: 'Customer Connection',   type: 'text',    description: 'Name of the customer SMPP/HTTP connection the traffic came through.' },
+  { key: 'country',              label: 'Country',               type: 'text',    description: 'Destination country name (from MCC/MNC lookup).' },
+  { key: 'operator',             label: 'Operator',              type: 'text',    description: 'Destination mobile operator name (from MCC/MNC lookup).' },
+  { key: 'mcc_mnc',              label: 'MCC MNC',               type: 'text',    description: 'Combined mobile country + network code of the destination.' },
+  { key: 'mcc',                  label: 'MCC',                   type: 'text',    description: 'Mobile country code of the destination.' },
+  { key: 'mnc',                  label: 'MNC',                   type: 'text',    description: 'Mobile network code of the destination.' },
+  { key: 'sender_id',            label: 'Sender ID',             type: 'text',    description: 'Originator / sender ID (null in the aggregated API response; retained in stage).' },
+  { key: 'vendor_name',          label: 'Vendor Name',           type: 'text',    description: 'Terminating vendor connection name (null in the aggregated API response).' },
+  { key: 'received_messages',    label: 'Received Messages',     type: 'numeric', description: 'Message parts received from the customer that day; precomputed SUM.' },
+  { key: 'successful_sent',      label: 'Successful Sent',       type: 'numeric', description: 'Message parts successfully sent to the vendor; precomputed SUM.' },
+  { key: 'failed',               label: 'Failed',                type: 'numeric', description: 'Message parts that failed (DLR status 8); precomputed SUM.' },
+  { key: 'delivered',            label: 'Delivered',             type: 'numeric', description: 'Message parts confirmed delivered (DLR status 2); precomputed SUM.' },
+  { key: 'expenses',             label: 'Expenses',              type: 'numeric', description: 'Vendor cost in USD (currency-converted); precomputed SUM.' },
+  { key: 'income',               label: 'Income',                type: 'numeric', description: 'Customer revenue in USD (currency-converted); precomputed SUM.' },
+  { key: 'profit',               label: 'Profit',                type: 'numeric', description: 'Income minus expenses in USD; precomputed.' },
+  { key: 'margin_age',           label: 'Margin %',              type: 'numeric', description: 'Profit as a percentage of income; precomputed.' },
+  { key: 'account_manager',      label: 'Account Manager',       type: 'text',    description: "Customer's sales account manager (full name)." },
 ];
 
 /**
@@ -402,6 +402,15 @@ export class SmsReportService implements OnModuleInit {
     await this.dataSource.query(
       `CREATE INDEX IF NOT EXISTS idx_${STAGE}_refreshed ON ${STAGE} (refreshed_at DESC)`,
     );
+    await this.dataSource.query(
+      `CREATE INDEX IF NOT EXISTS idx_${STAGE}_date_company ON ${STAGE} (date DESC, customer_company)`,
+    );
+    await this.dataSource.query(
+      `CREATE INDEX IF NOT EXISTS idx_${STAGE}_account_mgr ON ${STAGE} (account_manager) WHERE account_manager IS NOT NULL`,
+    );
+    await this.dataSource.query(
+      `CREATE INDEX IF NOT EXISTS idx_${STAGE}_country ON ${STAGE} (date DESC, country)`,
+    );
   }
 
   async getData(startDate?: string, endDate?: string, accountManager?: string, company?: string): Promise<any> {
@@ -427,19 +436,74 @@ export class SmsReportService implements OnModuleInit {
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const stageRows: any[] = await this.dataSource.query(
-      `SELECT * FROM ${STAGE} ${where} ORDER BY date DESC, customer_company ASC`,
-      params,
-    ).catch((err: Error) => {
-      this.logger.error(`Failed to read ${STAGE}: ${err.message}`);
-      return [];
-    });
+    // Build a date-only WHERE for the managers dropdown — it should show all managers
+    // available in the date range regardless of other active filters.
+    const mgrConds: string[] = ["account_manager IS NOT NULL", "account_manager <> ''"];
+    const mgrParams: any[] = [];
+    if (startDate) { mgrParams.push(startDate); mgrConds.push(`date >= $${mgrParams.length}::date`); }
+    if (endDate)   { mgrParams.push(endDate);   mgrConds.push(`date <= $${mgrParams.length}::date`); }
 
-    if (stageRows.length === 0) {
+    // GROUP BY in SQL to aggregate away sender_id and vendor_name — neither field
+    // is used in any frontend chart, filter, or dimension selector. This reduces
+    // result rows ~10-20x vs SELECT *, cutting network payload and browser JS work.
+    // All four queries run in parallel.
+    const [stageRows, summaryRows, managersRows, refreshRow] = await Promise.all([
+      this.dataSource.query<any[]>(`
+        SELECT
+          date,
+          customer_company,
+          customer_id,
+          customer_connection,
+          country,
+          operator,
+          mcc_mnc,
+          mcc,
+          mnc,
+          account_manager,
+          SUM(received_messages) AS received_messages,
+          SUM(successful_sent)   AS successful_sent,
+          SUM(failed)            AS failed,
+          SUM(delivered)         AS delivered,
+          SUM(expenses)          AS expenses,
+          SUM(income)            AS income,
+          SUM(profit)            AS profit,
+          CASE WHEN SUM(income) > 0
+            THEN ROUND(CAST((SUM(income) - SUM(expenses)) / SUM(income) * 100 AS NUMERIC), 2)
+            ELSE NULL
+          END AS margin_age
+        FROM ${STAGE} ${where}
+        GROUP BY date, customer_company, customer_id, customer_connection,
+                 country, operator, mcc_mnc, mcc, mnc, account_manager
+        ORDER BY date DESC, customer_company ASC
+      `, params).catch((err: Error) => { this.logger.error(`Failed to read ${STAGE}: ${err.message}`); return []; }),
+
+      this.dataSource.query<any[]>(`
+        SELECT
+          COUNT(*)              AS total_rows,
+          SUM(income)           AS total_income,
+          SUM(expenses)         AS total_expenses,
+          SUM(profit)           AS total_profit,
+          SUM(successful_sent)  AS total_sent,
+          SUM(delivered)        AS total_delivered,
+          AVG(CASE WHEN income > 0 THEN margin_age END) AS avg_margin
+        FROM ${STAGE} ${where}
+      `, params).catch(() => [{ total_rows: 0, total_income: 0, total_expenses: 0, total_profit: 0, total_sent: 0, total_delivered: 0, avg_margin: 0 }]),
+
+      this.dataSource.query<any[]>(
+        `SELECT DISTINCT account_manager FROM ${STAGE} WHERE ${mgrConds.join(' AND ')} ORDER BY account_manager`,
+        mgrParams,
+      ).catch(() => []),
+
+      this.dataSource.query<any[]>(
+        `SELECT MAX(refreshed_at) AS last_refreshed, MAX(date) AS max_date FROM ${STAGE}`,
+      ).catch(() => [{}]),
+    ]);
+
+    if ((stageRows as any[]).length === 0) {
       return { datasetId: this._datasetId, rows: [], summary: this.emptySummary(), managers: [], lastRefreshed: null };
     }
 
-    const rows = stageRows.map((r: any) => ({
+    const rows = (stageRows as any[]).map((r: any) => ({
       date:                toYMD(r.date),
       customer_company:    r.customer_company ?? null,
       customer_id:         r.customer_id != null ? Number(r.customer_id) : null,
@@ -449,8 +513,8 @@ export class SmsReportService implements OnModuleInit {
       mcc_mnc:             r.mcc_mnc ?? null,
       mcc:                 r.mcc ?? null,
       mnc:                 r.mnc ?? null,
-      sender_id:           r.sender_id ?? null,
-      vendor_name:         r.vendor_name ?? null,
+      sender_id:           null,
+      vendor_name:         null,
       received_messages:   Number(r.received_messages ?? 0),
       successful_sent:     Number(r.successful_sent ?? 0),
       failed:              Number(r.failed ?? 0),
@@ -462,42 +526,23 @@ export class SmsReportService implements OnModuleInit {
       account_manager:     r.account_manager ?? null,
     }));
 
-    const totalIncome   = rows.reduce((s: number, r: any) => s + r.income, 0);
-    const totalExpenses = rows.reduce((s: number, r: any) => s + r.expenses, 0);
-    const totalProfit   = rows.reduce((s: number, r: any) => s + r.profit, 0);
-    const totalSent     = rows.reduce((s: number, r: any) => s + r.successful_sent, 0);
-    const totalDelivered = rows.reduce((s: number, r: any) => s + r.delivered, 0);
-
-    // Unique account managers — scoped to the requested date range for speed
-    const mgrParams: any[] = [];
-    const mgrConds: string[] = ["account_manager IS NOT NULL", "account_manager <> ''"];
-    if (startDate) { mgrParams.push(startDate); mgrConds.push(`date >= $${mgrParams.length}::date`); }
-    if (endDate)   { mgrParams.push(endDate);   mgrConds.push(`date <= $${mgrParams.length}::date`); }
-    const managersAll: string[] = await this.dataSource.query(
-      `SELECT DISTINCT account_manager FROM ${STAGE} WHERE ${mgrConds.join(' AND ')} ORDER BY account_manager`,
-      mgrParams,
-    ).then((rs: any[]) => rs.map((r: any) => r.account_manager)).catch(() => []);
-
-    const [refreshRow] = await this.dataSource.query(
-      `SELECT MAX(refreshed_at) AS last_refreshed, MAX(date) AS max_date FROM ${STAGE}`,
-    );
+    const s   = (summaryRows as any[])[0] ?? {};
+    const rr  = (refreshRow as any[])[0]  ?? {};
 
     return {
       datasetId:     this._datasetId,
       rows,
-      lastRefreshed: refreshRow?.last_refreshed ?? null,
-      maxDate:       refreshRow?.max_date ? toYMD(refreshRow.max_date) : null,
-      managers:      managersAll,
+      lastRefreshed: rr.last_refreshed ?? null,
+      maxDate:       rr.max_date ? toYMD(rr.max_date) : null,
+      managers:      (managersRows as any[]).map((r: any) => r.account_manager),
       summary: {
-        totalRows:      rows.length,
-        totalIncome:    Math.round(totalIncome    * 100) / 100,
-        totalExpenses:  Math.round(totalExpenses  * 100) / 100,
-        totalProfit:    Math.round(totalProfit    * 100) / 100,
-        totalSent,
-        totalDelivered,
-        avgMarginPct:   rows.length > 0
-          ? Math.round(rows.reduce((s: number, r: any) => s + (r.margin_pct ?? 0), 0) / rows.length * 100) / 100
-          : 0,
+        totalRows:      Number(s.total_rows    ?? 0),
+        totalIncome:    Math.round(Number(s.total_income   ?? 0) * 100) / 100,
+        totalExpenses:  Math.round(Number(s.total_expenses ?? 0) * 100) / 100,
+        totalProfit:    Math.round(Number(s.total_profit   ?? 0) * 100) / 100,
+        totalSent:      Number(s.total_sent      ?? 0),
+        totalDelivered: Number(s.total_delivered ?? 0),
+        avgMarginPct:   Math.round(Number(s.avg_margin ?? 0) * 100) / 100,
       },
     };
   }

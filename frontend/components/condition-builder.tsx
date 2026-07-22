@@ -44,6 +44,13 @@ function getOperatorsForType(type: ColumnMeta['type']): typeof NUMERIC_OPERATORS
 
 const emptyRow: ConditionRow = { column: '', operator: '==', value: '' };
 
+// Change columns (Voice Live Traffic) compare the latest refresh to the average
+// of the last 2. Spell that out in the dropdown so it's clear to anyone — this
+// is display-only; the stored column key and label are unchanged.
+function displayColumnLabel(c: ColumnMeta): string {
+  return c.key.endsWith('_change') ? `${c.label} (vs last 2 refreshes)` : c.label;
+}
+
 interface ConditionBuilderProps {
   datasets: Dataset[];
   initialValues?: Partial<Condition>;
@@ -86,6 +93,10 @@ export function ConditionBuilder({
 
   const selectedDataset = datasets.find((d) => d.id === datasetId);
   const availableColumns = selectedDataset?.column_metadata ?? [];
+  // Change columns (`*_change`) are hidden from the alert form for now — the
+  // change-based alert flow isn't in use yet. To bring it back, drop this filter
+  // (and restore the "About the Change columns" info banner below).
+  const selectableColumns = availableColumns.filter((c) => !c.key.endsWith('_change'));
 
   const addRow = () => setRows((prev) => [...prev, { ...emptyRow }]);
 
@@ -251,9 +262,9 @@ export function ConditionBuilder({
                     error={errors[`row_${index}_column`]}
                   >
                     <option value="">Select column</option>
-                    {availableColumns.map((c) => (
+                    {selectableColumns.map((c) => (
                       <option key={c.key} value={c.key}>
-                        {c.label}
+                        {displayColumnLabel(c)}
                       </option>
                     ))}
                   </Select>

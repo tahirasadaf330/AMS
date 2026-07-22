@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Setting } from '../common/entities/setting.entity';
 import { CredentialsService } from '../credentials/credentials.service';
+import { buildAccountDestinationTotals } from './alert-totals.util';
 import axios from 'axios';
 
 interface TokenCache {
@@ -27,6 +28,9 @@ interface GraphCredentials {
 export class GraphEmailService {
   private readonly logger = new Logger(GraphEmailService.name);
   private tokenCache: TokenCache | null = null;
+  // Coalesces concurrent cache-miss token requests (e.g. a burst of alerts at a cron boundary)
+  // into a single in-flight POST, instead of each caller firing its own and stampeding the endpoint.
+  private tokenInflight: Promise<{ token: string; senderEmail: string }> | null = null;
 
   private readonly envTenantId: string;
   private readonly envClientId: string;
@@ -82,6 +86,22 @@ export class GraphEmailService {
       return { token: this.tokenCache.token, senderEmail: creds.senderEmail };
     }
 
+    // Cache miss: coalesce concurrent callers onto one in-flight request.
+    if (this.tokenInflight) return this.tokenInflight;
+
+    this.tokenInflight = this.fetchAccessToken(creds, fingerprint);
+    try {
+      return await this.tokenInflight;
+    } finally {
+      this.tokenInflight = null;
+    }
+  }
+
+  /** Fetch a fresh app-only token: 30s timeout with one retry (the endpoint can be slow under load). */
+  private async fetchAccessToken(
+    creds: GraphCredentials,
+    fingerprint: string,
+  ): Promise<{ token: string; senderEmail: string }> {
     const tokenUrl = `https://login.microsoftonline.com/${creds.tenantId}/oauth2/v2.0/token`;
     const params = new URLSearchParams({
       client_id: creds.clientId,
@@ -90,19 +110,27 @@ export class GraphEmailService {
       grant_type: 'client_credentials',
     });
 
-    const response = await axios.post(tokenUrl, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      timeout: 15000,
-    });
-
-    const expiresIn: number = response.data.expires_in || 3600;
-    this.tokenCache = {
-      token: response.data.access_token,
-      expiresAt: Date.now() + expiresIn * 1000,
-      credFingerprint: fingerprint,
-    };
-
-    return { token: this.tokenCache.token, senderEmail: creds.senderEmail };
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const response = await axios.post(tokenUrl, params.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          timeout: 30000,
+        });
+        const expiresIn: number = response.data.expires_in || 3600;
+        this.tokenCache = {
+          token: response.data.access_token,
+          expiresAt: Date.now() + expiresIn * 1000,
+          credFingerprint: fingerprint,
+        };
+        return { token: this.tokenCache.token, senderEmail: creds.senderEmail };
+      } catch (err) {
+        lastErr = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Graph token request attempt ${attempt}/2 failed: ${msg}`);
+      }
+    }
+    throw lastErr;
   }
 
   isTokenValid(): boolean {
@@ -131,7 +159,7 @@ export class GraphEmailService {
     appUrl?: string;
   }): Promise<void> {
     const { token, senderEmail } = await this.getAccessToken();
-    const appUrl = (params.appUrl || this.configService.get<string>('APP_URL', 'http://ams.voipsystem.org:3000')).replace(/\/$/, '');
+    const appUrl = (params.appUrl || this.configService.get<string>('APP_URL', 'http://ams.voipsystem.org')).replace(/\/$/, '');
     const html = this.buildWelcomeHtml({ ...params, appUrl });
 
     const payload = {
@@ -297,6 +325,68 @@ export class GraphEmailService {
     }
   }
 
+  /**
+   * Send a pre-built HTML email with optional inline (CID) images — used by report
+   * digests (e.g. Google MO Traffic Alert) that render their own multi-table body and
+   * an embedded chart. The HTML references each image via <img src="cid:<cid>">.
+   */
+  async sendRichEmail(params: {
+    recipients: string[];
+    cc?: string[];
+    subject: string;
+    html: string;
+    inlineImages?: Array<{ cid: string; contentBytes: string; contentType?: string; name?: string }>;
+  }): Promise<void> {
+    const { token, senderEmail } = await this.getAccessToken();
+
+    const toRecipients: EmailRecipient[] = params.recipients.map((addr) => ({
+      emailAddress: { address: addr },
+    }));
+    const ccRecipients: EmailRecipient[] = (params.cc ?? []).map((addr) => ({
+      emailAddress: { address: addr },
+    }));
+
+    // Inline (cid) images are attached to the single /sendMail action. Note: Outlook desktop
+    // reliably renders cid images only when there is ONE inline image — multiple inline images
+    // sent this way show as broken (red X) in the Word-based desktop client. Report scripts that
+    // need several charts must composite them into a single image (one cid), not many.
+    const attachments = (params.inlineImages ?? [])
+      .filter((img) => img.cid && img.contentBytes)
+      .map((img) => ({
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: img.name ?? `${img.cid}.png`,
+        contentType: img.contentType ?? 'image/png',
+        contentBytes: img.contentBytes,
+        isInline: true,
+        contentId: img.cid,
+      }));
+
+    const message: Record<string, unknown> = {
+      subject: params.subject,
+      body: { contentType: 'HTML', content: params.html },
+      toRecipients,
+    };
+    if (ccRecipients.length) message.ccRecipients = ccRecipients;
+    if (attachments.length) message.attachments = attachments;
+
+    const response = await axios.post(
+      `https://graph.microsoft.com/v1.0/users/${senderEmail}/sendMail`,
+      { message, saveToSentItems: true },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 60000,
+        validateStatus: (status) => status === 202,
+      },
+    );
+
+    if (response.status !== 202) {
+      throw new Error(`Graph API returned status ${response.status}`);
+    }
+  }
+
   private buildHtml(params: {
     conditionName: string;
     datasetName: string;
@@ -352,6 +442,41 @@ export class GraphEmailService {
       ? `<tr><td style="padding:8px 24px 0;font-size:12px;color:#666;font-style:italic;">Showing ${VISIBLE_ROWS} of ${totalRows} matching rows. Scroll to see more.</td></tr>`
       : '';
 
+    // Totals grouped by Account + Destination (sum counts, weighted ASR/ACD) —
+    // rendered as a standalone table below the detail so it's always visible.
+    const acctDestTotals = buildAccountDestinationTotals(params.matchedRows);
+    let totalsSection = '';
+    if (acctDestTotals.length && colDefs.length) {
+      const totHeader = colDefs
+        .map((c) => `<th style="padding:8px 12px;text-align:left;font-weight:600;white-space:nowrap;background:#1f3864;color:#ffffff;font-size:12px;">${this.escapeHtml(c.label)}</th>`)
+        .join('');
+      const totBody = acctDestTotals
+        .map((t) => {
+          const synthetic: Record<string, unknown> = {
+            account: t.account, destination: t.destination, vendor: 'All vendors',
+            attempts: t.attempts, acd: t.acd, asr: t.asr,
+            failed_calls: t.failed_calls, volume: t.volume, answered_calls: t.answered_calls,
+          };
+          const cells = colDefs
+            .map((c) => `<td style="padding:7px 12px;border-bottom:1px solid #e8edf5;white-space:nowrap;font-size:13px;font-weight:700;">${this.formatCellValue(synthetic[c.key])}</td>`)
+            .join('');
+          return `<tr style="background:#eef3fa;">${cells}</tr>`;
+        })
+        .join('');
+      totalsSection = `
+    <tr>
+      <td style="padding:0 24px 20px;">
+        <div style="font-size:12px;font-weight:700;color:#1f3864;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Totals &mdash; by Account + Destination (sum, weighted ASR / ACD)</div>
+        <div style="overflow-x:auto;border:1px solid #b8cce4;border-radius:4px;">
+          <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;min-width:100%;">
+            <thead><tr>${totHeader}</tr></thead>
+            <tbody>${totBody}</tbody>
+          </table>
+        </div>
+      </td>
+    </tr>`;
+    }
+
     return `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -391,6 +516,8 @@ export class GraphEmailService {
         </div>
       </td>
     </tr>
+    <!-- Totals by Account + Destination -->
+    ${totalsSection}
     <!-- Footer -->
     <tr>
       <td style="background:#fafafa;padding:12px 24px;text-align:center;border-top:1px solid #e8e8e8;">

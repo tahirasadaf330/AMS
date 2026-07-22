@@ -79,18 +79,18 @@ ORDER BY remaining_net_cl_pct ASC
 `;
 
 const SEED_COLUMNS = [
-  { key: 'company_name',               label: 'Company Name',              type: 'text'    },
-  { key: 'account_manager',            label: 'Account Manager',           type: 'text'    },
-  { key: 'credit_limit',               label: 'Credit Limit',              type: 'numeric' },
-  { key: 'client_usage',               label: 'Client Usage',              type: 'numeric' },
-  { key: 'client_balance',             label: 'Client Balance',            type: 'numeric' },
-  { key: 'remaining_net_cl',           label: 'Remaining Net CL',          type: 'numeric' },
-  { key: 'remaining_net_cl_pct',       label: 'Remaining Net CL%',         type: 'numeric' },
-  { key: 'avg_daily_usage_last_7_days', label: 'Avg Daily Usage Last 7 Days', type: 'numeric' },
-  { key: 'yesterday_usage',            label: 'Yesterday Usage',           type: 'numeric' },
-  { key: 'days_to_reach_cl',           label: 'Days To Reach CL',          type: 'numeric' },
-  { key: 'cl_in_next_7_days',          label: 'CL in Next 7 Days',         type: 'numeric' },
-  { key: 'currency',                   label: 'Currency',                  type: 'text'    },
+  { key: 'company_name',               label: 'Company Name',              type: 'text',    description: 'SMS customer company name.' },
+  { key: 'account_manager',            label: 'Account Manager',           type: 'text',    description: "Customer's sales account manager (full name)." },
+  { key: 'credit_limit',               label: 'Credit Limit',              type: 'numeric', description: 'Approved credit ceiling, in the row currency.' },
+  { key: 'client_usage',               label: 'Client Usage',              type: 'numeric', description: 'Amount consumed so far (SMSC balance), in the row currency; precomputed.' },
+  { key: 'client_balance',             label: 'Client Balance',            type: 'numeric', description: 'Credit limit minus usage, in the row currency; precomputed.' },
+  { key: 'remaining_net_cl',           label: 'Remaining Net CL',          type: 'numeric', description: 'Remaining net credit limit (credit + balance + netting), in the row currency; precomputed.' },
+  { key: 'remaining_net_cl_pct',       label: 'Remaining Net CL%',         type: 'numeric', description: 'Remaining net credit limit as a percent of the credit limit; precomputed.' },
+  { key: 'avg_daily_usage_last_7_days', label: 'Avg Daily Usage Last 7 Days', type: 'numeric', description: 'Average daily spend over the last 7 days, in the row currency; precomputed AVG.' },
+  { key: 'yesterday_usage',            label: 'Yesterday Usage',           type: 'numeric', description: "Yesterday's total spend, in the row currency; precomputed SUM." },
+  { key: 'days_to_reach_cl',           label: 'Days To Reach CL',          type: 'numeric', description: 'Estimated days until the credit limit is exhausted at the 7-day average rate; precomputed.' },
+  { key: 'cl_in_next_7_days',          label: 'CL in Next 7 Days',         type: 'numeric', description: 'Projected remaining credit after 7 more days at the average rate, in the row currency; precomputed.' },
+  { key: 'currency',                   label: 'Currency',                  type: 'text',    description: 'ISO currency code that all monetary columns in this row are expressed in.' },
 ];
 
 @Injectable()

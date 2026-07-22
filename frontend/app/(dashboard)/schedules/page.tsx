@@ -98,10 +98,10 @@ export default function SchedulesPage() {
       {isLoading ? (
         <SkeletonTable rows={4} cols={7} />
       ) : (
-        <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
+        <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 max-h-[calc(100vh_-_14rem)]">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+              <tr className="sticky top-0 z-10 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Dataset</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Schedule</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Run</th>

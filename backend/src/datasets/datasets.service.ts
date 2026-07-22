@@ -25,12 +25,21 @@ export interface CreateDatasetDto {
   schedule_cron?: string;
   is_active?: boolean;
   create_stage_table?: boolean;
+  // The main.ts middleware camelCases incoming request bodies, so the value
+  // actually arrives as `windowMinutes`. Both keys are declared for safety.
+  window_minutes?: number | null;
+  windowMinutes?: number | null;
 }
 
 export interface UpdateDatasetDto extends Partial<CreateDatasetDto> {
   schedule_start_date?: string | null;
   schedule_end_date?: string | null;
 }
+
+// Traffic-window sizes (minutes) accepted for datasets that use the
+// {{WINDOW_MINUTES}} placeholder (e.g. Voice Live Traffic).
+const ALLOWED_WINDOWS = [10, 15, 20];
+const DEFAULT_WINDOW = 10;
 
 @Injectable()
 export class DatasetsService {
@@ -79,12 +88,47 @@ export class DatasetsService {
     return this.datasetRepo.find({ where: { isActive: true } });
   }
 
+  /**
+   * A dataset must carry a description and per-column meanings so downstream AI
+   * consumers (Atlas) can understand it. `requirePresence` is true on create
+   * (both fields mandatory) and false on update (only validate fields the caller
+   * actually supplied, so unrelated partial updates aren't blocked).
+   *
+   * Self-seeded report datasets bypass this path (they use the repo directly),
+   * so this rule only governs datasets created/edited via the admin API/form.
+   */
+  private assertDescribed(
+    description: string | undefined,
+    columnMetadata: unknown,
+    requirePresence: boolean,
+  ): void {
+    if (requirePresence || description !== undefined) {
+      if (!description || !description.trim()) {
+        throw new BadRequestException('A dataset description is required.');
+      }
+    }
+    if (requirePresence || columnMetadata !== undefined) {
+      if (!Array.isArray(columnMetadata) || columnMetadata.length === 0) {
+        throw new BadRequestException('Column metadata is required — define at least one column.');
+      }
+      const missing = (columnMetadata as Array<{ key?: string; label?: string; description?: string }>)
+        .filter((c) => !c?.description || !String(c.description).trim())
+        .map((c) => c?.key || c?.label || '(unnamed)');
+      if (missing.length > 0) {
+        throw new BadRequestException(
+          `Every column needs a description. Missing for: ${missing.join(', ')}`,
+        );
+      }
+    }
+  }
+
   async create(dto: CreateDatasetDto, userId: string): Promise<Dataset> {
     if (!/^[a-z_][a-z0-9_]{0,127}$/.test(dto.stage_table_name)) {
       throw new BadRequestException(
         'Stage table name must be lowercase alphanumeric + underscores, starting with a letter or underscore, max 128 chars',
       );
     }
+    this.assertDescribed(dto.description, dto.column_metadata, true);
     try {
       const dataset = this.datasetRepo.create({
         name: dto.name,
@@ -119,6 +163,7 @@ export class DatasetsService {
 
   async update(id: string, dto: UpdateDatasetDto): Promise<Dataset> {
     const dataset = await this.findOne(id);
+    this.assertDescribed(dto.description, dto.column_metadata, false);
     const sqlChanged = dto.sql_query !== undefined && dto.sql_query !== dataset.sqlQuery;
 
     try {
@@ -142,6 +187,19 @@ export class DatasetsService {
 
       if (sqlChanged) {
         this.logger.log(`SQL changed for dataset "${dataset.name}" — new columns will be added on next refresh`);
+      }
+
+      // window_minutes lives on the datasets table but not on the TypeORM entity
+      // (keeps it out of every dataset SELECT). Persist it with a guarded raw write.
+      // The middleware camelCases the body, so the value arrives as `windowMinutes`.
+      const rawWindow = dto.windowMinutes ?? dto.window_minutes;
+      if (rawWindow !== undefined && rawWindow !== null) {
+        const w = Number(rawWindow);
+        const windowMinutes = ALLOWED_WINDOWS.includes(w) ? w : DEFAULT_WINDOW;
+        await this.dataSource.query(
+          `UPDATE datasets SET window_minutes = $1 WHERE id = $2`,
+          [windowMinutes, id],
+        ).catch((err: Error) => this.logger.error(`Failed to persist window_minutes for ${id}: ${err.message}`));
       }
 
       return this.findOne(id);
@@ -174,7 +232,10 @@ export class DatasetsService {
     dataSourceId?: string,
   ): Promise<{ valid: boolean; error?: string; columns?: Array<{ key: string; label: string; type: string }> }> {
     try {
-      const result = await this.datasourceExecutor.validateQuery(dataSourceId ?? 'jerasoft', sql);
+      // Substitute runtime placeholders with a representative value so the query
+      // is executable during validation (the real value is applied on refresh).
+      const resolvedSql = sql.replace(/\{\{WINDOW_MINUTES\}\}/g, String(DEFAULT_WINDOW));
+      const result = await this.datasourceExecutor.validateQuery(dataSourceId ?? 'jerasoft', resolvedSql);
       const columns = result.fields.map((f) => ({
         key: f.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''),
         label: f.name,

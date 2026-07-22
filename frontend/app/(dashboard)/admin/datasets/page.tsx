@@ -39,6 +39,10 @@ function useAdminDatasets() {
   });
 }
 
+// A dataset supports a configurable traffic window when its SQL contains this token.
+const WINDOW_PLACEHOLDER = '{{WINDOW_MINUTES}}';
+const WINDOW_OPTIONS = [10, 15, 20];
+
 interface DatasetFormData {
   name: string;
   description: string;
@@ -50,6 +54,7 @@ interface DatasetFormData {
   is_active: boolean;
   column_metadata: ColumnMeta[];
   create_stage_table: boolean;
+  window_minutes: number;
 }
 
 const defaultForm: DatasetFormData = {
@@ -63,6 +68,7 @@ const defaultForm: DatasetFormData = {
   is_active: true,
   column_metadata: [],
   create_stage_table: true,
+  window_minutes: 10,
 };
 
 export default function AdminDatasetsPage() {
@@ -95,6 +101,7 @@ export default function AdminDatasetsPage() {
         is_active: data.is_active,
         column_metadata: data.column_metadata,
         create_stage_table: data.create_stage_table,
+        ...(data.sql_query.includes(WINDOW_PLACEHOLDER) ? { window_minutes: data.window_minutes } : {}),
         updated_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
       } as any),
@@ -154,6 +161,7 @@ export default function AdminDatasetsPage() {
       is_active: dataset.is_active,
       column_metadata: dataset.column_metadata ?? [],
       create_stage_table: false,
+      window_minutes: dataset.window_minutes ?? 10,
     });
     setValidateResult(null);
     setShowForm(true);
@@ -205,6 +213,7 @@ export default function AdminDatasetsPage() {
           schedule_cron: formData.schedule_cron,
           is_active: formData.is_active,
           column_metadata: formData.column_metadata,
+          ...(formData.sql_query.includes(WINDOW_PLACEHOLDER) ? { window_minutes: formData.window_minutes } : {}),
         } as any,
       });
     } else {
@@ -306,8 +315,15 @@ export default function AdminDatasetsPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Input value={formData.description} onChange={(e) => setFormData((p) => ({ ...p, description: e.target.value }))} />
+              <Label required>Description</Label>
+              <Input
+                value={formData.description}
+                onChange={(e) => setFormData((p) => ({ ...p, description: e.target.value }))}
+                placeholder="What this data is, its source, and refresh window"
+              />
+              {!formData.description.trim() && (
+                <p className="text-xs text-red-500 dark:text-red-400">Required — describe what this dataset contains.</p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -344,47 +360,66 @@ export default function AdminDatasetsPage() {
             {/* Column metadata */}
             {(formData.column_metadata ?? []).length > 0 && (
               <div className="space-y-1.5">
-                <Label>Column Configuration</Label>
-                <div className="space-y-1 max-h-48 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 p-2">
-                  {formData.column_metadata.map((col, i) => (
-                    <div key={col.key} className="flex items-center gap-2 text-sm">
-                      <code className="text-blue-400 text-xs w-32 truncate font-mono">{col.key}</code>
-                      <Input
-                        value={col.label}
-                        onChange={(e) => setFormData((p) => ({
-                          ...p,
-                          column_metadata: p.column_metadata.map((c, ci) =>
-                            ci === i ? { ...c, label: e.target.value } : c
-                          ),
-                        }))}
-                        className="flex-1 h-7 text-xs"
-                      />
-                      <Select
-                        value={col.type}
-                        onChange={(e) => setFormData((p) => ({
-                          ...p,
-                          column_metadata: p.column_metadata.map((c, ci) =>
-                            ci === i ? { ...c, type: e.target.value as ColumnMeta['type'] } : c
-                          ),
-                        }))}
-                        className="w-24 h-7 text-xs"
-                      >
-                        <option value="text">Text</option>
-                        <option value="numeric">Numeric</option>
-                        <option value="date">Date</option>
-                      </Select>
-                      <Toggle
-                        checked={!!col.visible}
-                        onChange={(v) => setFormData((p) => ({
-                          ...p,
-                          column_metadata: p.column_metadata.map((c, ci) =>
-                            ci === i ? { ...c, visible: v } : c
-                          ),
-                        }))}
-                        size="sm"
-                      />
-                    </div>
-                  ))}
+                <Label required>Column Configuration</Label>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Every column needs a one-line description (unit/currency, whether it&apos;s precomputed) so it&apos;s usable by the AI assistant.
+                </p>
+                <div className="space-y-2 max-h-64 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 p-2">
+                  {formData.column_metadata.map((col, i) => {
+                    const descMissing = !col.description || !col.description.trim();
+                    return (
+                      <div key={col.key} className="space-y-1 rounded border border-gray-100 dark:border-gray-700/60 p-1.5">
+                        <div className="flex items-center gap-2 text-sm">
+                          <code className="text-blue-400 text-xs w-32 truncate font-mono">{col.key}</code>
+                          <Input
+                            value={col.label}
+                            onChange={(e) => setFormData((p) => ({
+                              ...p,
+                              column_metadata: p.column_metadata.map((c, ci) =>
+                                ci === i ? { ...c, label: e.target.value } : c
+                              ),
+                            }))}
+                            className="flex-1 h-7 text-xs"
+                          />
+                          <Select
+                            value={col.type}
+                            onChange={(e) => setFormData((p) => ({
+                              ...p,
+                              column_metadata: p.column_metadata.map((c, ci) =>
+                                ci === i ? { ...c, type: e.target.value as ColumnMeta['type'] } : c
+                              ),
+                            }))}
+                            className="w-24 h-7 text-xs"
+                          >
+                            <option value="text">Text</option>
+                            <option value="numeric">Numeric</option>
+                            <option value="date">Date</option>
+                          </Select>
+                          <Toggle
+                            checked={!!col.visible}
+                            onChange={(v) => setFormData((p) => ({
+                              ...p,
+                              column_metadata: p.column_metadata.map((c, ci) =>
+                                ci === i ? { ...c, visible: v } : c
+                              ),
+                            }))}
+                            size="sm"
+                          />
+                        </div>
+                        <Input
+                          value={col.description ?? ''}
+                          onChange={(e) => setFormData((p) => ({
+                            ...p,
+                            column_metadata: p.column_metadata.map((c, ci) =>
+                              ci === i ? { ...c, description: e.target.value } : c
+                            ),
+                          }))}
+                          placeholder="Description — e.g. Approved credit ceiling in USD; precomputed"
+                          className={`w-full h-7 text-xs ${descMissing ? 'border-red-400 dark:border-red-500' : ''}`}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -416,6 +451,28 @@ export default function AdminDatasetsPage() {
                 <p className="text-xs text-gray-500">{getCronHumanReadable(formData.schedule_cron)}</p>
               </div>
             </div>
+
+            {/* Traffic window — only for datasets that use the {{WINDOW_MINUTES}} placeholder */}
+            {formData.sql_query.includes(WINDOW_PLACEHOLDER) && (
+              <div className="rounded-lg border border-blue-200 dark:border-blue-800/60 p-3 space-y-1.5 bg-blue-50/60 dark:bg-blue-900/15">
+                <Label>Traffic Window</Label>
+                <div className="grid grid-cols-2 gap-4 items-center">
+                  <Select
+                    value={String(formData.window_minutes)}
+                    onChange={(e) => setFormData((p) => ({ ...p, window_minutes: Number(e.target.value) }))}
+                  >
+                    {WINDOW_OPTIONS.map((m) => (
+                      <option key={m} value={m}>Last {m} minutes</option>
+                    ))}
+                  </Select>
+                  <p className="text-xs text-gray-500">
+                    Each refresh fetches records from the last{' '}
+                    <span className="font-medium text-gray-700 dark:text-gray-300">{formData.window_minutes} minutes</span>.
+                    Applies to the scheduled run and every manual refresh.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {!editingDataset && (
               <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-1.5 bg-gray-50 dark:bg-gray-800/40">
@@ -456,14 +513,18 @@ export default function AdminDatasetsPage() {
             form="dataset-form"
             isLoading={createMutation.isPending || updateMutation.isPending}
             disabled={
-              !editingDataset &&
-              formData.create_stage_table &&
-              formData.column_metadata.length === 0
+              !formData.description.trim() ||
+              (formData.column_metadata ?? []).length === 0 ||
+              (formData.column_metadata ?? []).some((c) => !c.description || !c.description.trim())
             }
             title={
-              !editingDataset && formData.create_stage_table && formData.column_metadata.length === 0
-                ? 'Validate SQL first to detect columns'
-                : undefined
+              !formData.description.trim()
+                ? 'Add a dataset description'
+                : (formData.column_metadata ?? []).length === 0
+                  ? 'Validate SQL first to detect columns'
+                  : (formData.column_metadata ?? []).some((c) => !c.description || !c.description.trim())
+                    ? 'Every column needs a description'
+                    : undefined
             }
           >
             {editingDataset ? 'Save Changes' : 'Create Dataset'}

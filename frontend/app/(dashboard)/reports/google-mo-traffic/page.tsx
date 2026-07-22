@@ -1149,7 +1149,7 @@ export default function GoogleMoTrafficPage() {
                       <table className="zt">
                         <thead><tr>
                           {dtEstSort.th('country', 'Country')}
-                          {dtEstSort.th('traffic_30d', 'Traffic (period)')}
+                          {dtEstSort.th('traffic_30d', 'Last 30 Days')}
                           {dtEstSort.th('estimation', 'Traffic Estimates')}
                           {dtEstSort.th('pct_received', '% of Traffic Received')}
                         </tr></thead>

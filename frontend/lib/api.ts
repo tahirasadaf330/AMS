@@ -30,13 +30,16 @@ const api = axios.create({
 // Token injector — updated by the auth store
 let _getToken: () => string | null = () => null;
 let _onUnauthorized: () => void = () => {};
+let _setToken: (token: string) => void = () => {};
 
 export function configureApiAuth(
   getToken: () => string | null,
-  onUnauthorized: () => void
+  onUnauthorized: () => void,
+  setToken: (token: string) => void
 ): void {
   _getToken = getToken;
   _onUnauthorized = onUnauthorized;
+  _setToken = setToken;
 }
 
 api.interceptors.request.use((config) => {
@@ -55,8 +58,15 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+    const reqUrl = originalRequest?.url ?? '';
+    // Never attempt a token refresh for the auth endpoints themselves. A 401 from
+    // /auth/refresh (expired/invalid refresh token) must reject cleanly so the outer
+    // handler can log the user out. Otherwise it re-enters this interceptor, queues
+    // against its own in-flight refresh, and deadlocks — leaving the app stuck after
+    // a session expires (no data loads, logout hangs). Same for login/logout.
+    const isAuthEndpoint = /\/auth\/(refresh|login|logout)/.test(reqUrl);
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       if (_isRefreshing) {
         // Queue the request until refresh completes
         return new Promise((resolve, reject) => {
@@ -77,7 +87,17 @@ api.interceptors.response.use(
       try {
         const { data } = await api.post<AuthResponse>('/auth/refresh');
         const newToken = data.token;
-        _getToken = () => newToken;
+        // Persist the refreshed token into the auth store (and thus storage) so a
+        // reload never starts from a stale/expired token, and the WebSocket (which
+        // reads its token from the store) reconnects with a valid token instead of
+        // the now-expired one. The request interceptor reads the live store token,
+        // so it picks this up automatically.
+        //
+        // ⚠️ WEBSOCKET TOKEN SYNC — DO NOT DROP ON MERGE/DEPLOY.
+        // Without this line, on production a dataset refresh completes on the
+        // backend but the UI stays stuck on "Running" until a manual page reload
+        // (the socket keeps its expired token → "Invalid token" → no live events).
+        _setToken(newToken);
         _refreshQueue.forEach((cb) => cb(newToken));
         _refreshQueue = [];
         if (originalRequest.headers) {
@@ -120,6 +140,13 @@ export const dashboardApi = {
 
   getMatrix: (datasetId: string) =>
     api.get<DashboardMatrixResponse>(`/dashboard/${datasetId}/matrix`),
+
+  // Distinct values for one column across the whole table (for filter dropdowns).
+  getDistinctValues: (datasetId: string, column: string) =>
+    api.get<{ column: string; values: string[] }>(
+      `/dashboard/${datasetId}/distinct-values`,
+      { params: { column } },
+    ),
 
   triggerRefresh: (datasetId: string) =>
     api.post<{ message: string }>(`/dashboard/${datasetId}/refresh`),
@@ -208,12 +235,13 @@ export const adminUsersApi = {
   create: (data: {
     name: string;
     email: string;
-    password: string;
     role: string;
     dataset_access: string[];
     report_access?: string[];
     send_welcome_email?: boolean;
-  }) => api.post<AdminUser>('/admin/users', data),
+  }) =>
+    // temp_password is generated server-side and returned exactly once
+    api.post<AdminUser & { temp_password: string }>('/admin/users', data),
 
   update: (id: string, data: Partial<AdminUser>) =>
     api.put<AdminUser>(`/admin/users/${id}`, data),
@@ -226,6 +254,26 @@ export const adminUsersApi = {
 
   deleteSession: (userId: string, sessionId: string) =>
     api.delete(`/admin/users/${userId}/sessions/${sessionId}`),
+};
+
+// ── ADMIN — GROUPS ────────────────────────────────────────────
+export const adminGroupsApi = {
+  list: () => api.get('/admin/groups'),
+
+  create: (data: { name: string; description?: string }) =>
+    api.post('/admin/groups', data),
+
+  update: (id: string, data: {
+    name?: string;
+    description?: string;
+    dataset_access?: string[];
+    report_access?: string[];
+  }) => api.patch(`/admin/groups/${id}`, data),
+
+  setMembers: (id: string, userIds: string[]) =>
+    api.put(`/admin/groups/${id}/members`, { userIds }),
+
+  delete: (id: string) => api.delete(`/admin/groups/${id}`),
 };
 
 // ── ADMIN — REPORTS REGISTRY ──────────────────────────────────
@@ -405,14 +453,30 @@ export const vcsBalanceApi = {
   getData: () => api.get('/reports/vcs-balance/data'),
 };
 
+// ── DEALS AUTOMATION REPORT ────────────────────────────────────
+export const dealsAutomationApi = {
+  getData: () => api.get('/reports/deals-automation/data'),
+};
+
+// ── APPLE TRAFFIC REPORT ──────────────────────────────────────
+export const appleTrafficApi = {
+  getData: () => api.get('/reports/apple-traffic/data'),
+};
+
 // ── SMS CREDIT LIMIT REPORT ───────────────────────────────────
 export const smsCreditLimitApi = {
   getData: () => api.get('/reports/sms-credit-limit/data'),
 };
 
+// ── VOICE LIVE TRAFFIC REPORT ─────────────────────────────────
+export const voiceLiveTrafficApi = {
+  getData: () => api.get('/reports/voice-live-traffic/data'),
+};
+
 // ── MT EDR MONITORING REPORT ──────────────────────────────────
 export const mtEdrApi = {
-  getData: () => api.get('/reports/mt-edr/data'),
+  // from/to are ISO-8601 UTC instants; omitted → the whole retained window (today+yesterday).
+  getData: (params?: { from?: string; to?: string }) => api.get('/reports/mt-edr/data', { params }),
 };
 
 // ── NEGATIVE MARGIN REPORT ────────────────────────────────────

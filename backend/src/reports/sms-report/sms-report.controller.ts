@@ -6,7 +6,7 @@ import { SmsReportService } from './sms-report.service';
 
 @Controller('reports/sms-report')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('sms-report')
+@ReportAccess('sms-report', 'SMS Report')
 export class SmsReportController {
   constructor(private readonly service: SmsReportService) {}
 
