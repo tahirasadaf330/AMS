@@ -32,9 +32,7 @@ SELECT
     CASE WHEN mt.MtVendorConnectionId = ${ZAMANI_VENDOR_CONNECTION_ID} THEN 0 ELSE 1 END AS is_misrouted,
     mmd.OperatorName                                                    AS operator,
     ds.DlrStatus                                                        AS dlr_status,
-    CASE WHEN ds.DlrStatus = 'Delivered' THEN 1 ELSE 0 END             AS is_delivered,
-    ISNULL(mt.PartsDetected, 1)                                         AS parts_detected,
-    CASE WHEN ds.DlrStatus = 'Delivered' THEN ISNULL(mt.PartsSent, 0) ELSE 0 END AS delivered_parts
+    CASE WHEN ds.DlrStatus = 'Delivered' THEN 1 ELSE 0 END             AS is_delivered
 FROM SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
 LEFT JOIN SMSCPhoenix.dbo.CustomerConnections cc WITH(NOLOCK)
     ON cc.CustomerConnectionId = mt.CustomerConnectionId
@@ -68,9 +66,7 @@ const SEED_COLUMNS = [
   { key: 'is_misrouted',           label: 'Mis-routed',      type: 'numeric',   description: 'Flag 1/0: Zamani-destined but routed to a vendor other than 564.' },
   { key: 'operator',               label: 'Operator',        type: 'text',      description: 'Destination operator (Zamani).' },
   { key: 'dlr_status',             label: 'DLR Status',      type: 'text',      description: 'Delivery-receipt status of the message.' },
-  { key: 'is_delivered',           label: 'Delivered',       type: 'numeric',   description: 'Flag 1/0: DLR status = Delivered.' },
-  { key: 'parts_detected',         label: 'Submitted',       type: 'numeric',   description: 'Submitted message parts (volume).' },
-  { key: 'delivered_parts',        label: 'Delivered Parts', type: 'numeric',   description: 'Delivered message parts (0 unless DLR = Delivered).' },
+  { key: 'is_delivered',           label: 'Delivered',       type: 'numeric',   description: 'Flag 1/0: DLR status = Delivered. Volume is counted as messages (rows).' },
 ];
 
 @Injectable()
@@ -216,9 +212,9 @@ export class ZamaniSenderIdService implements OnModuleInit {
          terminated_senderid                                              AS sender_id,
          MAX(customer_connection)                                         AS aggregator,
          MAX(account_manager)                                             AS account_manager,
-         SUM(parts_detected)::bigint                                      AS submitted,
-         SUM(delivered_parts)::bigint                                     AS delivered,
-         SUM(CASE WHEN is_misrouted = 1 THEN parts_detected ELSE 0 END)::bigint AS misrouted,
+         COUNT(*)::bigint                                                 AS submitted,
+         SUM(is_delivered)::bigint                                        AS delivered,
+         SUM(is_misrouted)::bigint                                        AS misrouted,
          MIN(submit_datetime)                                            AS first_seen,
          MAX(submit_datetime)                                            AS last_seen
        FROM ${STAGE}
