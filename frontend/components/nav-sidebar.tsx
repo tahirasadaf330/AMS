@@ -49,6 +49,7 @@ const REPORT_LINKS: { slug: string; href: string; label: string }[] = [
   { slug: 'vcs-balance', href: '/reports/vcs-balance', label: 'Voice Credit Limit' },
   { slug: 'voice-live-traffic', href: '/reports/voice-live-traffic', label: 'Voice Live Traffic' },
   { slug: 'zamani', href: '/reports/zamani-traffic', label: 'Zamani Traffic' },
+  { slug: 'zamani-sender-id', href: '/reports/zamani-sender-id', label: 'Zamani Sender ID' },
 ].sort((a, b) => a.label.localeCompare(b.label));
 
 export function NavSidebar() {

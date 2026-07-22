@@ -398,6 +398,12 @@ export const zamaniApi = {
     api.get('/reports/zamani/investment-recovery', { params: { trailingDays } }),
 };
 
+// ── ZAMANI SENDER ID (near-real-time destination monitoring) ──
+export const zamaniSenderIdApi = {
+  getData: (params?: { from?: string; to?: string }) =>
+    api.get('/reports/zamani-sender-id/data', { params }),
+};
+
 // ── GOOGLE MO TRAFFIC REPORT ──────────────────────────────────
 export const googleMoApi = {
   getFilters: () => api.get('/reports/google-mo/filters'),

@@ -203,33 +203,49 @@ export class ZamaniSenderIdService implements OnModuleInit {
   }
 
   /**
-   * Aggregate per Sender ID over [from,to] (ISO-8601 UTC). Both optional; omitted → whole window.
-   * Used by the Zamani Sender-ID report page.
+   * Composite for the Zamani Sender-ID report page over [from,to] (ISO-8601 UTC; both optional →
+   * whole retained window): totals, per-sender, per-aggregator, the routing (mis-routed) view, and
+   * an hourly trend. Volume = message count; delivery uses the is_delivered flag.
    */
   async getData(from?: string, to?: string): Promise<any> {
-    const rows: any[] = await this.dataSource.query(
-      `SELECT
-         terminated_senderid                                              AS sender_id,
-         MAX(customer_connection)                                         AS aggregator,
-         MAX(account_manager)                                             AS account_manager,
-         COUNT(*)::bigint                                                 AS submitted,
-         SUM(is_delivered)::bigint                                        AS delivered,
-         SUM(is_misrouted)::bigint                                        AS misrouted,
-         MIN(submit_datetime)                                            AS first_seen,
-         MAX(submit_datetime)                                            AS last_seen
-       FROM ${STAGE}
-       WHERE ($1::timestamptz IS NULL OR submit_datetime >= $1::timestamptz)
-         AND ($2::timestamptz IS NULL OR submit_datetime <= $2::timestamptz)
-       GROUP BY terminated_senderid
-       ORDER BY submitted DESC`,
-      [from ?? null, to ?? null],
-    );
-    return rows.map((r) => ({
-      ...r,
-      submitted: Number(r.submitted),
-      delivered: Number(r.delivered),
-      misrouted: Number(r.misrouted),
-      dlr_pct: Number(r.submitted) > 0 ? +(Number(r.delivered) * 100 / Number(r.submitted)).toFixed(2) : 0,
-    }));
+    const p = [from ?? null, to ?? null];
+    const WIN = `($1::timestamptz IS NULL OR submit_datetime >= $1::timestamptz)
+                 AND ($2::timestamptz IS NULL OR submit_datetime <= $2::timestamptz)`;
+    const n = (v: any) => Number(v) || 0;
+    const pct = (d: number, s: number) => (s > 0 ? +(d * 100 / s).toFixed(2) : 0);
+
+    const senders: any[] = await this.dataSource.query(
+      `SELECT terminated_senderid AS sender_id, MAX(customer_connection) AS aggregator,
+              MAX(account_manager) AS account_manager, COUNT(*)::bigint AS submitted,
+              SUM(is_delivered)::bigint AS delivered, SUM(is_misrouted)::bigint AS misrouted,
+              to_char(MAX(submit_datetime) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS last_seen
+       FROM ${STAGE} WHERE ${WIN} GROUP BY 1 ORDER BY submitted DESC`, p);
+    const aggregators: any[] = await this.dataSource.query(
+      `SELECT customer_connection AS aggregator, MAX(account_manager) AS account_manager,
+              COUNT(*)::bigint AS submitted, SUM(is_delivered)::bigint AS delivered,
+              SUM(is_misrouted)::bigint AS misrouted, COUNT(DISTINCT terminated_senderid)::int AS senders
+       FROM ${STAGE} WHERE ${WIN} GROUP BY 1 ORDER BY submitted DESC`, p);
+    const routing: any[] = await this.dataSource.query(
+      `SELECT terminated_senderid AS sender_id, customer_connection AS aggregator,
+              vendor_connection AS vendor, mt_vendor_connection_id AS vendor_id, COUNT(*)::bigint AS msgs
+       FROM ${STAGE} WHERE is_misrouted = 1 AND ${WIN} GROUP BY 1,2,3,4 ORDER BY msgs DESC`, p);
+    const trend: any[] = await this.dataSource.query(
+      `SELECT to_char(date_trunc('hour', submit_datetime) AT TIME ZONE 'UTC', 'MM-DD HH24:00') AS hour,
+              COUNT(*)::bigint AS submitted, SUM(is_delivered)::bigint AS delivered
+       FROM ${STAGE} WHERE ${WIN} GROUP BY date_trunc('hour', submit_datetime) ORDER BY 1`, p);
+
+    const tSub = senders.reduce((a, s) => a + n(s.submitted), 0);
+    const tDel = senders.reduce((a, s) => a + n(s.delivered), 0);
+    const tMis = senders.reduce((a, s) => a + n(s.misrouted), 0);
+    return {
+      totals: { submitted: tSub, delivered: tDel, misrouted: tMis, dlr_pct: pct(tDel, tSub),
+                senders: senders.length, aggregators: aggregators.length },
+      senders: senders.map((s) => ({ ...s, submitted: n(s.submitted), delivered: n(s.delivered),
+        misrouted: n(s.misrouted), dlr_pct: pct(n(s.delivered), n(s.submitted)) })),
+      aggregators: aggregators.map((a) => ({ ...a, submitted: n(a.submitted), delivered: n(a.delivered),
+        misrouted: n(a.misrouted), senders: n(a.senders), dlr_pct: pct(n(a.delivered), n(a.submitted)) })),
+      routing: routing.map((r) => ({ ...r, msgs: n(r.msgs) })),
+      trend: trend.map((t) => ({ ...t, submitted: n(t.submitted), delivered: n(t.delivered) })),
+    };
   }
 }

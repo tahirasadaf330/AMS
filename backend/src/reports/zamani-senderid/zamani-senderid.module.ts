@@ -5,10 +5,13 @@ import { ExternalDataSource } from '../../common/entities/data-source.entity';
 import { Condition } from '../../common/entities/condition.entity';
 import { ZamaniSenderIdService } from './zamani-senderid.service';
 import { ZamaniAlertsService } from './zamani-alerts.service';
+import { ZamaniSenderIdController } from './zamani-senderid.controller';
+import { ReportAccessGuard } from '../../common/guards/report-access.guard';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Dataset, ExternalDataSource, Condition])],
-  providers: [ZamaniSenderIdService, ZamaniAlertsService],
+  controllers: [ZamaniSenderIdController],
+  providers: [ZamaniSenderIdService, ZamaniAlertsService, ReportAccessGuard],
   exports: [ZamaniSenderIdService],
 })
 export class ZamaniSenderIdModule {}
