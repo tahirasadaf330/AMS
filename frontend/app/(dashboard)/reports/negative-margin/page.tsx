@@ -44,8 +44,9 @@ const CSS = `
 .edr-tbtn:hover{border-color:#94a3b8}
 .edr-tbtn.an{background:var(--danger-bg);border-color:var(--danger-bd);color:var(--danger);font-weight:700}
 .edr-clr{height:33px;padding:0 11px;border:1px dashed #94a3b8;border-radius:7px;background:transparent;color:var(--mu);font-size:.74rem;cursor:pointer}
-/* Table — fixed layout so it always fits the sheet (no horizontal scroll); long text truncates */
-.edr-tbl-wrap{border-radius:10px;border:1px solid var(--ln);background:var(--sf);overflow-x:auto}
+/* Table — fixed layout so it always fits the sheet (no horizontal scroll); long text truncates.
+   Scrolls vertically within its own container (~20 rows tall) with the sticky header pinned, like MT EDR. */
+.edr-tbl-wrap{overflow:auto;max-height:calc(100vh - 300px);min-height:260px;border-radius:10px;border:1px solid var(--ln);background:var(--sf)}
 .edr-tbl{width:100%;border-collapse:collapse;font-size:.79rem;table-layout:fixed}
 .edr-tbl thead tr{background:var(--sf2);border-bottom:2px solid var(--lns)}
 .edr-tbl th{padding:9px 10px;text-align:right;font-size:.67rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mu);user-select:none;cursor:pointer;position:sticky;top:0;background:var(--sf2);z-index:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
