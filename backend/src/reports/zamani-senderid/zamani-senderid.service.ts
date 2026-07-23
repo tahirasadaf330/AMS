@@ -234,32 +234,47 @@ export class ZamaniSenderIdService implements OnModuleInit {
               COUNT(*)::bigint AS submitted, SUM(is_delivered)::bigint AS delivered
        FROM ${STAGE} WHERE ${WIN} GROUP BY date_trunc('hour', submit_datetime) ORDER BY 1`, p);
 
-    // Point-in-time status flags per sender ID — same windows/thresholds as the alerts, independent
-    // of the selected [from,to] window — so the report shows which senders are currently
-    // new / spiking / stopped right now.
+    // Status flags per sender ID, independent of the selected [from,to] window. These use a
+    // 6-hour "recently triggered" horizon (NOT the alert's razor-thin trigger window): the alert
+    // email fires once at the trigger moment, but a user reads it minutes later and opens the
+    // report — so a flag that only held for the exact 15-min trigger window would already be gone.
+    // The 6h horizon keeps a sender visibly flagged while it is still being investigated.
     const toSet = (rows: any[]) => new Set<string>(rows.map((r) => r.sid));
-    const [newRows, spikeRows, stoppedRows] = await Promise.all([
+    const [newRows, spikeRows, stoppedRows, ageRows] = await Promise.all([
+      // NEW: >=10 msgs in the last 6h AND silent in the 24h before that (i.e. appeared/re-activated
+      // within the last 6h after >=24h of silence) — mirrors the alert's "not seen in prior 24h".
       this.dataSource.query(
         `SELECT terminated_senderid AS sid FROM ${STAGE}
-         WHERE submit_datetime >= now() - interval '15 minutes'
+         WHERE submit_datetime >= now() - interval '6 hours'
          GROUP BY 1 HAVING COUNT(*) >= 10
            AND terminated_senderid NOT IN (
              SELECT terminated_senderid FROM ${STAGE}
-             WHERE submit_datetime >= now() - interval '24 hours' AND submit_datetime < now() - interval '15 minutes')`),
+             WHERE submit_datetime >= now() - interval '30 hours' AND submit_datetime < now() - interval '6 hours')`),
+      // SPIKE: within the last 6h, a 15-min bucket peaked at >=100 AND >=3x the sender's average
+      // 15-min volume over that window — a genuine burst relative to its own baseline.
       this.dataSource.query(
-        `WITH last15 AS (SELECT terminated_senderid sid, COUNT(*) c FROM ${STAGE}
-           WHERE submit_datetime >= now() - interval '15 minutes' GROUP BY 1),
-         base AS (SELECT terminated_senderid sid, COUNT(*)::numeric / 8.0 avg15 FROM ${STAGE}
-           WHERE submit_datetime >= now() - interval '135 minutes' AND submit_datetime < now() - interval '15 minutes' GROUP BY 1)
-         SELECT l.sid FROM last15 l LEFT JOIN base b ON b.sid = l.sid
-         WHERE l.c >= 100 AND l.c >= 3 * COALESCE(b.avg15, 0)`),
+        `WITH b AS (SELECT terminated_senderid sid, date_bin('15 minutes', submit_datetime, TIMESTAMPTZ '2000-01-01 00:00:00+00') bk, COUNT(*) c
+           FROM ${STAGE} WHERE submit_datetime >= now() - interval '6 hours' GROUP BY 1, 2)
+         SELECT sid FROM b GROUP BY sid HAVING MAX(c) >= 100 AND MAX(c) >= 3 * AVG(c)`),
+      // STOPPED: was established recently (>=100 msgs in [12h, 1h)) but has gone silent (0 in the
+      // last 60 min) — stays flagged while it is down, clears as soon as it resumes.
       this.dataSource.query(
-        `WITH prior6h AS (SELECT terminated_senderid sid, COUNT(*) c FROM ${STAGE}
-           WHERE submit_datetime >= now() - interval '6 hours' AND submit_datetime < now() - interval '60 minutes' GROUP BY 1)
-         SELECT p.sid FROM prior6h p WHERE p.c >= 100
+        `WITH prior AS (SELECT terminated_senderid sid, COUNT(*) c FROM ${STAGE}
+           WHERE submit_datetime >= now() - interval '12 hours' AND submit_datetime < now() - interval '60 minutes' GROUP BY 1)
+         SELECT p.sid FROM prior p WHERE p.c >= 100
            AND p.sid NOT IN (SELECT terminated_senderid FROM ${STAGE} WHERE submit_datetime >= now() - interval '60 minutes')`),
+      // Freshness per sender: minutes since it (re)appeared in the last 6h, and minutes since its
+      // last message — so a badge can show whether the event is minutes old (15m/30m) or hours old.
+      this.dataSource.query(
+        `SELECT terminated_senderid AS sid,
+           EXTRACT(EPOCH FROM (now() - min(submit_datetime) FILTER (WHERE submit_datetime >= now() - interval '6 hours'))) / 60 AS appeared_min,
+           EXTRACT(EPOCH FROM (now() - max(submit_datetime))) / 60 AS idle_min
+         FROM ${STAGE} WHERE submit_datetime >= now() - interval '12 hours' GROUP BY 1`),
     ]);
     const newSet = toSet(newRows), spikeSet = toSet(spikeRows), stoppedSet = toSet(stoppedRows);
+    const ageMap = new Map<string, { appeared_min: number | null; idle_min: number | null }>();
+    const rnd = (v: any) => (v == null ? null : Math.round(Number(v)));
+    for (const r of ageRows) ageMap.set(r.sid, { appeared_min: rnd(r.appeared_min), idle_min: rnd(r.idle_min) });
 
     const tSub = senders.reduce((a, s) => a + n(s.submitted), 0);
     const tDel = senders.reduce((a, s) => a + n(s.delivered), 0);
@@ -269,7 +284,8 @@ export class ZamaniSenderIdService implements OnModuleInit {
                 senders: senders.length, aggregators: aggregators.length },
       senders: senders.map((s) => ({ ...s, submitted: n(s.submitted), delivered: n(s.delivered),
         misrouted: n(s.misrouted), dlr_pct: pct(n(s.delivered), n(s.submitted)),
-        is_new: newSet.has(s.sender_id), is_spike: spikeSet.has(s.sender_id), is_stopped: stoppedSet.has(s.sender_id) })),
+        is_new: newSet.has(s.sender_id), is_spike: spikeSet.has(s.sender_id), is_stopped: stoppedSet.has(s.sender_id),
+        appeared_min: ageMap.get(s.sender_id)?.appeared_min ?? null, idle_min: ageMap.get(s.sender_id)?.idle_min ?? null })),
       aggregators: aggregators.map((a) => ({ ...a, submitted: n(a.submitted), delivered: n(a.delivered),
         misrouted: n(a.misrouted), senders: n(a.senders), dlr_pct: pct(n(a.delivered), n(a.submitted)) })),
       routing: routing.map((r) => ({ ...r, msgs: n(r.msgs) })),
