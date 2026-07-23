@@ -95,7 +95,7 @@ const CSS = `
 
 type SortDir = 'asc' | 'desc' | null;
 type Totals = { submitted: number; delivered: number; dlr_pct: number; misrouted: number; senders: number; aggregators: number };
-type Sender = { sender_id: string; aggregator: string; account_manager: string; submitted: number; delivered: number; misrouted: number; dlr_pct: number; last_seen: string; is_new: boolean; is_spike: boolean; is_stopped: boolean; appeared_min: number | null; idle_min: number | null; out_of_window?: boolean };
+type Sender = { sender_id: string; aggregator: string; account_manager: string; submitted: number; delivered: number; misrouted: number; dlr_pct: number; last_seen: string; is_new: boolean; is_spike: boolean; is_stopped: boolean; is_low_delivery: boolean; appeared_min: number | null; idle_min: number | null; out_of_window?: boolean };
 
 // Compact "how long ago" label for the status freshness chip: 8m, 26m, 1h20m, 3h.
 function ageLabel(min: number | null): string {
@@ -153,6 +153,7 @@ export default function ZamaniSenderIdPage() {
   const [search, setSearch] = React.useState('');
   const [amFilter, setAmFilter] = React.useState('all');
   const [misOnly, setMisOnly] = React.useState(false);
+  const [statusFilters, setStatusFilters] = React.useState<Set<string>>(new Set());
   const [sort, setSort] = React.useState<{ key: string | null; dir: SortDir }>({ key: 'submitted', dir: 'desc' });
 
   const [preset, setPreset] = React.useState<Preset>('24h');
@@ -196,8 +197,15 @@ export default function ZamaniSenderIdPage() {
     }
     if (view !== 'routing' && amFilter !== 'all') r = r.filter((row) => row.account_manager === amFilter);
     if (view !== 'routing' && misOnly) r = r.filter((row) => row.misrouted > 0);
+    if (view === 'senders' && statusFilters.size) {
+      r = r.filter((row) =>
+        (statusFilters.has('new') && row.is_new) ||
+        (statusFilters.has('spike') && row.is_spike) ||
+        (statusFilters.has('stopped') && row.is_stopped) ||
+        (statusFilters.has('lowdlr') && row.is_low_delivery));
+    }
     return r;
-  }, [baseRows, search, amFilter, misOnly, view]);
+  }, [baseRows, search, amFilter, misOnly, view, statusFilters]);
 
   const sorted = React.useMemo(() => {
     if (!sort.key || !sort.dir) return filtered;
@@ -216,7 +224,7 @@ export default function ZamaniSenderIdPage() {
     setSort((s) => ({ key, dir: s.key === key ? (s.dir === 'asc' ? 'desc' : s.dir === 'desc' ? null : 'asc') : 'desc' }));
   }, []);
 
-  const hasFilter = !!(search || misOnly || amFilter !== 'all');
+  const hasFilter = !!(search || misOnly || amFilter !== 'all' || statusFilters.size);
   const sharedTH = { sort, onSort };
   const cols = view === 'senders' ? 11 : view === 'aggregators' ? 7 : 4;
 
@@ -290,9 +298,17 @@ export default function ZamaniSenderIdPage() {
               {accountManagers.map((am) => <option key={am} value={am}>{am}</option>)}
             </select>
             <button className={`edr-tbtn${misOnly ? ' an' : ''}`} onClick={() => setMisOnly((v) => !v)}>Mis-routed only</button>
+            {view === 'senders' && (
+              <span className="edr-seg" title="Show only senders currently flagged with this status (last 6h)">
+                {([['new', 'New'], ['spike', 'Spike'], ['stopped', 'Stopped'], ['lowdlr', 'Delivery ≤ 50%']] as [string, string][]).map(([k, label]) => (
+                  <button key={k} className={statusFilters.has(k) ? 'on' : ''}
+                    onClick={() => setStatusFilters((s) => { const nx = new Set(s); nx.has(k) ? nx.delete(k) : nx.add(k); return nx; })}>{label}</button>
+                ))}
+              </span>
+            )}
             <button className="edr-tbtn" onClick={load}>Refresh</button>
             {hasFilter && (
-              <button className="edr-clr" onClick={() => { setSearch(''); setAmFilter('all'); setMisOnly(false); }}>Clear filters</button>
+              <button className="edr-clr" onClick={() => { setSearch(''); setAmFilter('all'); setMisOnly(false); setStatusFilters(new Set()); }}>Clear filters</button>
             )}
           </div>
 

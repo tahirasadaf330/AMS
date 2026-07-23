@@ -240,7 +240,7 @@ export class ZamaniSenderIdService implements OnModuleInit {
     // report — so a flag that only held for the exact 15-min trigger window would already be gone.
     // The 6h horizon keeps a sender visibly flagged while it is still being investigated.
     const toSet = (rows: any[]) => new Set<string>(rows.map((r) => r.sid));
-    const [newRows, spikeRows, stoppedRows, ageRows] = await Promise.all([
+    const [newRows, spikeRows, stoppedRows, lowRows, ageRows] = await Promise.all([
       // NEW: >=10 msgs in the last 6h AND silent in the 24h before that (i.e. appeared/re-activated
       // within the last 6h after >=24h of silence) — mirrors the alert's "not seen in prior 24h".
       this.dataSource.query(
@@ -263,6 +263,12 @@ export class ZamaniSenderIdService implements OnModuleInit {
            WHERE submit_datetime >= now() - interval '12 hours' AND submit_datetime < now() - interval '60 minutes' GROUP BY 1)
          SELECT p.sid FROM prior p WHERE p.c >= 100
            AND p.sid NOT IN (SELECT terminated_senderid FROM ${STAGE} WHERE submit_datetime >= now() - interval '60 minutes')`),
+      // LOW DELIVERY: settled window [now-70m, now-10m] (so DLRs have landed and don't look
+      // artificially low on the freshest minutes) — >=50 msgs and <50% delivered. Mirrors the alert.
+      this.dataSource.query(
+        `SELECT terminated_senderid AS sid FROM ${STAGE}
+         WHERE submit_datetime >= now() - interval '70 minutes' AND submit_datetime < now() - interval '10 minutes'
+         GROUP BY 1 HAVING COUNT(*) >= 50 AND SUM(is_delivered)::numeric / NULLIF(COUNT(*), 0) < 0.5`),
       // Freshness per sender: minutes since it (re)appeared in the last 6h, and minutes since its
       // last message — so a badge can show whether the event is minutes old (15m/30m) or hours old.
       this.dataSource.query(
@@ -271,7 +277,7 @@ export class ZamaniSenderIdService implements OnModuleInit {
            EXTRACT(EPOCH FROM (now() - max(submit_datetime))) / 60 AS idle_min
          FROM ${STAGE} WHERE submit_datetime >= now() - interval '12 hours' GROUP BY 1`),
     ]);
-    const newSet = toSet(newRows), spikeSet = toSet(spikeRows), stoppedSet = toSet(stoppedRows);
+    const newSet = toSet(newRows), spikeSet = toSet(spikeRows), stoppedSet = toSet(stoppedRows), lowSet = toSet(lowRows);
     const ageMap = new Map<string, { appeared_min: number | null; idle_min: number | null }>();
     const rnd = (v: any) => (v == null ? null : Math.round(Number(v)));
     for (const r of ageRows) ageMap.set(r.sid, { appeared_min: rnd(r.appeared_min), idle_min: rnd(r.idle_min) });
@@ -283,6 +289,7 @@ export class ZamaniSenderIdService implements OnModuleInit {
     const mapSender = (s: any, outOfWindow: boolean) => ({ ...s, submitted: n(s.submitted), delivered: n(s.delivered),
       misrouted: n(s.misrouted), dlr_pct: pct(n(s.delivered), n(s.submitted)),
       is_new: newSet.has(s.sender_id), is_spike: spikeSet.has(s.sender_id), is_stopped: stoppedSet.has(s.sender_id),
+      is_low_delivery: lowSet.has(s.sender_id),
       appeared_min: ageMap.get(s.sender_id)?.appeared_min ?? null, idle_min: ageMap.get(s.sender_id)?.idle_min ?? null,
       out_of_window: outOfWindow });
 
@@ -292,7 +299,7 @@ export class ZamaniSenderIdService implements OnModuleInit {
     // badge invisible. Pull any such flagged sender in over the last 6h so the status is always shown,
     // marked out_of_window so the UI can note the stats are from the last 6h, not the chosen range.
     const present = new Set(outSenders.map((r) => r.sender_id));
-    const flaggedMissing = [...new Set<string>([...newSet, ...spikeSet, ...stoppedSet])].filter((sid) => !present.has(sid));
+    const flaggedMissing = [...new Set<string>([...newSet, ...spikeSet, ...stoppedSet, ...lowSet])].filter((sid) => !present.has(sid));
     if (flaggedMissing.length) {
       const extra = await this.dataSource.query(
         `SELECT terminated_senderid AS sender_id, MAX(customer_connection) AS aggregator,
