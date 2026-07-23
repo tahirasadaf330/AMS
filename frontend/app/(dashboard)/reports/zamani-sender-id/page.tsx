@@ -232,7 +232,7 @@ export default function ZamaniSenderIdPage() {
             <div className="edr-card">
               <div className="edr-card-num">{fmtN(t?.submitted ?? 0)}</div>
               <div className="edr-card-lbl">Messages</div>
-              <div className="edr-card-sub">{fmtN(t?.senders ?? 0)} sender IDs · {fmtN(t?.aggregators ?? 0)} aggregators</div>
+              <div className="edr-card-sub">{fmtN(t?.senders ?? 0)} sender IDs · {fmtN(t?.aggregators ?? 0)} customers</div>
             </div>
             <div className="edr-card">
               <div className="edr-card-num">{fmtN(t?.delivered ?? 0)}</div>
@@ -269,10 +269,10 @@ export default function ZamaniSenderIdPage() {
             <input className="edr-inp" style={{ width: 195 }} type="datetime-local" value={dispTo} onChange={(e) => editTo(e.target.value)} />
             <span className="edr-seg">
               <button className={view === 'senders' ? 'on' : ''} onClick={() => setView('senders')}>By Sender ID</button>
-              <button className={view === 'aggregators' ? 'on' : ''} onClick={() => setView('aggregators')}>By Aggregator</button>
+              <button className={view === 'aggregators' ? 'on' : ''} onClick={() => setView('aggregators')}>By Customer</button>
               <button className={view === 'routing' ? 'on' : ''} onClick={() => setView('routing')}>Routing Errors{(t?.misrouted ?? 0) > 0 ? ` (${data?.routing.length ?? 0})` : ''}</button>
             </span>
-            <input className="edr-inp" type="text" placeholder="Search sender / aggregator…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input className="edr-inp" type="text" placeholder="Search sender / customer…" value={search} onChange={(e) => setSearch(e.target.value)} />
             <select className="edr-inp" style={{ width: 190 }} value={amFilter} onChange={(e) => setAmFilter(e.target.value)} title="Filter by account manager">
               <option value="all">All Account Managers</option>
               {accountManagers.map((am) => <option key={am} value={am}>{am}</option>)}
@@ -292,7 +292,7 @@ export default function ZamaniSenderIdPage() {
                     {view === 'senders' ? (
                       <>
                         <TH left w={200} colKey="sender_id" {...sharedTH}>Sender ID</TH>
-                        <TH left w={160} colKey="aggregator" {...sharedTH}>Aggregator</TH>
+                        <TH left w={160} colKey="aggregator" {...sharedTH}>Customer</TH>
                         <TH left w={150} colKey="account_manager" {...sharedTH}>Account Manager</TH>
                         <TH w={95} colKey="submitted" {...sharedTH}>Messages</TH>
                         <TH w={95} colKey="delivered" {...sharedTH}>Delivered</TH>
@@ -302,7 +302,7 @@ export default function ZamaniSenderIdPage() {
                       </>
                     ) : view === 'aggregators' ? (
                       <>
-                        <TH left w={200} colKey="aggregator" {...sharedTH}>Aggregator</TH>
+                        <TH left w={200} colKey="aggregator" {...sharedTH}>Customer</TH>
                         <TH left w={160} colKey="account_manager" {...sharedTH}>Account Manager</TH>
                         <TH w={90} colKey="senders" {...sharedTH}>Sender IDs</TH>
                         <TH w={95} colKey="submitted" {...sharedTH}>Messages</TH>
@@ -313,7 +313,7 @@ export default function ZamaniSenderIdPage() {
                     ) : (
                       <>
                         <TH left w={200} colKey="sender_id" {...sharedTH}>Sender ID</TH>
-                        <TH left w={180} colKey="aggregator" {...sharedTH}>Aggregator</TH>
+                        <TH left w={180} colKey="aggregator" {...sharedTH}>Customer</TH>
                         <TH left w={220} colKey="vendor" {...sharedTH}>Sent To (wrong vendor)</TH>
                         <TH w={110} colKey="msgs" {...sharedTH}>Messages</TH>
                       </>
@@ -363,7 +363,7 @@ export default function ZamaniSenderIdPage() {
           </div>
 
           {!loading && sorted.length > 0 && (
-            <div className="edr-footer">{sorted.length.toLocaleString()} of {baseRows.length.toLocaleString()} {view === 'senders' ? 'sender IDs' : view === 'aggregators' ? 'aggregators' : 'routing errors'}</div>
+            <div className="edr-footer">{sorted.length.toLocaleString()} of {baseRows.length.toLocaleString()} {view === 'senders' ? 'sender IDs' : view === 'aggregators' ? 'customers' : 'routing errors'}</div>
           )}
 
         </div>

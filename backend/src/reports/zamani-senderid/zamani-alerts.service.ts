@@ -90,7 +90,7 @@ const ROUTING_BODY = String.raw`
         fail("No mis-routed Zamani traffic in the last 5 minutes")
     total = sum(r[4] for r in rows)
     trows = [[esc(r[0]), esc(r[1]), esc(r[2] or ("vendor " + str(r[3]))), fi(r[4])] for r in rows]
-    inner = table(["Sender ID", "Aggregator", "Wrong Vendor", "Messages"], ["left", "left", "left", "right"], trows)
+    inner = table(["Sender ID", "Customer", "Wrong Vendor", "Messages"], ["left", "left", "left", "right"], trows)
     intro = ("<b>" + fi(total) + "</b> Zamani-destined message(s) in the last 5 minutes were terminated to a vendor "
              "OTHER than the direct Zamani route (564). These should route directly to Zamani — please check the routing.")
     emit({"triggered": True, "subject": "[Zamani] Routing error — traffic sent to the wrong vendor",
@@ -124,7 +124,7 @@ const SPIKE_BODY = String.raw`
     def fac(c, a):
         return ("%.1fx" % (float(c) / float(a))) if a and float(a) > 0 else "new"
     trows = [[esc(r[0]), esc(r[1]), fi(r[2]), "%.1f" % float(r[3]), fac(r[2], r[3])] for r in rows]
-    inner = table(["Sender ID", "Aggregator", "Last 15 min", "Avg / 15 min (2h)", "Factor"],
+    inner = table(["Sender ID", "Customer", "Last 15 min", "Avg / 15 min (2h)", "Factor"],
                   ["left", "left", "right", "right", "right"], trows)
     intro = ("Unusual volume surge (≥ 3× the sender's trailing-2h average and ≥ 100 messages in 15 minutes). "
              "Review for possible AIT and consider notifying the partner directly.")
@@ -155,9 +155,9 @@ const NEW_SID_BODY = String.raw`
     if not rows:
         fail("No new sender IDs in the last 15 minutes")
     trows = [[esc(r[0]), esc(r[1]), fi(r[2])] for r in rows]
-    inner = table(["New Sender ID", "Aggregator", "Messages (15 min)"], ["left", "left", "right"], trows)
-    intro = ("A new sender ID just went live on Zamani (sending now, not seen in the prior 24h) — likely an "
-             "aggregator testing a new SD. Worth an early check with them.")
+    inner = table(["New Sender ID", "Customer", "Messages (15 min)"], ["left", "left", "right"], trows)
+    intro = ("A new sender ID just went live on Zamani (sending now, not seen in the prior 24h) — likely a "
+             "customer testing a new SD. Worth an early check with them.")
     emit({"triggered": True, "subject": "[Zamani] New sender ID is live",
           "html": wrap("Zamani — New Sender ID Alive", intro, inner), "message": str(len(rows)) + " new sender ID(s)"})
 `;
@@ -186,7 +186,7 @@ const STOPPED_SID_BODY = String.raw`
     if not rows:
         fail("No established sender IDs have stopped in the last 60 minutes")
     trows = [[esc(r[0]), esc(r[1]), fi(r[2]), esc(r[3]) + " UTC"] for r in rows]
-    inner = table(["Sender ID", "Aggregator", "Msgs (prior 6h)", "Last seen"], ["left", "left", "right", "left"], trows)
+    inner = table(["Sender ID", "Customer", "Msgs (prior 6h)", "Last seen"], ["left", "left", "right", "left"], trows)
     intro = ("An established sender ID that was working has STOPPED — it sent ≥ 100 messages in the prior 6h but 0 "
              "in the last 60 minutes. Could be a route break or the client stopping traffic.")
     emit({"triggered": True, "subject": "[Zamani] A sender ID that was working has stopped",
@@ -209,7 +209,7 @@ const DELIVERY_BODY = String.raw`
     if not rows:
         fail("No sender IDs below 50% delivery in the last hour")
     trows = [[esc(r[0]), esc(r[1]), fi(r[2]), fi(r[3]), ("%.1f%%" % float(r[4]))] for r in rows]
-    inner = table(["Sender ID", "Aggregator", "Messages", "Delivered", "DLR %"],
+    inner = table(["Sender ID", "Customer", "Messages", "Delivered", "DLR %"],
                   ["left", "left", "right", "right", "right"], trows)
     intro = ("Delivery below 50% over the last hour (≥ 50 messages, DLRs settled). The AM should be ready for "
              "customer complaints on these sender IDs.")
