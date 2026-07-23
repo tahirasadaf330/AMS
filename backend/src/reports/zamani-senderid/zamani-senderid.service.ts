@@ -234,6 +234,33 @@ export class ZamaniSenderIdService implements OnModuleInit {
               COUNT(*)::bigint AS submitted, SUM(is_delivered)::bigint AS delivered
        FROM ${STAGE} WHERE ${WIN} GROUP BY date_trunc('hour', submit_datetime) ORDER BY 1`, p);
 
+    // Point-in-time status flags per sender ID — same windows/thresholds as the alerts, independent
+    // of the selected [from,to] window — so the report shows which senders are currently
+    // new / spiking / stopped right now.
+    const toSet = (rows: any[]) => new Set<string>(rows.map((r) => r.sid));
+    const [newRows, spikeRows, stoppedRows] = await Promise.all([
+      this.dataSource.query(
+        `SELECT terminated_senderid AS sid FROM ${STAGE}
+         WHERE submit_datetime >= now() - interval '15 minutes'
+         GROUP BY 1 HAVING COUNT(*) >= 10
+           AND terminated_senderid NOT IN (
+             SELECT terminated_senderid FROM ${STAGE}
+             WHERE submit_datetime >= now() - interval '24 hours' AND submit_datetime < now() - interval '15 minutes')`),
+      this.dataSource.query(
+        `WITH last15 AS (SELECT terminated_senderid sid, COUNT(*) c FROM ${STAGE}
+           WHERE submit_datetime >= now() - interval '15 minutes' GROUP BY 1),
+         base AS (SELECT terminated_senderid sid, COUNT(*)::numeric / 8.0 avg15 FROM ${STAGE}
+           WHERE submit_datetime >= now() - interval '135 minutes' AND submit_datetime < now() - interval '15 minutes' GROUP BY 1)
+         SELECT l.sid FROM last15 l LEFT JOIN base b ON b.sid = l.sid
+         WHERE l.c >= 100 AND l.c >= 3 * COALESCE(b.avg15, 0)`),
+      this.dataSource.query(
+        `WITH prior6h AS (SELECT terminated_senderid sid, COUNT(*) c FROM ${STAGE}
+           WHERE submit_datetime >= now() - interval '6 hours' AND submit_datetime < now() - interval '60 minutes' GROUP BY 1)
+         SELECT p.sid FROM prior6h p WHERE p.c >= 100
+           AND p.sid NOT IN (SELECT terminated_senderid FROM ${STAGE} WHERE submit_datetime >= now() - interval '60 minutes')`),
+    ]);
+    const newSet = toSet(newRows), spikeSet = toSet(spikeRows), stoppedSet = toSet(stoppedRows);
+
     const tSub = senders.reduce((a, s) => a + n(s.submitted), 0);
     const tDel = senders.reduce((a, s) => a + n(s.delivered), 0);
     const tMis = senders.reduce((a, s) => a + n(s.misrouted), 0);
@@ -241,7 +268,8 @@ export class ZamaniSenderIdService implements OnModuleInit {
       totals: { submitted: tSub, delivered: tDel, misrouted: tMis, dlr_pct: pct(tDel, tSub),
                 senders: senders.length, aggregators: aggregators.length },
       senders: senders.map((s) => ({ ...s, submitted: n(s.submitted), delivered: n(s.delivered),
-        misrouted: n(s.misrouted), dlr_pct: pct(n(s.delivered), n(s.submitted)) })),
+        misrouted: n(s.misrouted), dlr_pct: pct(n(s.delivered), n(s.submitted)),
+        is_new: newSet.has(s.sender_id), is_spike: spikeSet.has(s.sender_id), is_stopped: stoppedSet.has(s.sender_id) })),
       aggregators: aggregators.map((a) => ({ ...a, submitted: n(a.submitted), delivered: n(a.delivered),
         misrouted: n(a.misrouted), senders: n(a.senders), dlr_pct: pct(n(a.delivered), n(a.submitted)) })),
       routing: routing.map((r) => ({ ...r, msgs: n(r.msgs) })),

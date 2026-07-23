@@ -80,6 +80,8 @@ const CSS = `
 .bdg{display:inline-block;font-size:.62rem;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:.04em;text-transform:uppercase}
 .bdg-neg{background:var(--rejected-bg);color:var(--rejected);border:1px solid var(--rejected-bd)}
 .bdg-none{background:var(--sf2);color:var(--mu);border:1px solid var(--lns)}
+.bdg-spike{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-bd)}
+.bdg-new{background:var(--delivered-bg);color:var(--delivered);border:1px solid var(--delivered-bd)}
 .dlr-good{color:var(--delivered);font-weight:700}
 .dlr-ok{color:var(--pending);font-weight:700}
 .dlr-bad{color:var(--rejected);font-weight:700}
@@ -92,7 +94,7 @@ const CSS = `
 
 type SortDir = 'asc' | 'desc' | null;
 type Totals = { submitted: number; delivered: number; dlr_pct: number; misrouted: number; senders: number; aggregators: number };
-type Sender = { sender_id: string; aggregator: string; account_manager: string; submitted: number; delivered: number; misrouted: number; dlr_pct: number; last_seen: string };
+type Sender = { sender_id: string; aggregator: string; account_manager: string; submitted: number; delivered: number; misrouted: number; dlr_pct: number; last_seen: string; is_new: boolean; is_spike: boolean; is_stopped: boolean };
 type Agg = { aggregator: string; account_manager: string; submitted: number; delivered: number; misrouted: number; senders: number; dlr_pct: number };
 type Route = { sender_id: string; aggregator: string; vendor: string; vendor_id: number; msgs: number };
 type Data = { totals: Totals; senders: Sender[]; aggregators: Agg[]; routing: Route[]; trend: any[] };
@@ -206,7 +208,7 @@ export default function ZamaniSenderIdPage() {
 
   const hasFilter = !!(search || misOnly || amFilter !== 'all');
   const sharedTH = { sort, onSort };
-  const cols = view === 'senders' ? 8 : view === 'aggregators' ? 7 : 4;
+  const cols = view === 'senders' ? 11 : view === 'aggregators' ? 7 : 4;
 
   return (
     <>
@@ -298,6 +300,9 @@ export default function ZamaniSenderIdPage() {
                         <TH w={95} colKey="delivered" {...sharedTH}>Delivered</TH>
                         <TH w={80} colKey="dlr_pct" {...sharedTH}>DLR %</TH>
                         <TH w={90} colKey="misrouted" {...sharedTH}>Mis-routed</TH>
+                        <TH w={70} colKey="is_new" {...sharedTH}>New</TH>
+                        <TH w={70} colKey="is_spike" {...sharedTH}>Spike</TH>
+                        <TH w={80} colKey="is_stopped" {...sharedTH}>Stopped</TH>
                         <TH w={140} colKey="last_seen" {...sharedTH}>Last Seen (UTC)</TH>
                       </>
                     ) : view === 'aggregators' ? (
@@ -335,6 +340,9 @@ export default function ZamaniSenderIdPage() {
                           <TD>{fmtN(row.delivered)}</TD>
                           <TD><span className={dlrCls(row.dlr_pct)}>{row.dlr_pct}%</span></TD>
                           <TD>{row.misrouted > 0 ? <span className="bdg bdg-neg">{fmtN(row.misrouted)}</span> : <span style={{ color: 'var(--mu)' }}>—</span>}</TD>
+                          <TD>{row.is_new ? <span className="bdg bdg-new">NEW</span> : <span style={{ color: 'var(--mu)' }}>—</span>}</TD>
+                          <TD>{row.is_spike ? <span className="bdg bdg-spike">SPIKE</span> : <span style={{ color: 'var(--mu)' }}>—</span>}</TD>
+                          <TD>{row.is_stopped ? <span className="bdg bdg-neg">STOPPED</span> : <span style={{ color: 'var(--mu)' }}>—</span>}</TD>
                           <TD mono>{row.last_seen || '—'}</TD>
                         </>
                       ) : view === 'aggregators' ? (
