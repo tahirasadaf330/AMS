@@ -279,13 +279,35 @@ export class ZamaniSenderIdService implements OnModuleInit {
     const tSub = senders.reduce((a, s) => a + n(s.submitted), 0);
     const tDel = senders.reduce((a, s) => a + n(s.delivered), 0);
     const tMis = senders.reduce((a, s) => a + n(s.misrouted), 0);
+
+    const mapSender = (s: any, outOfWindow: boolean) => ({ ...s, submitted: n(s.submitted), delivered: n(s.delivered),
+      misrouted: n(s.misrouted), dlr_pct: pct(n(s.delivered), n(s.submitted)),
+      is_new: newSet.has(s.sender_id), is_spike: spikeSet.has(s.sender_id), is_stopped: stoppedSet.has(s.sender_id),
+      appeared_min: ageMap.get(s.sender_id)?.appeared_min ?? null, idle_min: ageMap.get(s.sender_id)?.idle_min ?? null,
+      out_of_window: outOfWindow });
+
+    const outSenders = senders.map((s) => mapSender(s, false));
+    // A sender can be flagged (new/spike/stopped over the 6h horizon) yet have zero traffic inside the
+    // selected [from,to] window (e.g. a narrow 1h view) — so it would be absent from the list and its
+    // badge invisible. Pull any such flagged sender in over the last 6h so the status is always shown,
+    // marked out_of_window so the UI can note the stats are from the last 6h, not the chosen range.
+    const present = new Set(outSenders.map((r) => r.sender_id));
+    const flaggedMissing = [...new Set<string>([...newSet, ...spikeSet, ...stoppedSet])].filter((sid) => !present.has(sid));
+    if (flaggedMissing.length) {
+      const extra = await this.dataSource.query(
+        `SELECT terminated_senderid AS sender_id, MAX(customer_connection) AS aggregator,
+                MAX(account_manager) AS account_manager, COUNT(*)::bigint AS submitted,
+                SUM(is_delivered)::bigint AS delivered, SUM(is_misrouted)::bigint AS misrouted,
+                to_char(MAX(submit_datetime) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS last_seen
+         FROM ${STAGE} WHERE submit_datetime >= now() - interval '6 hours' AND terminated_senderid = ANY($1)
+         GROUP BY 1`, [flaggedMissing]);
+      for (const s of extra) outSenders.push(mapSender(s, true));
+    }
+
     return {
       totals: { submitted: tSub, delivered: tDel, misrouted: tMis, dlr_pct: pct(tDel, tSub),
                 senders: senders.length, aggregators: aggregators.length },
-      senders: senders.map((s) => ({ ...s, submitted: n(s.submitted), delivered: n(s.delivered),
-        misrouted: n(s.misrouted), dlr_pct: pct(n(s.delivered), n(s.submitted)),
-        is_new: newSet.has(s.sender_id), is_spike: spikeSet.has(s.sender_id), is_stopped: stoppedSet.has(s.sender_id),
-        appeared_min: ageMap.get(s.sender_id)?.appeared_min ?? null, idle_min: ageMap.get(s.sender_id)?.idle_min ?? null })),
+      senders: outSenders,
       aggregators: aggregators.map((a) => ({ ...a, submitted: n(a.submitted), delivered: n(a.delivered),
         misrouted: n(a.misrouted), senders: n(a.senders), dlr_pct: pct(n(a.delivered), n(a.submitted)) })),
       routing: routing.map((r) => ({ ...r, msgs: n(r.msgs) })),

@@ -95,7 +95,7 @@ const CSS = `
 
 type SortDir = 'asc' | 'desc' | null;
 type Totals = { submitted: number; delivered: number; dlr_pct: number; misrouted: number; senders: number; aggregators: number };
-type Sender = { sender_id: string; aggregator: string; account_manager: string; submitted: number; delivered: number; misrouted: number; dlr_pct: number; last_seen: string; is_new: boolean; is_spike: boolean; is_stopped: boolean; appeared_min: number | null; idle_min: number | null };
+type Sender = { sender_id: string; aggregator: string; account_manager: string; submitted: number; delivered: number; misrouted: number; dlr_pct: number; last_seen: string; is_new: boolean; is_spike: boolean; is_stopped: boolean; appeared_min: number | null; idle_min: number | null; out_of_window?: boolean };
 
 // Compact "how long ago" label for the status freshness chip: 8m, 26m, 1h20m, 3h.
 function ageLabel(min: number | null): string {
@@ -343,7 +343,7 @@ export default function ZamaniSenderIdPage() {
                     <tr key={i} className={(view === 'routing' || row.misrouted > 0) ? 'rn' : undefined}>
                       {view === 'senders' ? (
                         <>
-                          <TD left><span style={{ fontWeight: 600 }}>{row.sender_id || '—'}</span></TD>
+                          <TD left><span style={{ fontWeight: 600 }}>{row.sender_id || '—'}</span>{row.out_of_window ? <span className="age-chip" title="No traffic in the selected range — status &amp; counts shown are from the last 6h">· 6h</span> : null}</TD>
                           <TD left>{row.aggregator || '—'}</TD>
                           <TD left><span style={{ color: row.account_manager ? 'var(--inks)' : 'var(--mu)' }}>{row.account_manager || '—'}</span></TD>
                           <TD><span style={{ fontWeight: 700 }}>{fmtN(row.submitted)}</span></TD>
