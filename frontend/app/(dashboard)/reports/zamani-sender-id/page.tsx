@@ -202,7 +202,7 @@ export default function ZamaniSenderIdPage() {
         (statusFilters.has('new') && row.is_new) ||
         (statusFilters.has('spike') && row.is_spike) ||
         (statusFilters.has('stopped') && row.is_stopped) ||
-        (statusFilters.has('lowdlr') && row.is_low_delivery));
+        (statusFilters.has('lowdlr') && row.dlr_pct <= 50));
     }
     return r;
   }, [baseRows, search, amFilter, misOnly, view, statusFilters]);
