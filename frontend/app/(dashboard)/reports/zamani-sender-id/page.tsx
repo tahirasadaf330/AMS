@@ -111,8 +111,9 @@ type Route = { sender_id: string; aggregator: string; vendor: string; vendor_id:
 type Pair = { sender_id: string; aggregator: string; account_manager: string; submitted: number; delivered: number; misrouted: number; dlr_pct: number; last_seen: string };
 type Data = { totals: Totals; senders: Sender[]; aggregators: Agg[]; senderCustomer: Pair[]; routing: Route[]; trend: any[] };
 
-// Distinct line colors for the trend chart (categorical; assigned in fixed order, never cycled per-render).
-const SERIES_COLORS = ['#2563eb', '#16a34a', '#ea580c', '#9333ea', '#dc2626', '#0891b2', '#ca8a04', '#db2777', '#4f46e5', '#65a30d', '#0d9488', '#c026d3'];
+// Distinct line colors for the trend chart (categorical; assigned in fixed order, never cycled
+// per-render). Vibrant mid-tones ordered for adjacent-pair separation — legible on both themes.
+const SERIES_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#84cc16', '#f97316', '#14b8a6', '#a855f7', '#eab308'];
 // Shared axis / tooltip styling, matching the Zamani Traffic report's charts.
 const TIP = { contentStyle: { background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 8, fontSize: 12 }, labelStyle: { color: 'var(--mu)' } };
 const AX = { tick: { fontSize: 10, fill: 'var(--mu)' }, axisLine: false, tickLine: false } as const;
