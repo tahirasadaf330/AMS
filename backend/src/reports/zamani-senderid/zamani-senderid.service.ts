@@ -229,6 +229,14 @@ export class ZamaniSenderIdService implements OnModuleInit {
               COUNT(*)::bigint AS submitted, SUM(is_delivered)::bigint AS delivered,
               SUM(is_misrouted)::bigint AS misrouted, COUNT(DISTINCT terminated_senderid)::int AS senders
        FROM ${STAGE} WHERE ${WIN} GROUP BY 1 ORDER BY submitted DESC`, p);
+    // Per (sender ID × customer): the SAME sender ID can be sent by several customers (e.g. WhatsApp),
+    // which the sender-only view collapses — this breaks it out so each customer is a distinct row.
+    const senderCustomer: any[] = await this.dataSource.query(
+      `SELECT terminated_senderid AS sender_id, customer_connection AS aggregator,
+              MAX(account_manager) AS account_manager, COUNT(*)::bigint AS submitted,
+              SUM(is_delivered)::bigint AS delivered, SUM(is_misrouted)::bigint AS misrouted,
+              to_char(MAX(submit_datetime) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS last_seen
+       FROM ${STAGE} WHERE ${WIN} GROUP BY 1, 2 ORDER BY submitted DESC`, p);
     const routing: any[] = await this.dataSource.query(
       `SELECT terminated_senderid AS sender_id, customer_connection AS aggregator,
               vendor_connection AS vendor, mt_vendor_connection_id AS vendor_id, COUNT(*)::bigint AS msgs
@@ -321,8 +329,67 @@ export class ZamaniSenderIdService implements OnModuleInit {
       senders: outSenders,
       aggregators: aggregators.map((a) => ({ ...a, submitted: n(a.submitted), delivered: n(a.delivered),
         misrouted: n(a.misrouted), senders: n(a.senders), dlr_pct: pct(n(a.delivered), n(a.submitted)) })),
+      senderCustomer: senderCustomer.map((s) => ({ ...s, submitted: n(s.submitted), delivered: n(s.delivered),
+        misrouted: n(s.misrouted), dlr_pct: pct(n(s.delivered), n(s.submitted)) })),
       routing: routing.map((r) => ({ ...r, msgs: n(r.msgs) })),
       trend: trend.map((t) => ({ ...t, submitted: n(t.submitted), delivered: n(t.delivered) })),
     };
+  }
+
+  /**
+   * Time-series for the report's line chart. Groups Zamani traffic into time buckets at the requested
+   * granularity, split by the chosen dimension (customer or sender ID), optionally restricted to a set
+   * of keys. Returns both message count and DLR % per bucket per key so the UI can switch metric
+   * without a refetch. Series are capped so the chart stays readable.
+   */
+  async getTimeseries(
+    from: string | undefined,
+    to: string | undefined,
+    dimension: 'customer' | 'sender',
+    granularity: 'hour' | 'day' | 'week' | 'month',
+    keys: string[],
+  ): Promise<{ buckets: string[]; keys: string[]; points: Array<{ bucket: string; key: string; messages: number; dlr: number }> }> {
+    const MAX_SERIES = 12;
+    const dimCol = dimension === 'sender' ? 'terminated_senderid' : 'customer_connection';
+    const trunc = (['hour', 'day', 'week', 'month'] as const).includes(granularity) ? granularity : 'day';
+    const label =
+      trunc === 'hour'  ? `to_char(b AT TIME ZONE 'UTC', 'MM-DD HH24:00')` :
+      trunc === 'month' ? `to_char(b AT TIME ZONE 'UTC', 'YYYY-MM')` :
+                          `to_char(b AT TIME ZONE 'UTC', 'YYYY-MM-DD')`;
+
+    // Restrict to the requested keys; if none given, fall back to the top MAX_SERIES by volume.
+    let keyList = (keys ?? []).filter((k) => k != null && k !== '');
+    if (keyList.length === 0) {
+      const top: any[] = await this.dataSource.query(
+        `SELECT ${dimCol} AS k FROM ${STAGE}
+         WHERE ($1::timestamptz IS NULL OR submit_datetime >= $1::timestamptz)
+           AND ($2::timestamptz IS NULL OR submit_datetime <= $2::timestamptz)
+         GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT ${MAX_SERIES}`, [from ?? null, to ?? null]);
+      keyList = top.map((r) => r.k).filter((k) => k != null);
+    } else if (keyList.length > MAX_SERIES) {
+      keyList = keyList.slice(0, MAX_SERIES);
+    }
+    if (keyList.length === 0) return { buckets: [], keys: [], points: [] };
+
+    const rows: any[] = await this.dataSource.query(
+      `SELECT ${label} AS bucket, ${dimCol} AS key,
+              COUNT(*)::bigint AS messages, SUM(is_delivered)::bigint AS delivered,
+              date_trunc('${trunc}', submit_datetime) AS b
+       FROM ${STAGE}
+       WHERE ($1::timestamptz IS NULL OR submit_datetime >= $1::timestamptz)
+         AND ($2::timestamptz IS NULL OR submit_datetime <= $2::timestamptz)
+         AND ${dimCol} = ANY($3::text[])
+       GROUP BY b, ${dimCol}
+       ORDER BY b`, [from ?? null, to ?? null, keyList]);
+
+    const buckets: string[] = [];
+    const seen = new Set<string>();
+    const points = rows.map((r) => {
+      if (!seen.has(r.bucket)) { seen.add(r.bucket); buckets.push(r.bucket); }
+      const messages = Number(r.messages) || 0;
+      const delivered = Number(r.delivered) || 0;
+      return { bucket: r.bucket, key: r.key, messages, dlr: messages > 0 ? +(delivered * 100 / messages).toFixed(2) : 0 };
+    });
+    return { buckets, keys: keyList, points };
   }
 }

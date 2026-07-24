@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { zamaniSenderIdApi } from '@/lib/api';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -107,7 +108,11 @@ function ageLabel(min: number | null): string {
 }
 type Agg = { aggregator: string; account_manager: string; submitted: number; delivered: number; misrouted: number; senders: number; dlr_pct: number };
 type Route = { sender_id: string; aggregator: string; vendor: string; vendor_id: number; msgs: number };
-type Data = { totals: Totals; senders: Sender[]; aggregators: Agg[]; routing: Route[]; trend: any[] };
+type Pair = { sender_id: string; aggregator: string; account_manager: string; submitted: number; delivered: number; misrouted: number; dlr_pct: number; last_seen: string };
+type Data = { totals: Totals; senders: Sender[]; aggregators: Agg[]; senderCustomer: Pair[]; routing: Route[]; trend: any[] };
+
+// Distinct line colors for the trend chart (categorical; assigned in fixed order, never cycled per-render).
+const SERIES_COLORS = ['#2563eb', '#16a34a', '#ea580c', '#9333ea', '#dc2626', '#0891b2', '#ca8a04', '#db2777', '#4f46e5', '#65a30d', '#0d9488', '#c026d3'];
 
 const fmtN = (n: number | null) => (n != null ? Number(n).toLocaleString() : '—');
 const dlrCls = (p: number) => (p >= 80 ? 'dlr-good' : p >= 50 ? 'dlr-ok' : 'dlr-bad');
@@ -143,13 +148,137 @@ function TD({ children, left, mono }: { children: React.ReactNode; left?: boolea
   return <td className={cls || undefined}>{children}</td>;
 }
 
+function computeWindowISO(preset: Preset, customFrom: string, customTo: string): { fromISO?: string; toISO?: string } {
+  if (preset === 'custom') return { fromISO: customFrom ? new Date(customFrom).toISOString() : undefined, toISO: customTo ? new Date(customTo).toISOString() : undefined };
+  const { start, end } = presetWindow(preset);
+  return { fromISO: start.toISOString(), toISO: end.toISOString() };
+}
+
+// Compact searchable multi-select dropdown (used to pick which customers / sender IDs to plot).
+function MultiSelect({ options, selected, onChange, placeholder }: { options: string[]; selected: string[]; onChange: (s: string[]) => void; placeholder: string }) {
+  const [open, setOpen] = React.useState(false);
+  const [q, setQ] = React.useState('');
+  const ref = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+  const filtered = options.filter((o) => o.toLowerCase().includes(q.toLowerCase())).slice(0, 300);
+  const toggle = (o: string) => onChange(selected.includes(o) ? selected.filter((x) => x !== o) : [...selected, o]);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button className="edr-tbtn" onClick={() => setOpen((v) => !v)} title="Pick which series to plot (max 12)">
+        {selected.length ? `${selected.length} selected` : placeholder} ▾
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', zIndex: 30, marginTop: 4, width: 270, maxHeight: 320, overflow: 'auto', background: 'var(--sf)', border: '1px solid var(--lns)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.18)', padding: 8 }}>
+          <input className="edr-inp" style={{ width: '100%', marginBottom: 6 }} placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <span style={{ fontSize: '.68rem', color: 'var(--mu)' }}>{selected.length ? `${selected.length} selected` : 'None → top 12 by volume'}</span>
+            {selected.length > 0 && <button className="edr-clr" style={{ height: 24, padding: '0 8px' }} onClick={() => onChange([])}>Clear</button>}
+          </div>
+          {filtered.map((o) => (
+            <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '3px 4px', fontSize: '.78rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={selected.includes(o)} onChange={() => toggle(o)} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o}</span>
+            </label>
+          ))}
+          {filtered.length === 0 && <div style={{ fontSize: '.75rem', color: 'var(--mu)', padding: 6 }}>No matches</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Line chart: Messages or DLR % over time, split by customer or sender ID, at hour/day/week/month
+// granularity, for a selectable set of series. Fetches its own time-series independent of the table.
+function TrendChart({ senders, aggregators, preset, customFrom, customTo, reloadKey }: {
+  senders: Sender[]; aggregators: Agg[]; preset: Preset; customFrom: string; customTo: string; reloadKey?: number;
+}) {
+  const [metric, setMetric] = React.useState<'messages' | 'dlr'>('messages');
+  const [dim, setDim] = React.useState<'customer' | 'sender'>('customer');
+  const [gran, setGran] = React.useState<'hour' | 'day' | 'week' | 'month'>('day');
+  const [keys, setKeys] = React.useState<string[]>([]);
+  const [ts, setTs] = React.useState<{ buckets: string[]; keys: string[]; points: any[] } | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  const options = React.useMemo(
+    () => (dim === 'customer'
+      ? Array.from(new Set(aggregators.map((a) => a.aggregator).filter(Boolean)))
+      : Array.from(new Set(senders.map((s) => s.sender_id).filter(Boolean)))).sort((a, b) => a.localeCompare(b)),
+    [dim, aggregators, senders],
+  );
+  // Switching dimension: drop any picked keys that don't exist in the new option set.
+  React.useEffect(() => { setKeys((k) => k.filter((x) => options.includes(x))); }, [dim]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    const { fromISO, toISO } = computeWindowISO(preset, customFrom, customTo);
+    setLoading(true); setErr(null);
+    zamaniSenderIdApi.getTimeseries({ from: fromISO, to: toISO, dimension: dim, granularity: gran, keys })
+      .then((r) => setTs(r.data as any))
+      .catch((e: any) => setErr(e?.response?.data?.message ?? e?.message ?? 'Failed to load chart'))
+      .finally(() => setLoading(false));
+  }, [dim, gran, keys, preset, customFrom, customTo, reloadKey]);
+
+  const seriesKeys = ts?.keys ?? [];
+  const chartData = React.useMemo(() => {
+    if (!ts) return [];
+    const byBucket = new Map<string, any>();
+    for (const b of ts.buckets) byBucket.set(b, { bucket: b });
+    for (const p of ts.points) { const o = byBucket.get(p.bucket); if (o) o[p.key] = metric === 'messages' ? p.messages : p.dlr; }
+    return ts.buckets.map((b) => byBucket.get(b));
+  }, [ts, metric]);
+
+  const seg = (val: string, cur: string, set: (v: any) => void, label: string) => (
+    <button className={cur === val ? 'on' : ''} onClick={() => set(val)}>{label}</button>
+  );
+
+  return (
+    <div style={{ marginTop: 20, border: '1px solid var(--ln)', borderRadius: 10, background: 'var(--sf)', padding: '14px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+        <span style={{ fontSize: '.9rem', fontWeight: 700, color: 'var(--ink)', marginRight: 4 }}>Trend</span>
+        <span className="edr-seg">{seg('messages', metric, setMetric, 'Messages')}{seg('dlr', metric, setMetric, 'DLR %')}</span>
+        <span className="edr-seg">{seg('customer', dim, setDim, 'By Customer')}{seg('sender', dim, setDim, 'By Sender ID')}</span>
+        <span className="edr-seg">{seg('hour', gran, setGran, 'Hour')}{seg('day', gran, setGran, 'Day')}{seg('week', gran, setGran, 'Week')}{seg('month', gran, setGran, 'Month')}</span>
+        <MultiSelect options={options} selected={keys} onChange={setKeys} placeholder={dim === 'customer' ? 'All customers' : 'All sender IDs'} />
+        {loading && <span style={{ fontSize: '.72rem', color: 'var(--mu)' }}>Loading…</span>}
+      </div>
+      {err ? <div className="edr-err">{err}</div> : (
+        <div style={{ height: 340 }}>
+          {chartData.length === 0 ? (
+            <div className="edr-empty">No data to plot for this selection</div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 8, right: 24, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" />
+                <XAxis dataKey="bucket" tick={{ fontSize: 11, fill: 'var(--inks)' }} minTickGap={24} />
+                <YAxis tick={{ fontSize: 11, fill: 'var(--inks)' }} width={52}
+                  domain={metric === 'dlr' ? [0, 100] : undefined}
+                  tickFormatter={(v: number) => metric === 'dlr' ? `${v}%` : (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v))} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid var(--lns)' }}
+                  formatter={(v: any, name: string) => [metric === 'dlr' ? `${v}%` : Number(v).toLocaleString(), name]} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {seriesKeys.map((k, i) => (
+                  <Line key={k} type="monotone" dataKey={k} name={k} stroke={SERIES_COLORS[i % SERIES_COLORS.length]} dot={false} strokeWidth={2} connectNulls isAnimationActive={false} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ZamaniSenderIdPage() {
   const [data, setData] = React.useState<Data | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [lastLoaded, setLastLoaded] = React.useState<Date | null>(null);
 
-  const [view, setView] = React.useState<'senders' | 'aggregators' | 'routing'>('senders');
+  const [view, setView] = React.useState<'senders' | 'aggregators' | 'pairs' | 'routing'>('senders');
   const [search, setSearch] = React.useState('');
   const [amFilter, setAmFilter] = React.useState('all');
   const [misOnly, setMisOnly] = React.useState(false);
@@ -183,7 +312,7 @@ export default function ZamaniSenderIdPage() {
   React.useEffect(() => { load(); }, [load]);
 
   const t = data?.totals;
-  const baseRows: any[] = view === 'senders' ? (data?.senders ?? []) : view === 'aggregators' ? (data?.aggregators ?? []) : (data?.routing ?? []);
+  const baseRows: any[] = view === 'senders' ? (data?.senders ?? []) : view === 'aggregators' ? (data?.aggregators ?? []) : view === 'pairs' ? (data?.senderCustomer ?? []) : (data?.routing ?? []);
   const accountManagers = React.useMemo(
     () => Array.from(new Set(baseRows.map((r) => r.account_manager).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b)),
     [baseRows],
@@ -226,7 +355,7 @@ export default function ZamaniSenderIdPage() {
 
   const hasFilter = !!(search || misOnly || amFilter !== 'all' || statusFilters.size);
   const sharedTH = { sort, onSort };
-  const cols = view === 'senders' ? 11 : view === 'aggregators' ? 7 : 4;
+  const cols = view === 'senders' ? 11 : view === 'aggregators' ? 7 : view === 'pairs' ? 8 : 4;
 
   return (
     <>
@@ -290,6 +419,7 @@ export default function ZamaniSenderIdPage() {
             <span className="edr-seg">
               <button className={view === 'senders' ? 'on' : ''} onClick={() => setView('senders')}>By Sender ID</button>
               <button className={view === 'aggregators' ? 'on' : ''} onClick={() => setView('aggregators')}>By Customer</button>
+              <button className={view === 'pairs' ? 'on' : ''} onClick={() => setView('pairs')}>Sender × Customer</button>
               <button className={view === 'routing' ? 'on' : ''} onClick={() => setView('routing')}>Routing Errors{(t?.misrouted ?? 0) > 0 ? ` (${data?.routing.length ?? 0})` : ''}</button>
             </span>
             <input className="edr-inp" type="text" placeholder="Search sender / customer…" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -341,6 +471,17 @@ export default function ZamaniSenderIdPage() {
                         <TH w={80} colKey="dlr_pct" {...sharedTH}>DLR %</TH>
                         <TH w={90} colKey="misrouted" {...sharedTH}>Mis-routed</TH>
                       </>
+                    ) : view === 'pairs' ? (
+                      <>
+                        <TH left w={190} colKey="sender_id" {...sharedTH}>Sender ID</TH>
+                        <TH left w={170} colKey="aggregator" {...sharedTH}>Customer</TH>
+                        <TH left w={150} colKey="account_manager" {...sharedTH}>Account Manager</TH>
+                        <TH w={95} colKey="submitted" {...sharedTH}>Messages</TH>
+                        <TH w={95} colKey="delivered" {...sharedTH}>Delivered</TH>
+                        <TH w={80} colKey="dlr_pct" {...sharedTH}>DLR %</TH>
+                        <TH w={90} colKey="misrouted" {...sharedTH}>Mis-routed</TH>
+                        <TH w={140} colKey="last_seen" {...sharedTH}>Last Seen (UTC)</TH>
+                      </>
                     ) : (
                       <>
                         <TH left w={200} colKey="sender_id" {...sharedTH}>Sender ID</TH>
@@ -381,6 +522,17 @@ export default function ZamaniSenderIdPage() {
                           <TD><span className={dlrCls(row.dlr_pct)}>{row.dlr_pct}%</span></TD>
                           <TD>{row.misrouted > 0 ? <span className="bdg bdg-neg">{fmtN(row.misrouted)}</span> : <span style={{ color: 'var(--mu)' }}>—</span>}</TD>
                         </>
+                      ) : view === 'pairs' ? (
+                        <>
+                          <TD left><span style={{ fontWeight: 600 }}>{row.sender_id || '—'}</span></TD>
+                          <TD left>{row.aggregator || '—'}</TD>
+                          <TD left><span style={{ color: row.account_manager ? 'var(--inks)' : 'var(--mu)' }}>{row.account_manager || '—'}</span></TD>
+                          <TD><span style={{ fontWeight: 700 }}>{fmtN(row.submitted)}</span></TD>
+                          <TD>{fmtN(row.delivered)}</TD>
+                          <TD><span className={dlrCls(row.dlr_pct)}>{row.dlr_pct}%</span></TD>
+                          <TD>{row.misrouted > 0 ? <span className="bdg bdg-neg">{fmtN(row.misrouted)}</span> : <span style={{ color: 'var(--mu)' }}>—</span>}</TD>
+                          <TD mono>{row.last_seen || '—'}</TD>
+                        </>
                       ) : (
                         <>
                           <TD left><span style={{ fontWeight: 600 }}>{row.sender_id || '—'}</span></TD>
@@ -397,8 +549,10 @@ export default function ZamaniSenderIdPage() {
           </div>
 
           {!loading && sorted.length > 0 && (
-            <div className="edr-footer">{sorted.length.toLocaleString()} of {baseRows.length.toLocaleString()} {view === 'senders' ? 'sender IDs' : view === 'aggregators' ? 'customers' : 'routing errors'}</div>
+            <div className="edr-footer">{sorted.length.toLocaleString()} of {baseRows.length.toLocaleString()} {view === 'senders' ? 'sender IDs' : view === 'aggregators' ? 'customers' : view === 'pairs' ? 'sender × customer pairs' : 'routing errors'}</div>
           )}
+
+          <TrendChart senders={data?.senders ?? []} aggregators={data?.aggregators ?? []} preset={preset} customFrom={customFrom} customTo={customTo} reloadKey={lastLoaded?.getTime()} />
 
         </div>
       </div>

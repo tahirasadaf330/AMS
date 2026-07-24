@@ -15,4 +15,21 @@ export class ZamaniSenderIdController {
   getData(@Query('from') from?: string, @Query('to') to?: string) {
     return this.service.getData(from, to);
   }
+
+  // Line-chart series. dimension = customer|sender, granularity = hour|day|week|month, keys = JSON
+  // array of the selected customer/sender values (empty → top series by volume).
+  @Get('timeseries')
+  getTimeseries(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('dimension') dimension?: string,
+    @Query('granularity') granularity?: string,
+    @Query('keys') keys?: string,
+  ) {
+    let keyList: string[] = [];
+    if (keys) { try { const parsed = JSON.parse(keys); if (Array.isArray(parsed)) keyList = parsed.map(String); } catch { /* ignore */ } }
+    const dim = dimension === 'sender' ? 'sender' : 'customer';
+    const gran = (['hour', 'day', 'week', 'month'].includes(granularity ?? '') ? granularity : 'day') as 'hour' | 'day' | 'week' | 'month';
+    return this.service.getTimeseries(from, to, dim, gran, keyList);
+  }
 }
