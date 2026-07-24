@@ -387,7 +387,7 @@ export default function ZamaniSenderIdPage() {
               <div className="edr-title">Zamani Sender ID</div>
               <div className="edr-sub">
                 <span className="edr-dot" />
-                Zamani-destination traffic by sender ID (all vendors) · rolling ~48h · refreshes ~5 min
+                Zamani-destination traffic by sender ID (all vendors) · since 1 Mar 2026 · refreshes ~5 min
               </div>
             </div>
             <div className="edr-lu">

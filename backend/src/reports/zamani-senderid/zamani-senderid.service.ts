@@ -55,8 +55,9 @@ WHERE mt.SubmitDateTime >= '{{SINCE}}'
 `;
 
 // Rolling-overlap config (read by StageService via raw SQL).
-const OVERLAP_MINUTES = 40;  // re-pull the last 40 min each cycle → late DLRs settle within it
-const RETENTION_DAYS  = 2;   // keep ~today..2 days back → always ≥24h for the new-SD lookback
+const OVERLAP_MINUTES = 40;            // re-pull the last 40 min each cycle → late DLRs settle within it
+const RETENTION_DAYS  = 4000;          // effectively no prune — keep full history from INITIAL_DATE onward
+const INITIAL_DATE    = '2026-03-01';  // fixed backfill start (independent of the prune window)
 const SCHEDULE_CRON   = '*/5 * * * *';
 
 const SEED_COLUMNS = [
@@ -126,7 +127,7 @@ export class ZamaniSenderIdService implements OnModuleInit {
       const saved = await this.datasetRepo.save(
         this.datasetRepo.create({
           name:           DATASET_NAME,
-          description:    'Per-message Zamani-destination traffic (any vendor) from ASMSC, rolling ~48h at 5-min overlap. Powers the Zamani Sender-ID report + alerts (routing, spike/AIT, new/stopped SD, delivery).',
+          description:    'Per-message Zamani-destination traffic (any vendor) from ASMSC, full history from 2026-03-01 refreshed at 5-min overlap. Powers the Zamani Sender-ID report + alerts (routing, spike/AIT, new/stopped SD, delivery).',
           sourceDb:       'mssql',
           dataSourceId:   asmsc.id,
           sqlQuery:       SEED_SQL,
@@ -148,9 +149,10 @@ export class ZamaniSenderIdService implements OnModuleInit {
            SET incremental_overlap_minutes  = $2,
                incremental_timestamp_column = 'submit_datetime',
                retention_days               = $3,
+               incremental_initial_date     = $4::date,
                incremental_lookback_days    = NULL
          WHERE id = $1`,
-        [this._datasetId, OVERLAP_MINUTES, RETENTION_DAYS],
+        [this._datasetId, OVERLAP_MINUTES, RETENTION_DAYS, INITIAL_DATE],
       ).catch((e: Error) => this.logger.error(`Failed to set Zamani Sender ID overlap config: ${e.message}`));
     }
   }
