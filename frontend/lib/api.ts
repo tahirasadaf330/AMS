@@ -473,6 +473,15 @@ export const voiceLiveTrafficApi = {
   getData: () => api.get('/reports/voice-live-traffic/data'),
 };
 
+// ── SRC/DST NUMBER MONITORING REPORT ──────────────────────────
+export const srcDstNumberApi = {
+  // Instant read from the hourly rollup. kind = 'src'|'dst'; window = thishr|prevhr|4h|12h|1d|2d|3d|7d
+  // (5G semantics: last N hourly buckets incl current partial hour) OR from/to dates ('YYYY-MM-DD');
+  // limit = display rows (10…10000).
+  getData: (params: { kind: string; window?: string; from?: string; to?: string; limit?: number }) =>
+    api.get('/reports/src-dst-number-monitoring/data', { params }),
+};
+
 // ── MT EDR MONITORING REPORT ──────────────────────────────────
 export const mtEdrApi = {
   // from/to are ISO-8601 UTC instants; omitted → the whole retained window (today+yesterday).

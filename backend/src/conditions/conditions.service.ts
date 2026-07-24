@@ -11,6 +11,7 @@ import { UserDatasetAccess } from '../common/entities/user-dataset-access.entity
 import { Dataset } from '../common/entities/dataset.entity';
 import { UserRole } from '../common/entities/user.entity';
 import { ConditionEvaluatorService } from './condition-evaluator.service';
+import { stageConditionReadSql } from './stage-read.util';
 import { ConditionSchedulerService } from './condition-scheduler.service';
 import { PythonExecutorService } from './python-executor.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -185,7 +186,7 @@ export class ConditionsService {
       // The old 1000-row cap silently under-counted matches on larger tables; mirrors the
       // scheduled-eval fix in condition-scheduler (voice branch: ~3000 rows only ~1/3 alerted).
       const stageResult = await this.dataSource.query(
-        `SELECT * FROM ${condition.dataset.stageTableName} ORDER BY id DESC`,
+        stageConditionReadSql(condition.dataset.stageTableName, 'ORDER BY id DESC'),
       );
 
       const matchedRows = this.evaluatorService.previewCondition(
@@ -246,9 +247,10 @@ export class ConditionsService {
       const dataset = await this.datasetRepo.findOne({ where: { id: datasetId } });
       if (!dataset) throw new NotFoundException('Dataset not found');
 
-      // No LIMIT — evaluate the full snapshot so the test reflects real alert behaviour.
+      // No LIMIT — evaluate the full snapshot so the test reflects real alert behaviour (latest day
+      // only for per-day rollup tables — see stageConditionReadSql).
       const stageResult: Record<string, unknown>[] = await this.dataSource.query(
-        `SELECT * FROM ${dataset.stageTableName} ORDER BY id DESC`,
+        stageConditionReadSql(dataset.stageTableName, 'ORDER BY id DESC'),
       );
 
       const conditionRows: ConditionRow[] = dto.condition_rows ?? dto.conditionRows ?? [];
@@ -290,9 +292,10 @@ export class ConditionsService {
 
       if (!condition.dataset) throw new NotFoundException('Dataset not found for condition');
 
-      // No LIMIT — evaluate the full snapshot so the test reflects real alert behaviour.
+      // No LIMIT — evaluate the full snapshot so the test reflects real alert behaviour (latest day
+      // only for per-day rollup tables — see stageConditionReadSql).
       const stageResult: Record<string, unknown>[] = await this.dataSource.query(
-        `SELECT * FROM ${condition.dataset.stageTableName} ORDER BY id DESC`,
+        stageConditionReadSql(condition.dataset.stageTableName, 'ORDER BY id DESC'),
       );
 
       const matchedRows = this.evaluatorService.previewCondition(

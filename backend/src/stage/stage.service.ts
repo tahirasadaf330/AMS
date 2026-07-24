@@ -35,7 +35,11 @@ export class StageService implements OnModuleInit {
         `ALTER TABLE datasets
            ADD COLUMN IF NOT EXISTS incremental_overlap_minutes  INT,
            ADD COLUMN IF NOT EXISTS incremental_timestamp_column VARCHAR(63),
-           ADD COLUMN IF NOT EXISTS retention_days               INT`,
+           ADD COLUMN IF NOT EXISTS retention_days               INT,
+           ADD COLUMN IF NOT EXISTS row_limit                    INT,
+           ADD COLUMN IF NOT EXISTS window_code                  VARCHAR(16),
+           ADD COLUMN IF NOT EXISTS incremental_fill_days        INT,
+           ADD COLUMN IF NOT EXISTS incremental_repull_days      INT`,
       );
     } catch (err) {
       this.logger.error('Failed to ensure rolling-overlap columns on datasets', err);
@@ -108,7 +112,8 @@ export class StageService implements OnModuleInit {
       // Incremental mode: fetch incremental config directly from DB to avoid TypeORM column-mapping issues
       const [incrConfig] = await this.dataSource.query(
         `SELECT incremental_lookback_days, incremental_initial_date,
-                incremental_overlap_minutes, incremental_timestamp_column, retention_days
+                incremental_overlap_minutes, incremental_timestamp_column, retention_days,
+                row_limit, window_code, incremental_fill_days, incremental_repull_days
          FROM datasets WHERE id = $1`,
         [dataset.id],
       ).catch(() => [null]);
@@ -127,6 +132,16 @@ export class StageService implements OnModuleInit {
       const retentionDays: number = Number(incrConfig?.retention_days) || 1;
 
       const isIncremental = !isOverlap && lookbackDays > 0;
+
+      // Day-grained gap-fill rollup (opt-in via incremental_fill_days > 0): keep the last N days of
+      // per-day rows; fetch only the days missing from the table, always re-pull the last
+      // `incremental_repull_days` completed days (late CDRs) and recompute the current (partial) day,
+      // then prune days older than the window. Used by SRC/DST Number Monitoring. Mutually exclusive
+      // with overlap/lookback (a gap-fill dataset leaves those NULL). See runGapFillRefresh.
+      const fillDays: number = Number(incrConfig?.incremental_fill_days) || 0;
+      const repullDays: number = Number(incrConfig?.incremental_repull_days) || 0;
+      const isGapFill = !isOverlap && !isIncremental && fillDays > 0;
+
       let lookbackDate: string | null = null;
       let overlapSince: string | null = null;
       let overlapTableEmpty = false;
@@ -206,10 +221,41 @@ export class StageService implements OnModuleInit {
         this.logger.log(`Traffic window for ${dataset.name}: ${windowMinutes} minutes`);
       }
 
+      // Configurable per-query row cap: {{ROW_LIMIT}} → datasets.row_limit (default 1000, clamped
+      // 1..50000). Used by top-N number datasets (SRC/DST Number Monitoring) to bound the result.
+      // Honoured by every refresh path, like {{WINDOW_MINUTES}}.
+      if (sql.includes('{{ROW_LIMIT}}')) {
+        const rawLimit = Number(incrConfig?.row_limit);
+        const rowLimit =
+          Number.isFinite(rawLimit) && rawLimit >= 1 && rawLimit <= 50000
+            ? Math.floor(rawLimit)
+            : 1000;
+        sql = sql.replace(/\{\{ROW_LIMIT\}\}/g, String(rowLimit));
+        this.logger.log(`Row limit for ${dataset.name}: ${rowLimit}`);
+      }
+
+      // Configurable relative time window: {{WIN_START}}/{{WIN_END}} → SQL expressions derived from
+      // datasets.window_code (default '12h'). The code maps to a fixed, safe SQL expression (never
+      // user free-text), so it's injected raw. Used by SRC/DST Number Monitoring; honoured by every
+      // refresh path (cron, admin manual, report "Apply/GO").
+      if (sql.includes('{{WIN_START}}') || sql.includes('{{WIN_END}}')) {
+        const WINDOW_EXPR: Record<string, { start: string; end: string }> = {
+          thishr: { start: "date_trunc('hour', now())",                       end: 'now()' },
+          prevhr: { start: "date_trunc('hour', now()) - interval '1 hour'",   end: "date_trunc('hour', now())" },
+          '4h':   { start: "now() - interval '4 hours'",                      end: 'now()' },
+          '12h':  { start: "now() - interval '12 hours'",                     end: 'now()' },
+          '1d':   { start: "now() - interval '24 hours'",                     end: 'now()' },
+        };
+        const code = String(incrConfig?.window_code ?? '').toLowerCase();
+        const expr = WINDOW_EXPR[code] ?? WINDOW_EXPR['12h'];
+        sql = sql.replace(/\{\{WIN_START\}\}/g, expr.start).replace(/\{\{WIN_END\}\}/g, expr.end);
+        this.logger.log(`Time window for ${dataset.name}: ${WINDOW_EXPR[code] ? code : '12h (default)'}`);
+      }
+
       // Full-refresh data-loss guard: remember whether the table currently holds data, so we can
       // refuse to commit a wipe if the source unexpectedly returns 0 rows (transient source failure).
       let fullTableHadData = false;
-      if (!isOverlap && !isIncremental) {
+      if (!isOverlap && !isIncremental && !isGapFill) {
         try {
           const [cnt] = await this.dataSource.query(
             `SELECT EXISTS (SELECT 1 FROM ${dataset.stageTableName} LIMIT 1) AS has_data`,
@@ -223,12 +269,17 @@ export class StageService implements OnModuleInit {
 
       if (signal?.aborted) throw new Error('Refresh cancelled');
 
+      let totalRows = 0;
+
+      if (isGapFill) {
+        // Day-grained rollup: fetch missing days + re-pull recent days + recompute today, append-only,
+        // then prune. Each day is its own transaction (resumable backfill). See runGapFillRefresh.
+        totalRows = await this.runGapFillRefresh(dataset, sql, fillDays, repullDays, signal);
+      } else {
       // Open PG transaction for the whole delete + insert cycle
       const queryRunner = this.dataSource.createQueryRunner();
       await queryRunner.connect();
       await queryRunner.startTransaction();
-
-      let totalRows = 0;
 
       try {
         // Delete phase
@@ -289,6 +340,7 @@ export class StageService implements OnModuleInit {
         throw err;
       } finally {
         await queryRunner.release();
+      }
       }
 
       const durationMs = Date.now() - startMs;
@@ -354,6 +406,139 @@ export class StageService implements OnModuleInit {
 
       throw err;
     }
+  }
+
+  /**
+   * HOUR-grained gap-fill rollup. Only used by datasets with incremental_fill_days > 0 (SRC/DST
+   * Number Monitoring). Retains the last `fillDays`×24 hourly buckets INCLUDING the current partial
+   * hour — matching 5gVision's algorithm (its Nd windows = last N×24 hourly buckets incl the current
+   * one). CHUNKED per cycle:
+   *   1. CURRENT hour — recomputed every cycle (live "latest"); cheap (~1/24 of a day).
+   *   2. PREVIOUS hour — always re-finalized (covers late CDRs that land after the hour closes).
+   *   3. Up to MAX_BACKFILL_BUCKETS missing buckets, NEWEST first (recent hours land immediately;
+   *      old cold hours trail across cycles).
+   * Append-only per bucket, then prunes buckets older than the window. Each bucket runs in its own
+   * transaction so completed work always survives a crash/restart.
+   *
+   * The dataset SQL must be a single-bucket query using {{DAY_START}}/{{DAY_END}} (the bucket's hour
+   * bounds) and must emit a `bucket` column equal to {{DAY_START}}. {{ROW_LIMIT}} is already
+   * substituted by the caller. Returns rows inserted.
+   */
+  private async runGapFillRefresh(
+    dataset: Dataset,
+    sql: string,
+    fillDays: number,
+    _repullDays: number,
+    signal?: AbortSignal,
+  ): Promise<number> {
+    const table = dataset.stageTableName;
+    const HOUR_MS = 3_600_000;
+    const MAX_BACKFILL_BUCKETS = 12;
+    const iso = (ms: number) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19) + '+00'; // 'YYYY-MM-DD HH:00:00+00'
+
+    const now = Date.now();
+    const currentHour = Math.floor(now / HOUR_MS) * HOUR_MS;
+    const totalBuckets = fillDays * 24; // retained buckets incl the current one
+    const oldestHour = currentHour - (totalBuckets - 1) * HOUR_MS;
+
+    // Which buckets are already stored inside the window.
+    const storedRows: Array<{ b: string }> = await this.dataSource
+      .query(
+        `SELECT DISTINCT to_char(bucket AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:00:00') || '+00' AS b
+           FROM ${table} WHERE bucket >= $1::timestamptz`,
+        [iso(oldestHour)],
+      )
+      .catch(() => []);
+    const storedSet = new Set(storedRows.map((r) => r.b));
+
+    // Cycle plan: current hour, previous hour, then missing buckets newest-first (bounded).
+    const plan: string[] = [iso(currentHour)];
+    if (currentHour - HOUR_MS >= oldestHour) plan.push(iso(currentHour - HOUR_MS));
+    const missing: string[] = [];
+    for (let ms = currentHour - 2 * HOUR_MS; ms >= oldestHour; ms -= HOUR_MS) {
+      const b = iso(ms);
+      if (!storedSet.has(b)) {
+        missing.push(b);
+        if (missing.length >= MAX_BACKFILL_BUCKETS) break;
+      }
+    }
+    plan.push(...missing);
+    const buckets = Array.from(new Set(plan));
+
+    this.logger.log(
+      `Gap-fill ${dataset.name}: ${storedSet.size}/${totalBuckets} hourly buckets stored, ` +
+        `cycle plan: ${buckets.length} bucket(s) [${buckets[0]} … ${buckets[buckets.length - 1]}]`,
+    );
+
+    let totalRows = 0;
+    let failed = 0;
+    let lastErr = '';
+
+    for (const bucket of buckets) {
+      if (signal?.aborted) throw new Error('Refresh cancelled');
+
+      const bucketEnd = bucket.replace(':00:00+00', ':59:59+00');
+      const bSql = sql
+        .replace(/\{\{DAY_START\}\}/g, bucket)
+        .replace(/\{\{DAY_END\}\}/g, bucketEnd)
+        .replace(/\{\{DAY\}\}/g, bucket.slice(0, 10));
+
+      let hadRows = false;
+      try {
+        const [c] = await this.dataSource.query(
+          `SELECT EXISTS (SELECT 1 FROM ${table} WHERE bucket = $1::timestamptz) AS has_data`,
+          [bucket],
+        );
+        hadRows = c?.has_data === true;
+      } catch { /* ignore */ }
+
+      const qr = this.dataSource.createQueryRunner();
+      await qr.connect();
+      await qr.startTransaction();
+      let bRows = 0;
+      try {
+        await qr.query(`DELETE FROM ${table} WHERE bucket = $1::timestamptz`, [bucket]);
+        await this.datasourceExecutor.queryStream(
+          dataset.dataSourceId ?? 'jerasoft',
+          bSql,
+          async (rawBatch) => {
+            const batch = rawBatch.map((row) => this.sanitizeRowKeys(row));
+            const { sql: insertSql, params } = this.buildInsertSql(table, batch);
+            await qr.query(insertSql, params);
+            bRows += batch.length;
+          },
+          500,
+          signal,
+        );
+
+        if (hadRows && bRows === 0) {
+          // Had data but source returned none — transient; keep the existing rows.
+          await qr.rollbackTransaction();
+          this.logger.warn(`Gap-fill ${dataset.name}: bucket ${bucket} returned 0 rows but had data — kept existing`);
+        } else {
+          await qr.commitTransaction();
+          totalRows += bRows;
+          this.logger.log(`Gap-fill ${dataset.name}: bucket ${bucket} → ${bRows} rows`);
+        }
+      } catch (err) {
+        await qr.rollbackTransaction();
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg === 'Refresh cancelled') throw err;
+        failed++;
+        lastErr = msg;
+        this.logger.error(`Gap-fill ${dataset.name}: bucket ${bucket} failed: ${msg}`);
+      } finally {
+        await qr.release();
+      }
+    }
+
+    // Prune buckets older than the retained window. Best-effort.
+    await this.dataSource
+      .query(`DELETE FROM ${table} WHERE bucket < $1::timestamptz`, [iso(oldestHour)])
+      .catch((e: Error) => this.logger.error(`Gap-fill prune failed for ${table}: ${e.message}`));
+
+    if (failed > 0) throw new Error(`Gap-fill ${dataset.name}: ${failed} bucket(s) failed (last: ${lastErr})`);
+    return totalRows;
   }
 
   private async ensureStageTable(

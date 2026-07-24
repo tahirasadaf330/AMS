@@ -26,6 +26,12 @@ import { formatDatetimeFull, formatNumber } from '@/lib/utils';
 import { RefreshHistoryTable } from '@/components/refresh-history-table';
 import { useConditions } from '@/hooks/useConditions';
 
+// SRC/DST Number Monitoring keeps a per-day rollup (multiple days of rows); its long "Tried DST
+// areas" cell renders one-line + click-to-expand in the shared TableView, and the viewer defaults to
+// showing SRC rows first. Its window/cap are chosen on the report; the Datasets viewer just shows the
+// raw rollup + Refresh Now (which triggers the 10-min gap-fill ingestion).
+const SRC_DST_STAGE = 'ds_src_dst_number_monitoring';
+
 export default function DatasetDashboardPage() {
   const params = useParams();
   const datasetId = params.datasetId as string;
@@ -53,7 +59,14 @@ export default function DatasetDashboardPage() {
     const socket = getCurrentSocket();
     if (!socket) return;
     const onStarted = (event: { dataset_id: string }) => {
-      if (event.dataset_id === datasetId) setIsRefreshing(true);
+      if (event.dataset_id === datasetId) {
+        setIsRefreshing(true);
+        // The backend writes the 'running' dataset_refresh_log row before emitting this event, so
+        // refetch now — otherwise the stats-bar status and the Refresh History table don't show the
+        // running row until the refresh finishes.
+        void queryClient.invalidateQueries({ queryKey: dashboardKeys.datasets() });
+        void queryClient.invalidateQueries({ queryKey: dashboardKeys.history(datasetId) });
+      }
     };
     const onDone = (event: { dataset_id: string }) => {
       if (event.dataset_id === datasetId) {
@@ -111,6 +124,20 @@ export default function DatasetDashboardPage() {
 
   const columns = dataset?.column_metadata ?? tableData?.dataset?.column_metadata ?? [];
 
+  const isSrcDst = dataset?.stage_table_name === SRC_DST_STAGE;
+
+  // Refresh Now — generic dataset refresh (for SRC/DST this triggers the gap-fill ingestion).
+  // Reuses the shared isRefreshing/socket wiring (the 'dataset:refreshed' handler clears it + reloads).
+  const handleRefreshNow = () => {
+    if (!canRefresh || refreshGuard.current || isRefreshing) return;
+    refreshGuard.current = true;
+    setIsRefreshing(true);
+    void triggerRefresh.mutateAsync(datasetId).catch(() => {
+      setIsRefreshing(false);
+      refreshGuard.current = false;
+    });
+  };
+
   // Initialize visible columns from metadata on first load
   React.useEffect(() => {
     if (columns.length > 0 && visibleColumnKeys.length === 0) {
@@ -159,6 +186,17 @@ export default function DatasetDashboardPage() {
 
   const lastRefresh = dataset?.last_refresh;
 
+  // SRC/DST: order SRC rows first by default (kind DESC → 'src' before 'dst'); both kinds stay
+  // visible. Set once; the user can re-sort. (Not a filter, so nothing is hidden.)
+  const sdnSortInit = React.useRef(false);
+  React.useEffect(() => {
+    if (!isSrcDst || sdnSortInit.current) return;
+    sdnSortInit.current = true;
+    setSort('kind');
+    setSortDir('desc');
+    setPage(1);
+  }, [isSrcDst]);
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -170,16 +208,8 @@ export default function DatasetDashboardPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => {
-                  if (refreshGuard.current || isRefreshing) return;
-                  refreshGuard.current = true;
-                  setIsRefreshing(true);
-                  void triggerRefresh.mutateAsync(datasetId).catch(() => {
-                    setIsRefreshing(false);
-                    refreshGuard.current = false;
-                  });
-                }}
-                isLoading={triggerRefresh.isPending}
+                onClick={handleRefreshNow}
+                isLoading={triggerRefresh.isPending || isRefreshing}
                 disabled={isRefreshing}
               >
                 <RefreshCw className="h-4 w-4" />
@@ -263,6 +293,7 @@ export default function DatasetDashboardPage() {
         visibleColumnKeys={visibleColumnKeys}
         onVisibleColumnsChange={setVisibleColumnKeys}
         fetchDistinctValues={fetchDistinctValues}
+        expandableColumns={isSrcDst ? ['tried_dst_areas'] : undefined}
       />
 
       {/* Refresh history toggle */}

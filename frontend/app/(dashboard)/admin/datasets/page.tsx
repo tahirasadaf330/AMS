@@ -183,14 +183,23 @@ export default function AdminDatasetsPage() {
     try {
       const { data } = await adminDatasetsApi.validateSql(formData.sql_query, formData.data_source_id || 'jerasoft');
       if (!data.valid) { setValidateResult({ success: false, message: data.error ?? 'Invalid SQL' }); return; }
-      const cols: ColumnMeta[] = (data.columns ?? []).map((c) => ({
-        key: c.key,
-        label: c.label || c.key.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
-        type: (c.type as ColumnMeta['type']) ?? 'text',
-        visible: true,
-      }));
+      // Merge detected columns with the existing config by key so re-validating keeps the
+      // descriptions (and any customised label/visibility) already entered — only new columns
+      // start blank, and columns dropped from the query fall away.
+      const prevByKey = new Map((formData.column_metadata ?? []).map((c) => [c.key, c]));
+      const cols: ColumnMeta[] = (data.columns ?? []).map((c) => {
+        const prev = prevByKey.get(c.key);
+        return {
+          key: c.key,
+          label: prev?.label || c.label || c.key.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
+          type: (c.type as ColumnMeta['type']) ?? prev?.type ?? 'text',
+          visible: prev?.visible ?? true,
+          ...(prev?.description ? { description: prev.description } : {}),
+        };
+      });
       setFormData((prev) => ({ ...prev, column_metadata: cols }));
-      setValidateResult({ success: true, message: `Detected ${cols.length} columns` });
+      const kept = cols.filter((c) => c.description?.trim()).length;
+      setValidateResult({ success: true, message: `Detected ${cols.length} columns${kept ? ` (kept ${kept} description${kept === 1 ? '' : 's'})` : ''}` });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'SQL validation failed';
       setValidateResult({ success: false, message: msg });

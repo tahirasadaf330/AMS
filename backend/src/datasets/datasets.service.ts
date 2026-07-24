@@ -232,9 +232,22 @@ export class DatasetsService {
     dataSourceId?: string,
   ): Promise<{ valid: boolean; error?: string; columns?: Array<{ key: string; label: string; type: string }> }> {
     try {
-      // Substitute runtime placeholders with a representative value so the query
-      // is executable during validation (the real value is applied on refresh).
-      const resolvedSql = sql.replace(/\{\{WINDOW_MINUTES\}\}/g, String(DEFAULT_WINDOW));
+      // Substitute runtime placeholders with representative values so the query is
+      // executable during validation (the real values are applied on refresh):
+      //  • {{WINDOW_MINUTES}} → default window.
+      //  • {{DAY_START}}/{{DAY_END}}/{{DAY}} → a single day far in the past (matches ~0 rows so the
+      //    SRC/DST per-day rollup query validates instantly while still resolving the full column
+      //    list/types). These sit inside quotes in the SQL ('{{DAY_START}}', '{{DAY}}'::date), so
+      //    substitute a bare literal (no quotes/cast). {{WIN_START}}/{{WIN_END}} kept for any legacy SQL.
+      //  • {{ROW_LIMIT}} → 1 (the LIMIT is unquoted, so it must be a number for the SQL to parse).
+      const resolvedSql = sql
+        .replace(/\{\{WINDOW_MINUTES\}\}/g, String(DEFAULT_WINDOW))
+        .replace(/\{\{DAY_START\}\}/g, '2000-01-01 00:00:00+00')
+        .replace(/\{\{DAY_END\}\}/g, '2000-01-01 23:59:59+00')
+        .replace(/\{\{DAY\}\}/g, '2000-01-01')
+        .replace(/\{\{WIN_START\}\}/g, "'2000-01-01 00:00:00+00'::timestamptz")
+        .replace(/\{\{WIN_END\}\}/g, "'2000-01-01 00:00:00+00'::timestamptz")
+        .replace(/\{\{ROW_LIMIT\}\}/g, '1');
       const result = await this.datasourceExecutor.validateQuery(dataSourceId ?? 'jerasoft', resolvedSql);
       const columns = result.fields.map((f) => ({
         key: f.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''),

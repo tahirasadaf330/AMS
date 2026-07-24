@@ -5,6 +5,7 @@ import { Repository, DataSource } from 'typeorm';
 import { CronJob } from 'cron';
 import { Condition } from '../common/entities/condition.entity';
 import { ConditionEvaluatorService } from './condition-evaluator.service';
+import { stageConditionReadSql } from './stage-read.util';
 import { NotificationsService } from '../notifications/notifications.service';
 import { GraphEmailService } from '../notifications/graph-email.service';
 import { PythonExecutorService } from './python-executor.service';
@@ -134,12 +135,11 @@ export class ConditionSchedulerService implements OnModuleInit {
       throw new Error(`Unsafe stage table name for condition "${condition.name}": ${table}`);
     }
 
-    // No LIMIT — evaluate the FULL stage snapshot so every matching row alerts.
-    // Stage tables hold a single refresh's rows (bounded by the query output), so
-    // loading them all is safe; the old 1000-row cap silently dropped matches on
-    // any table larger than 1000 (e.g. Voice ~3000 → alerts fired for only ~1/3).
+    // No LIMIT — evaluate the FULL stage snapshot so every matching row alerts. For per-day rollup
+    // tables (SRC/DST Number Monitoring) this restricts to the latest stored day so an alert fires
+    // once per number, not once per day. Normal single-snapshot tables read in full as before.
     const rows: Record<string, unknown>[] = await this.dataSource.query(
-      `SELECT * FROM ${table}`,
+      stageConditionReadSql(table),
     );
 
     const matchedRows = this.evaluatorService.previewCondition(

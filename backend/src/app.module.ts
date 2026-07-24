@@ -48,6 +48,7 @@ import { AdminGroupsModule } from "./admin/groups/groups.module";
 import { DealsAutomationModule } from "./reports/deals-automation/deals-automation.module";
 import { VoiceLiveTrafficModule } from "./reports/voice-live-traffic/voice-live-traffic.module";
 import { AppleTrafficModule } from "./reports/apple-traffic/apple-traffic.module";
+import { SrcDstNumberMonitoringModule } from "./reports/src-dst-number-monitoring/src-dst-number-monitoring.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -120,6 +121,7 @@ import { AppleTrafficModule } from "./reports/apple-traffic/apple-traffic.module
     DealsAutomationModule,
     VoiceLiveTrafficModule,
     AppleTrafficModule,
+    SrcDstNumberMonitoringModule,
     ReportsRegistryModule,
     AdminGroupsModule,
   ],

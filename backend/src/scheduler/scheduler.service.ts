@@ -267,9 +267,21 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Scheduling retry ${state.retryCount} for dataset ${dataset.name} in ${backoffMs}ms`);
 
     state.retryTimeout = setTimeout(() => {
-      this.runRefreshCycle(dataset).catch((err) => {
-        this.logger.error(`Retry failed for dataset ${dataset.name}`, err);
-      });
+      // Register in the shared in-flight guard exactly like the cron callback and triggerNow do.
+      // Without this, a retry ran unguarded: the next cron tick saw "nothing in flight" and started
+      // a SECOND concurrent refresh of the same dataset (observed live 2026-07-24 — retry at
+      // 14:43:19 + cron tick at 14:45:00 running simultaneously).
+      if (this.inFlight.has(dataset.id)) {
+        this.logger.warn(`Retry for ${dataset.name} skipped — a refresh is already in progress`);
+        return;
+      }
+      const ctrl = new AbortController();
+      this.inFlight.set(dataset.id, ctrl);
+      this.runRefreshCycle(dataset, ctrl.signal)
+        .finally(() => this.inFlight.delete(dataset.id))
+        .catch((err) => {
+          this.logger.error(`Retry failed for dataset ${dataset.name}`, err);
+        });
     }, backoffMs);
 
     this.jobStates.set(dataset.id, state);

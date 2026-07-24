@@ -370,7 +370,11 @@ export class DatasourceExecutorService implements OnModuleDestroy {
     // Hard server-side cap so a pathological query (e.g. the voice-traffic
     // pairing join spilling to disk during a traffic burst) fails cleanly
     // instead of hanging forever, holding a stage-table lock and a pool slot.
-    const statementTimeoutMs = this.config.get<number>('JERASOFT_STATEMENT_TIMEOUT_MS', 120000);
+    // 1800s ceiling: the SRC/DST Number Monitoring per-day rollup ingest (top-10k with the tried-areas
+    // step) runs ~2-3 min for hot recent days but cold old days under heavy Jerasoft load need up to
+    // ~30 min. It runs in a background job, so a looser cap is fine — still bounds a runaway.
+    // Voice/other queries finish in seconds regardless. Overridable via JERASOFT_STATEMENT_TIMEOUT_MS.
+    const statementTimeoutMs = this.config.get<number>('JERASOFT_STATEMENT_TIMEOUT_MS', 1800000);
     const pool = new PgPool({
       host,
       port,

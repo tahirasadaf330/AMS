@@ -77,8 +77,13 @@ function TextFilter({
   // shows EVERY value; until they arrive (or if unavailable) fall back to the
   // values present on the current page.
   const pageVals = React.useMemo(() => uniqueVals(rows, col.key), [rows, col.key]);
-  const allVals = serverVals ?? pageVals;
-  const filtered = allVals.filter(v => v.toLowerCase().includes(search.toLowerCase()));
+  const base = serverVals ?? pageVals;
+  // Always include the selected values — once a filter is applied the table (and page values)
+  // collapse to only the matching rows, which would otherwise make the options disappear — and pin
+  // selected to the top so they're visible when the dropdown reopens.
+  const selectedSet = new Set(selected);
+  const ordered = [...selected, ...base.filter(v => !selectedSet.has(v))];
+  const filtered = ordered.filter(v => v.toLowerCase().includes(search.toLowerCase()));
   const hasFilter = selected.length > 0;
 
   // Fetch the complete value list once, the first time the dropdown opens.
@@ -365,6 +370,9 @@ export interface TableViewProps {
   // text filters list every value (not just the current page). Omit to keep the
   // page-only behaviour.
   fetchDistinctValues?: (column: string) => Promise<string[]>;
+  // Optional: column keys whose (usually long) cell renders on one line and opens a modal with the
+  // full value on click — e.g. SRC/DST Number Monitoring's comma-separated "Tried DST areas".
+  expandableColumns?: string[];
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
@@ -385,7 +393,9 @@ export function TableView({
   visibleColumnKeys,
   onVisibleColumnsChange,
   fetchDistinctValues,
+  expandableColumns,
 }: TableViewProps) {
+  const [expandCell, setExpandCell] = React.useState<{ label: string; value: string } | null>(null);
   const visibleColumns = columns.filter(c => visibleColumnKeys.includes(c.key));
   const totalWidth = visibleColumns.reduce((sum, c) => sum + colWidth(c), 0);
   const totalPages = Math.ceil(total / limit);
@@ -482,10 +492,11 @@ export function TableView({
         </div>
       </div>
 
-      {/* Table card */}
+      {/* Table card — keep a stable height so it doesn't collapse to a sliver when a filter
+          narrows the result (or during the loading spinner). */}
       <div
         className="rounded-lg border border-gray-200 dark:border-gray-700"
-        style={{ maxHeight: 'calc(100vh - 26rem)', overflow: 'auto' }}
+        style={{ height: 'calc(100vh - 26rem)', minHeight: '20rem', overflow: 'auto' }}
       >
         <table
           style={{
@@ -589,6 +600,7 @@ export function TableView({
                       const str = raw !== null ? String(raw) : '';
                       const isNegative = col.type === 'numeric' && raw !== null && Number(raw) < 0;
                       const isTextCol = col.type !== 'numeric' && col.type !== 'date';
+                      const isExpandable = (expandableColumns ?? []).includes(col.key) && str.length > 0;
                       return (
                         <td
                           key={col.key}
@@ -600,14 +612,27 @@ export function TableView({
                               : 'text-gray-600 dark:text-gray-300',
                           )}
                           style={
-                            isTextCol
+                            isExpandable
+                              // Long comma-lists stay one line; the modal shows the full value.
+                              ? { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 0 }
+                              : isTextCol
                               // Text columns wrap so long values (account/destination/vendor…)
                               // are fully visible instead of truncated behind a tooltip.
                               ? { whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere' }
                               : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 0 }
                           }
                         >
-                          <CellValue value={raw} type={col.type} />
+                          {isExpandable ? (
+                            <button
+                              type="button"
+                              onClick={() => setExpandCell({ label: col.label, value: str })}
+                              className="w-full truncate text-left text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                              {str}
+                            </button>
+                          ) : (
+                            <CellValue value={raw} type={col.type} />
+                          )}
                         </td>
                       );
                     })}
@@ -670,6 +695,40 @@ export function TableView({
           </div>
         )}
       </div>
+
+      {/* Expanded-cell modal (e.g. full "Tried DST areas" list for one row) */}
+      {expandCell && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setExpandCell(null)}
+        >
+          <div
+            className="max-h-[80vh] w-full max-w-lg overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{expandCell.label}</h3>
+              <button
+                type="button"
+                onClick={() => setExpandCell(null)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {expandCell.value.split(',').map(s => s.trim()).filter(Boolean).map((c, i) => (
+                <span key={i} className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2 py-1 text-xs text-gray-700 dark:text-gray-300">
+                  {c}
+                </span>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-gray-400 dark:text-gray-500">
+              {expandCell.value.split(',').filter(s => s.trim()).length} items
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

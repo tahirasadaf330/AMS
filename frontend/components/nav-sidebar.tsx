@@ -46,6 +46,7 @@ const REPORT_LINKS: { slug: string; href: string; label: string }[] = [
   { slug: 'prepayment-cl', href: '/reports/prepayment-cl', label: 'Pre-Payment Limit' },
   { slug: 'sms-credit-limit', href: '/reports/sms-credit-limit', label: 'SMS Credit Limit' },
   { slug: 'sms-report', href: '/reports/sms-report', label: 'SMS Report' },
+  { slug: 'src-dst-number-monitoring', href: '/reports/src-dst-number-monitoring', label: 'SRC/DST Number Monitoring' },
   { slug: 'vcs-balance', href: '/reports/vcs-balance', label: 'Voice Credit Limit' },
   { slug: 'voice-live-traffic', href: '/reports/voice-live-traffic', label: 'Voice Live Traffic' },
   { slug: 'zamani', href: '/reports/zamani-traffic', label: 'Zamani Traffic' },
@@ -120,7 +121,7 @@ export function NavSidebar() {
               <Clock className="h-5 w-5" />
             </Link>
           )}
-          {(hasReportAccess('zamani') || hasReportAccess('vcs-balance') || hasReportAccess('sms-credit-limit') || hasReportAccess('prepayment-cl') || hasReportAccess('google_mo') || hasReportAccess('mt-edr') || hasReportAccess('sms-report') || hasReportAccess('deals-automation') || hasReportAccess('voice-live-traffic') || hasReportAccess('apple-traffic')) && (
+          {(hasReportAccess('zamani') || hasReportAccess('vcs-balance') || hasReportAccess('sms-credit-limit') || hasReportAccess('prepayment-cl') || hasReportAccess('google_mo') || hasReportAccess('mt-edr') || hasReportAccess('sms-report') || hasReportAccess('deals-automation') || hasReportAccess('voice-live-traffic') || hasReportAccess('apple-traffic') || hasReportAccess('src-dst-number-monitoring')) && (
             <Link href={hasReportAccess('zamani') ? '/reports/zamani-traffic' : hasReportAccess('google_mo') ? '/reports/google-mo-traffic' : hasReportAccess('vcs-balance') ? '/reports/vcs-balance' : hasReportAccess('sms-credit-limit') ? '/reports/sms-credit-limit' : hasReportAccess('mt-edr') ? '/reports/mt-edr-monitoring' : hasReportAccess('deals-automation') ? '/reports/deals-automation' : hasReportAccess('voice-live-traffic') ? '/reports/voice-live-traffic' : '/reports/sms-report'} className={cn('p-2 rounded-lg hover:bg-gray-700', isActive('/reports') ? 'text-blue-400' : 'text-gray-400')} title="Reports">
               <BarChart2 className="h-5 w-5" />
             </Link>
