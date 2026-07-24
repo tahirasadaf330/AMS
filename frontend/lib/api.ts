@@ -398,6 +398,16 @@ export const zamaniApi = {
     api.get('/reports/zamani/investment-recovery', { params: { trailingDays } }),
 };
 
+// ── ZAMANI SENDER ID (near-real-time destination monitoring) ──
+export const zamaniSenderIdApi = {
+  getData: (params?: { from?: string; to?: string }) =>
+    api.get('/reports/zamani-sender-id/data', { params }),
+  getTimeseries: (params: { from?: string; to?: string; dimension: 'customer' | 'sender'; granularity: 'hour' | 'day' | 'week' | 'month'; keys: string[] }) =>
+    api.get('/reports/zamani-sender-id/timeseries', {
+      params: { from: params.from, to: params.to, dimension: params.dimension, granularity: params.granularity, keys: JSON.stringify(params.keys) },
+    }),
+};
+
 // ── GOOGLE MO TRAFFIC REPORT ──────────────────────────────────
 export const googleMoApi = {
   getFilters: () => api.get('/reports/google-mo/filters'),
@@ -486,6 +496,11 @@ export const srcDstNumberApi = {
 export const mtEdrApi = {
   // from/to are ISO-8601 UTC instants; omitted → the whole retained window (today+yesterday).
   getData: (params?: { from?: string; to?: string }) => api.get('/reports/mt-edr/data', { params }),
+};
+
+// ── NEGATIVE MARGIN REPORT ────────────────────────────────────
+export const negativeMarginApi = {
+  getData: () => api.get('/reports/negative-margin/data'),
 };
 
 // ── PRE-PAYMENT CL REPORT ─────────────────────────────────────

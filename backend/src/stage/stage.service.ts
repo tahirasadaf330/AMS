@@ -170,10 +170,19 @@ export class StageService implements OnModuleInit {
           overlapSince = new Date(now.getTime() - overlapMinutes * 60_000).toISOString();
           this.logger.log(`Rolling-overlap refresh for ${dataset.name}: reload last ${overlapMinutes} min (since ${overlapSince})`);
         } else {
-          // Backfill from the start of the retention window (UTC midnight, retentionDays back)
-          const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - retentionDays, 0, 0, 0));
+          // Backfill start: an explicit incremental_initial_date wins (lets a dataset load a fixed
+          // span of history, independent of the retention/prune window); otherwise the start of the
+          // retention window (UTC midnight, retentionDays back).
+          let start: Date;
+          if (incrConfig?.incremental_initial_date) {
+            const d = new Date(incrConfig.incremental_initial_date);
+            start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0));
+            this.logger.log(`Rolling-overlap initial backfill for ${dataset.name}: from fixed initial date ${start.toISOString()}`);
+          } else {
+            start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - retentionDays, 0, 0, 0));
+            this.logger.log(`Rolling-overlap initial backfill for ${dataset.name}: from ${start.toISOString()} (${retentionDays}d window)`);
+          }
           overlapSince = start.toISOString();
-          this.logger.log(`Rolling-overlap initial backfill for ${dataset.name}: from ${overlapSince} (${retentionDays}d window)`);
         }
         sql = sql.replace(/\{\{SINCE\}\}/g, overlapSince);
       }

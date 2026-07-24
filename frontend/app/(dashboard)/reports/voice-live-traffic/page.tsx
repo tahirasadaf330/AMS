@@ -117,10 +117,19 @@ function useOutsideClose(open: boolean, ref: React.RefObject<HTMLDivElement>, cl
   }, [open, ref, close]);
 }
 
+// Account values are built as "client / account". Show just the account (second)
+// part in the filter so long combined names don't overflow the dropdown — the
+// full value is still what's stored, selected against and matched.
+const accountShort = (v: string): string => {
+  const i = v.indexOf(' / ');
+  return i >= 0 ? v.slice(i + 3) : v;
+};
+
 // Text column filter — multi-select of the column's values (with search), same
-// behaviour as the Datasets viewer's per-column filter.
-function TextColFilter({ colKey, allRows, selected, onChange, align }: {
-  colKey: string; allRows: any[]; selected: string[]; onChange: (vals: string[]) => void; align: 'left' | 'right';
+// behaviour as the Datasets viewer's per-column filter. `formatLabel` optionally
+// shortens the displayed option text; the underlying value is unchanged.
+function TextColFilter({ colKey, allRows, selected, onChange, align, formatLabel }: {
+  colKey: string; allRows: any[]; selected: string[]; onChange: (vals: string[]) => void; align: 'left' | 'right'; formatLabel?: (v: string) => string;
 }) {
   const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState('');
@@ -132,7 +141,14 @@ function TextColFilter({ colKey, allRows, selected, onChange, align }: {
     for (const r of allRows) { const v = r[colKey]; if (v != null && v !== '') set.add(String(v)); }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [allRows, colKey]);
-  const filtered = values.filter(v => v.toLowerCase().includes(q.toLowerCase()));
+  // Pin selected values to the top so the current selection is visible the
+  // moment the dropdown reopens, instead of being buried alphabetically in a
+  // long list (which forced a search to find it). `values` is already
+  // alphabetical and Array.sort is stable, so order within each group is kept.
+  const selSet = new Set(selected);
+  const filtered = values
+    .filter(v => v.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => Number(selSet.has(b)) - Number(selSet.has(a)));
   const has = selected.length > 0;
   const toggle = (v: string) => onChange(selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v]);
 
@@ -152,7 +168,7 @@ function TextColFilter({ colKey, allRows, selected, onChange, align }: {
             {filtered.map(v => (
               <button key={v} type="button" className="vlt-pop-opt" onClick={() => toggle(v)} title={v}>
                 <span className={`vlt-chk${selected.includes(v) ? ' on' : ''}`}>{selected.includes(v) ? '✓' : ''}</span>
-                <span className="val">{v}</span>
+                <span className="val">{formatLabel ? formatLabel(v) : v}</span>
               </button>
             ))}
           </div>
@@ -495,7 +511,7 @@ export default function VoiceLiveTrafficPage() {
                     {COLS.map(c => (
                       <th key={c.key} style={{ position: 'sticky', top: 33, background: 'var(--sf2)', zIndex: 1, padding: '4px 6px', borderBottom: '2px solid var(--lns)', width: c.w, minWidth: c.w }}>
                         {c.type === 'text'
-                          ? <TextColFilter colKey={c.key} allRows={allRows} selected={textFilters[c.key] ?? []} onChange={vals => setTextFilters(f => ({ ...f, [c.key]: vals }))} align={c.left ? 'left' : 'right'} />
+                          ? <TextColFilter colKey={c.key} allRows={allRows} selected={textFilters[c.key] ?? []} onChange={vals => setTextFilters(f => ({ ...f, [c.key]: vals }))} align={c.left ? 'left' : 'right'} formatLabel={c.key === 'account' ? accountShort : undefined} />
                           : <NumColFilter value={numFilters[c.key] ?? { min: '', max: '' }} onChange={v => setNumFilters(f => ({ ...f, [c.key]: v }))} />}
                       </th>
                     ))}

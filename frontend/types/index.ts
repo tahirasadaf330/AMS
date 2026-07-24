@@ -102,6 +102,15 @@ export interface DashboardDataResponse {
   page: number;
   limit: number;
   dataset: Dataset;
+  // Call-weighted totals over the full filtered set (Voice Live Traffic only).
+  totals?: {
+    attempts: number;
+    answered_calls: number;
+    failed_calls: number;
+    volume: number;
+    acd: number | null;
+    asr: number | null;
+  };
 }
 
 export interface DashboardMatrixResponse {

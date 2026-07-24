@@ -193,6 +193,7 @@ export class ConditionsService {
         condition.conditionRows,
         condition.logic,
         stageResult,
+        condition.dataset.stageTableName,
       );
 
       return { matchedRows, matchedCount: matchedRows.length };
@@ -256,7 +257,7 @@ export class ConditionsService {
       const conditionRows: ConditionRow[] = dto.condition_rows ?? dto.conditionRows ?? [];
       const logic = dto.logic ?? 'AND';
       const matchedRows = conditionRows.length > 0
-        ? this.evaluatorService.previewCondition(conditionRows, logic, stageResult)
+        ? this.evaluatorService.previewCondition(conditionRows, logic, stageResult, dataset.stageTableName)
         : stageResult.slice(0, 5);
       const rowsToSend = matchedRows.length > 0 ? matchedRows : stageResult.slice(0, 5);
 
@@ -302,6 +303,7 @@ export class ConditionsService {
         condition.conditionRows,
         condition.logic,
         stageResult,
+        condition.dataset.stageTableName,
       );
 
       const rowsToSend = matchedRows.length > 0 ? matchedRows : stageResult.slice(0, 5);
