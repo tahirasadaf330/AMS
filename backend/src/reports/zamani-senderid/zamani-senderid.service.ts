@@ -7,9 +7,13 @@ import { ExternalDataSource } from '../../common/entities/data-source.entity';
 const STAGE        = 'stage_zamani_senderid';
 const DATASET_NAME = 'Zamani Sender ID';
 
-// The correct (exclusive) route for Zamani traffic. Anything terminated to a different vendor is
-// mis-routed. Zamani destination = operator "Niger Orange (zamani)" (MccMnc 614004).
-export const ZAMANI_VENDOR_CONNECTION_ID = 564;
+// Zamani destination = operator "Niger Orange (zamani)" (MccMnc 614004). The correct route is the
+// CURRENTLY-ACTIVE vendor connection named "Zamani_Niger"; anything else is mis-routed. The route's
+// connection id changes on a cutover (e.g. id 564 was deleted 2026-07-23 and replaced by 671 — both
+// named "Zamani_Niger"), so we key off the LIVE connection by name + ConnectionDeleted = 0 instead
+// of a hardcoded id. A hardcoded id silently turns every post-cutover legit message into a false
+// "mis-routed" alarm (exactly what happened when 564 → 671 flipped).
+export const ZAMANI_VENDOR_NAME = 'Zamani_Niger';
 const ZAMANI_OPERATOR = 'Niger Orange (zamani)';
 
 // One row per MT message DESTINED to Zamani (any vendor — no vendor filter, unlike the daily
@@ -18,7 +22,7 @@ const ZAMANI_OPERATOR = 'Niger Orange (zamani)';
 // OVERLAP_MINUTES (by submit_datetime) so late-arriving DLRs settle; rows older than the retention
 // window are pruned. The Zamani Sender-ID alerts + report read this table for their time windows.
 //
-// Scoped by DESTINATION (operator = Zamani), so mis-routed traffic (vendor <> 564) is INCLUDED and
+// Scoped by DESTINATION (operator = Zamani), so mis-routed traffic (not on the active Zamani route) is INCLUDED and
 // flagged via is_misrouted — that is exactly what the daily zamani_traffic report cannot see.
 const SEED_SQL = `
 SELECT
@@ -29,7 +33,7 @@ SELECT
     CONCAT(am.FirstName, ' ', am.LastName)                             AS account_manager,
     mvc.Name                                                            AS vendor_connection,
     mt.MtVendorConnectionId                                             AS mt_vendor_connection_id,
-    CASE WHEN mt.MtVendorConnectionId = ${ZAMANI_VENDOR_CONNECTION_ID} THEN 0 ELSE 1 END AS is_misrouted,
+    CASE WHEN mvc.Name = '${ZAMANI_VENDOR_NAME}' AND mvc.ConnectionDeleted = 0 THEN 0 ELSE 1 END AS is_misrouted,
     mmd.OperatorName                                                    AS operator,
     ds.DlrStatus                                                        AS dlr_status,
     CASE WHEN ds.DlrStatus = 'Delivered' THEN 1 ELSE 0 END             AS is_delivered
@@ -62,8 +66,8 @@ const SEED_COLUMNS = [
   { key: 'customer_connection',    label: 'Aggregator',      type: 'text',      description: 'Customer connection (aggregator) sending the traffic.' },
   { key: 'account_manager',        label: 'Account Manager', type: 'text',      description: "Customer's sales account manager (full name)." },
   { key: 'vendor_connection',      label: 'Vendor',          type: 'text',      description: 'Terminating vendor connection the message was routed to.' },
-  { key: 'mt_vendor_connection_id', label: 'Vendor ID',      type: 'numeric',   description: 'Terminating vendor connection id; 564 = correct Zamani route.' },
-  { key: 'is_misrouted',           label: 'Mis-routed',      type: 'numeric',   description: 'Flag 1/0: Zamani-destined but routed to a vendor other than 564.' },
+  { key: 'mt_vendor_connection_id', label: 'Vendor ID',      type: 'numeric',   description: 'Terminating vendor connection id; the active "Zamani_Niger" connection is the correct route.' },
+  { key: 'is_misrouted',           label: 'Mis-routed',      type: 'numeric',   description: 'Flag 1/0: Zamani-destined but not routed to the active "Zamani_Niger" connection.' },
   { key: 'operator',               label: 'Operator',        type: 'text',      description: 'Destination operator (Zamani).' },
   { key: 'dlr_status',             label: 'DLR Status',      type: 'text',      description: 'Delivery-receipt status of the message.' },
   { key: 'is_delivered',           label: 'Delivered',       type: 'numeric',   description: 'Flag 1/0: DLR status = Delivered. Volume is counted as messages (rows).' },
