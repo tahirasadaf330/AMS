@@ -34,32 +34,32 @@ WITH AllSourceEdr AS (
     SELECT e.ReceivedDateTime AS ReceivedDateTime, mt.CustomerConnectionId, mt.MtVendorConnectionId, mt.MccMnc, mt.TerminatedSenderId, mt.DlrStatusId
     FROM SMSCEdr.dbo.EdrSmppServer e WITH(NOLOCK)
     LEFT JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK) ON mt.EdrSourceId = e.EdrSmppServerId AND mt.MessageSourceId = 1
-    WHERE e.ReceivedDateTime >= '{{SINCE}}'
+    WHERE e.ReceivedDateTime >= CONVERT(datetime2, LEFT('{{SINCE}}', 19), 126)
     UNION ALL
     SELECT ae.ReceivedDateTime, amt.CustomerConnectionId, amt.MtVendorConnectionId, amt.MccMnc, amt.TerminatedSenderId, amt.DlrStatusId
     FROM SMSCArchiveEdr.dbo.ArchiveEdrSmppServer ae WITH(NOLOCK)
     LEFT JOIN SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK) ON amt.EdrSourceId = ae.ArchiveEdrSmppServerId AND amt.MessageSourceId = 1
-    WHERE ae.ReceivedDateTime >= '{{SINCE}}'
+    WHERE ae.ReceivedDateTime >= CONVERT(datetime2, LEFT('{{SINCE}}', 19), 126)
     UNION ALL
     SELECT e.ReceivedDateTime, mt.CustomerConnectionId, mt.MtVendorConnectionId, mt.MccMnc, mt.TerminatedSenderId, mt.DlrStatusId
     FROM SMSCEdr.dbo.EdrApi e WITH(NOLOCK)
     LEFT JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK) ON mt.EdrSourceId = e.EdrApiId AND mt.MessageSourceId = 2
-    WHERE e.ReceivedDateTime >= '{{SINCE}}'
+    WHERE e.ReceivedDateTime >= CONVERT(datetime2, LEFT('{{SINCE}}', 19), 126)
     UNION ALL
     SELECT ae.ReceivedDateTime, amt.CustomerConnectionId, amt.MtVendorConnectionId, amt.MccMnc, amt.TerminatedSenderId, amt.DlrStatusId
     FROM SMSCArchiveEdr.dbo.ArchiveEdrApi ae WITH(NOLOCK)
     LEFT JOIN SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK) ON amt.EdrSourceId = ae.ArchiveEdrApiId AND amt.MessageSourceId = 2
-    WHERE ae.ReceivedDateTime >= '{{SINCE}}'
+    WHERE ae.ReceivedDateTime >= CONVERT(datetime2, LEFT('{{SINCE}}', 19), 126)
     UNION ALL
     SELECT emd.ReceivedDateTime, mt.CustomerConnectionId, mt.MtVendorConnectionId, mt.MccMnc, mt.TerminatedSenderId, mt.DlrStatusId
     FROM SMSCEdr.dbo.EdrSmsCampaignMessageData emd WITH(NOLOCK)
     LEFT JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK) ON mt.EdrSourceId = emd.EdrSmsCampaignMessageDataId AND mt.MessageSourceId = 3
-    WHERE emd.ReceivedDateTime >= '{{SINCE}}'
+    WHERE emd.ReceivedDateTime >= CONVERT(datetime2, LEFT('{{SINCE}}', 19), 126)
     UNION ALL
     SELECT aemd.ReceivedDateTime, amt.CustomerConnectionId, amt.MtVendorConnectionId, amt.MccMnc, amt.TerminatedSenderId, amt.DlrStatusId
     FROM SMSCArchiveEdr.dbo.ArchiveEdrSmsCampaignMessageData aemd WITH(NOLOCK)
     LEFT JOIN SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK) ON amt.EdrSourceId = aemd.ArchiveEdrSmsCampaignMessageDataId AND amt.MessageSourceId = 3
-    WHERE aemd.ReceivedDateTime >= '{{SINCE}}'
+    WHERE aemd.ReceivedDateTime >= CONVERT(datetime2, LEFT('{{SINCE}}', 19), 126)
 )
 SELECT
     CONVERT(date, mt.ReceivedDateTime)                                  AS [date],
