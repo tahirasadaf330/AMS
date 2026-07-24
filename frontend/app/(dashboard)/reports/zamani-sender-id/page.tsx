@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { zamaniSenderIdApi } from '@/lib/api';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -113,6 +113,9 @@ type Data = { totals: Totals; senders: Sender[]; aggregators: Agg[]; senderCusto
 
 // Distinct line colors for the trend chart (categorical; assigned in fixed order, never cycled per-render).
 const SERIES_COLORS = ['#2563eb', '#16a34a', '#ea580c', '#9333ea', '#dc2626', '#0891b2', '#ca8a04', '#db2777', '#4f46e5', '#65a30d', '#0d9488', '#c026d3'];
+// Shared axis / tooltip styling, matching the Zamani Traffic report's charts.
+const TIP = { contentStyle: { background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 8, fontSize: 12 }, labelStyle: { color: 'var(--mu)' } };
+const AX = { tick: { fontSize: 10, fill: 'var(--mu)' }, axisLine: false, tickLine: false } as const;
 
 const fmtN = (n: number | null) => (n != null ? Number(n).toLocaleString() : '—');
 const dlrCls = (p: number) => (p >= 80 ? 'dlr-good' : p >= 50 ? 'dlr-ok' : 'dlr-bad');
@@ -251,19 +254,34 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
             <div className="edr-empty">No data to plot for this selection</div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 8, right: 24, left: 0, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" />
-                <XAxis dataKey="bucket" tick={{ fontSize: 11, fill: 'var(--inks)' }} minTickGap={24} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--inks)' }} width={52}
+              <AreaChart data={chartData} margin={{ top: 8, right: 24, left: 0, bottom: 4 }}>
+                <defs>
+                  {seriesKeys.map((k, i) => {
+                    const c = SERIES_COLORS[i % SERIES_COLORS.length];
+                    return (
+                      <linearGradient key={k} id={`zsg_${i}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={c} stopOpacity={seriesKeys.length > 1 ? 0.18 : 0.45} />
+                        <stop offset="100%" stopColor={c} stopOpacity={0.02} />
+                      </linearGradient>
+                    );
+                  })}
+                </defs>
+                <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
+                <XAxis dataKey="bucket" {...AX} minTickGap={24} />
+                <YAxis {...AX} width={54}
                   domain={metric === 'dlr' ? [0, 100] : undefined}
                   tickFormatter={(v: number) => metric === 'dlr' ? `${v}%` : (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v))} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid var(--lns)' }}
-                  formatter={(v: any, name: string) => [metric === 'dlr' ? `${v}%` : Number(v).toLocaleString(), name]} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                {seriesKeys.map((k, i) => (
-                  <Line key={k} type="monotone" dataKey={k} name={k} stroke={SERIES_COLORS[i % SERIES_COLORS.length]} dot={false} strokeWidth={2} connectNulls isAnimationActive={false} />
-                ))}
-              </LineChart>
+                <Tooltip {...TIP} formatter={(v: any, name: string) => [metric === 'dlr' ? `${v}%` : Number(v).toLocaleString(), name]} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                {seriesKeys.map((k, i) => {
+                  const c = SERIES_COLORS[i % SERIES_COLORS.length];
+                  return (
+                    <Area key={k} type="monotone" dataKey={k} name={k} stroke={c} strokeWidth={2.5}
+                      fill={`url(#zsg_${i})`} dot={false} connectNulls isAnimationActive={false}
+                      activeDot={{ r: 4, stroke: '#fff', strokeWidth: 2, fill: c }} />
+                  );
+                })}
+              </AreaChart>
             </ResponsiveContainer>
           )}
         </div>
