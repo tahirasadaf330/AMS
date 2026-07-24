@@ -3,11 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Condition, ConditionChannels } from '../../common/entities/condition.entity';
 
-// Recipients are code-managed (test address until the real AM/partner lists are given). The SCHEDULE
+// Recipients are code-managed and re-applied to all 5 alerts on boot (ensureCondition). The SCHEDULE
 // is user-managed via the Alerts UI (trigger_cron) — we only seed a sensible default for a fresh
 // condition and never override it afterwards. Thresholds are data-informed (Zamani ≈ 460 msg/hr) and
 // live as plain SQL constants below so they're trivial to retune.
-const TO: string[] = ['bilal.waris@hayo.net'];
+const TO: string[] = ['bilal.waris@hayo.net', 'mladen.jankovic@hayo.net', 'sarkari@hayo.net'];
 const CC: string[] = [];
 
 // Shared Python preamble: helpers + DB connect (AMS Postgres) + opens a try block. Each alert body
