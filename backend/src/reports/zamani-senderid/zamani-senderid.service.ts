@@ -352,10 +352,12 @@ export class ZamaniSenderIdService implements OnModuleInit {
     const MAX_SERIES = 12;
     const dimCol = dimension === 'sender' ? 'terminated_senderid' : 'customer_connection';
     const trunc = (['hour', 'day', 'week', 'month'] as const).includes(granularity) ? granularity : 'day';
+    // Truncate in UTC (submit_datetime is stored UTC) so buckets align to UTC day/week/month boundaries.
+    const truncExpr = `date_trunc('${trunc}', submit_datetime AT TIME ZONE 'UTC')`;
     const label =
-      trunc === 'hour'  ? `to_char(b AT TIME ZONE 'UTC', 'MM-DD HH24:00')` :
-      trunc === 'month' ? `to_char(b AT TIME ZONE 'UTC', 'YYYY-MM')` :
-                          `to_char(b AT TIME ZONE 'UTC', 'YYYY-MM-DD')`;
+      trunc === 'hour'  ? `to_char(${truncExpr}, 'MM-DD HH24:00')` :
+      trunc === 'month' ? `to_char(${truncExpr}, 'YYYY-MM')` :
+                          `to_char(${truncExpr}, 'YYYY-MM-DD')`;
 
     // Restrict to the requested keys; if none given, fall back to the top MAX_SERIES by volume.
     let keyList = (keys ?? []).filter((k) => k != null && k !== '');
@@ -373,14 +375,13 @@ export class ZamaniSenderIdService implements OnModuleInit {
 
     const rows: any[] = await this.dataSource.query(
       `SELECT ${label} AS bucket, ${dimCol} AS key,
-              COUNT(*)::bigint AS messages, SUM(is_delivered)::bigint AS delivered,
-              date_trunc('${trunc}', submit_datetime) AS b
+              COUNT(*)::bigint AS messages, SUM(is_delivered)::bigint AS delivered
        FROM ${STAGE}
        WHERE ($1::timestamptz IS NULL OR submit_datetime >= $1::timestamptz)
          AND ($2::timestamptz IS NULL OR submit_datetime <= $2::timestamptz)
          AND ${dimCol} = ANY($3::text[])
-       GROUP BY b, ${dimCol}
-       ORDER BY b`, [from ?? null, to ?? null, keyList]);
+       GROUP BY ${truncExpr}, ${dimCol}
+       ORDER BY ${truncExpr}`, [from ?? null, to ?? null, keyList]);
 
     const buckets: string[] = [];
     const seen = new Set<string>();
