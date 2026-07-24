@@ -24,10 +24,46 @@ const ZAMANI_OPERATOR = 'Niger Orange (zamani)';
 //
 // Scoped by DESTINATION (operator = Zamani), so mis-routed traffic (not on the active Zamani route) is INCLUDED and
 // flagged via is_misrouted — that is exactly what the daily zamani_traffic report cannot see.
+// The live SMSCEdr.dbo.MTEdr table only retains ~2-3 days; older messages move to SMSCArchiveEdr.
+// So (like the daily zamani_traffic report) we UNION live + archive across all three ingress channels
+// (SMPP / API / Campaign) into AllSourceEdr, keyed on the source EDR's ReceivedDateTime. This lets the
+// initial backfill reach months of history; the 5-min overlap refresh still only re-pulls the recent
+// window (SINCE = now-40min), which the archive branches return nothing for.
 const SEED_SQL = `
+WITH AllSourceEdr AS (
+    SELECT e.ReceivedDateTime AS ReceivedDateTime, mt.CustomerConnectionId, mt.MtVendorConnectionId, mt.MccMnc, mt.TerminatedSenderId, mt.DlrStatusId
+    FROM SMSCEdr.dbo.EdrSmppServer e WITH(NOLOCK)
+    LEFT JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK) ON mt.EdrSourceId = e.EdrSmppServerId AND mt.MessageSourceId = 1
+    WHERE e.ReceivedDateTime >= '{{SINCE}}'
+    UNION ALL
+    SELECT ae.ReceivedDateTime, amt.CustomerConnectionId, amt.MtVendorConnectionId, amt.MccMnc, amt.TerminatedSenderId, amt.DlrStatusId
+    FROM SMSCArchiveEdr.dbo.ArchiveEdrSmppServer ae WITH(NOLOCK)
+    LEFT JOIN SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK) ON amt.EdrSourceId = ae.ArchiveEdrSmppServerId AND amt.MessageSourceId = 1
+    WHERE ae.ReceivedDateTime >= '{{SINCE}}'
+    UNION ALL
+    SELECT e.ReceivedDateTime, mt.CustomerConnectionId, mt.MtVendorConnectionId, mt.MccMnc, mt.TerminatedSenderId, mt.DlrStatusId
+    FROM SMSCEdr.dbo.EdrApi e WITH(NOLOCK)
+    LEFT JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK) ON mt.EdrSourceId = e.EdrApiId AND mt.MessageSourceId = 2
+    WHERE e.ReceivedDateTime >= '{{SINCE}}'
+    UNION ALL
+    SELECT ae.ReceivedDateTime, amt.CustomerConnectionId, amt.MtVendorConnectionId, amt.MccMnc, amt.TerminatedSenderId, amt.DlrStatusId
+    FROM SMSCArchiveEdr.dbo.ArchiveEdrApi ae WITH(NOLOCK)
+    LEFT JOIN SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK) ON amt.EdrSourceId = ae.ArchiveEdrApiId AND amt.MessageSourceId = 2
+    WHERE ae.ReceivedDateTime >= '{{SINCE}}'
+    UNION ALL
+    SELECT emd.ReceivedDateTime, mt.CustomerConnectionId, mt.MtVendorConnectionId, mt.MccMnc, mt.TerminatedSenderId, mt.DlrStatusId
+    FROM SMSCEdr.dbo.EdrSmsCampaignMessageData emd WITH(NOLOCK)
+    LEFT JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK) ON mt.EdrSourceId = emd.EdrSmsCampaignMessageDataId AND mt.MessageSourceId = 3
+    WHERE emd.ReceivedDateTime >= '{{SINCE}}'
+    UNION ALL
+    SELECT aemd.ReceivedDateTime, amt.CustomerConnectionId, amt.MtVendorConnectionId, amt.MccMnc, amt.TerminatedSenderId, amt.DlrStatusId
+    FROM SMSCArchiveEdr.dbo.ArchiveEdrSmsCampaignMessageData aemd WITH(NOLOCK)
+    LEFT JOIN SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK) ON amt.EdrSourceId = aemd.ArchiveEdrSmsCampaignMessageDataId AND amt.MessageSourceId = 3
+    WHERE aemd.ReceivedDateTime >= '{{SINCE}}'
+)
 SELECT
-    CONVERT(date, mt.SubmitDateTime)                                    AS [date],
-    CONVERT(VARCHAR(23), mt.SubmitDateTime, 126) + 'Z'                  AS submit_datetime,
+    CONVERT(date, mt.ReceivedDateTime)                                  AS [date],
+    CONVERT(VARCHAR(23), mt.ReceivedDateTime, 126) + 'Z'                AS submit_datetime,
     mt.TerminatedSenderId                                               AS terminated_senderid,
     cc.Name                                                             AS customer_connection,
     CONCAT(am.FirstName, ' ', am.LastName)                             AS account_manager,
@@ -37,7 +73,7 @@ SELECT
     mmd.OperatorName                                                    AS operator,
     ds.DlrStatus                                                        AS dlr_status,
     CASE WHEN ds.DlrStatus = 'Delivered' THEN 1 ELSE 0 END             AS is_delivered
-FROM SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
+FROM AllSourceEdr mt
 LEFT JOIN SMSCPhoenix.dbo.CustomerConnections cc WITH(NOLOCK)
     ON cc.CustomerConnectionId = mt.CustomerConnectionId
 LEFT JOIN SMSCPhoenix.dbo.Company comp WITH(NOLOCK)
@@ -50,8 +86,7 @@ LEFT JOIN SMSCPhoenix.dbo.MccMncDb mmd WITH(NOLOCK)
     ON mmd.MccMnc = mt.MccMnc
 LEFT JOIN SMSCPhoenix.dbo.DlrStatus ds WITH(NOLOCK)
     ON ds.DlrStatusId = mt.DlrStatusId
-WHERE mt.SubmitDateTime >= '{{SINCE}}'
-  AND mmd.OperatorName = '${ZAMANI_OPERATOR}'
+WHERE mmd.OperatorName = '${ZAMANI_OPERATOR}'
 `;
 
 // Rolling-overlap config (read by StageService via raw SQL).
