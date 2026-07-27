@@ -29,6 +29,7 @@ export class TeamsWebhookService {
     timestamp?: string;
     selectedColumns?: string[];
     columnMeta?: Array<{ key: string; label: string; visible: boolean }>;
+    vendorScoped?: boolean;
   }): Promise<void> {
     const webhookUrl = params.webhookUrl || this.defaultWebhookUrl;
     if (!webhookUrl) {
@@ -53,42 +54,47 @@ export class TeamsWebhookService {
       : allColumns.filter((c) => !INTERNAL.has(c))
     ).filter((c) => !hiddenKeys.has(c));
 
-    // One MessageCard per row — same proven format as the Python webhook script
-    for (let i = 0; i < params.matchedRows.length; i++) {
-      const row = params.matchedRows[i];
+    // Totals card(s) — one per Account + Destination group (sum counts, weighted
+    // ASR/ACD). Non-empty only for the Voice-shaped datasets.
+    const totals = buildAccountDestinationTotals(params.matchedRows, params.vendorScoped);
 
-      const card = {
-        '@type':    'MessageCard',
-        '@context': 'https://schema.org/extensions',
-        themeColor,
-        summary: `AMS Alert: ${params.conditionName}`,
-        sections: [
-          {
-            activityTitle:    `**AMS Alert:** ${params.conditionName}`,
-            activitySubtitle: `${params.datasetName} · ${timeLabel} · Row ${i + 1} of ${params.matchedCount}`,
-            facts: columns.map((col) => ({
-              name:  col.replace(/_/g, ' '),
-              value: this.formatValue(row[col]),
-            })),
-            markdown: true,
-          },
-        ],
-      };
+    // Voice group alerts show ONLY the Account + Destination totals — skip the
+    // per-row (per-vendor) cards. Datasets without totals keep one card per row.
+    if (totals.length === 0) {
+      // One MessageCard per row — same proven format as the Python webhook script
+      for (let i = 0; i < params.matchedRows.length; i++) {
+        const row = params.matchedRows[i];
 
-      await axios.post(webhookUrl, card, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 15000,
-      });
+        const card = {
+          '@type':    'MessageCard',
+          '@context': 'https://schema.org/extensions',
+          themeColor,
+          summary: `AMS Alert: ${params.conditionName}`,
+          sections: [
+            {
+              activityTitle:    `**AMS Alert:** ${params.conditionName}`,
+              activitySubtitle: `${params.datasetName} · ${timeLabel} · Row ${i + 1} of ${params.matchedCount}`,
+              facts: columns.map((col) => ({
+                name:  col.replace(/_/g, ' '),
+                value: this.formatValue(row[col]),
+              })),
+              markdown: true,
+            },
+          ],
+        };
 
-      // Avoid Teams 403 rate limiting between cards
-      if (i < params.matchedRows.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await axios.post(webhookUrl, card, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 15000,
+        });
+
+        // Avoid Teams 403 rate limiting between cards
+        if (i < params.matchedRows.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
       }
     }
 
-    // Totals card(s) — one per Account + Destination group (sum counts,
-    // weighted ASR/ACD). No-op for datasets without those columns.
-    const totals = buildAccountDestinationTotals(params.matchedRows);
     for (const t of totals) {
       await new Promise((resolve) => setTimeout(resolve, 1000)); // pace vs Teams rate limit
       const card = {
@@ -103,6 +109,7 @@ export class TeamsWebhookService {
             facts: [
               { name: 'Account',        value: t.account || '—' },
               { name: 'Destination',    value: t.destination || '—' },
+              { name: 'Vendor',         value: t.vendor || '—' },
               { name: 'Attempts',       value: String(t.attempts) },
               { name: 'ACD',            value: t.acd == null ? '—' : t.acd.toFixed(2) },
               { name: 'ASR',            value: t.asr == null ? '—' : `${t.asr.toFixed(2)}%` },

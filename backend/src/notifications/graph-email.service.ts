@@ -305,6 +305,7 @@ export class GraphEmailService {
     emailText?: string;
     columnMeta?: Array<{ key: string; label: string; visible: boolean }>;
     selectedColumns?: string[];
+    vendorScoped?: boolean;
   }): Promise<void> {
     const html = this.buildHtml({ ...params });
 
@@ -357,6 +358,7 @@ export class GraphEmailService {
     emailText?: string;
     columnMeta?: Array<{ key: string; label: string; visible: boolean }>;
     selectedColumns?: string[];
+    vendorScoped?: boolean;
   }): string {
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -407,7 +409,7 @@ export class GraphEmailService {
 
     // Totals grouped by Account + Destination (sum counts, weighted ASR/ACD) —
     // rendered as a standalone table below the detail so it's always visible.
-    const acctDestTotals = buildAccountDestinationTotals(params.matchedRows);
+    const acctDestTotals = buildAccountDestinationTotals(params.matchedRows, params.vendorScoped);
     let totalsSection = '';
     if (acctDestTotals.length && colDefs.length) {
       const totHeader = colDefs
@@ -416,7 +418,7 @@ export class GraphEmailService {
       const totBody = acctDestTotals
         .map((t) => {
           const synthetic: Record<string, unknown> = {
-            account: t.account, destination: t.destination, vendor: 'All vendors',
+            account: t.account, destination: t.destination, vendor: t.vendor,
             attempts: t.attempts, acd: t.acd, asr: t.asr,
             failed_calls: t.failed_calls, volume: t.volume, answered_calls: t.answered_calls,
           };
@@ -440,6 +442,26 @@ export class GraphEmailService {
     </tr>`;
     }
 
+    // Voice Live Traffic alerts show ONLY the Account + Destination totals table
+    // (buildAccountDestinationTotals returns rows only for that column shape) — the
+    // per-vendor detail rows are omitted. Every other dataset keeps its detail table.
+    const detailSection = acctDestTotals.length > 0 ? '' : `
+    ${moreNote}
+    <tr>
+      <td style="padding:12px 24px 20px;">
+        <div style="overflow-x:auto;overflow-y:auto;max-height:${VISIBLE_ROWS * 42}px;border:1px solid #d0d8e8;border-radius:4px;">
+          <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;min-width:100%;">
+            <thead style="position:sticky;top:0;z-index:1;">
+              <tr>${headerCells}</tr>
+            </thead>
+            <tbody>
+              ${allDataRows}
+            </tbody>
+          </table>
+        </div>
+      </td>
+    </tr>`;
+
     return `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -462,23 +484,8 @@ export class GraphEmailService {
     </tr>
     <!-- Custom text -->
     ${textSection}
-    <!-- Row count note if truncated -->
-    ${moreNote}
-    <!-- Table with horizontal + vertical scroll -->
-    <tr>
-      <td style="padding:12px 24px 20px;">
-        <div style="overflow-x:auto;overflow-y:auto;max-height:${VISIBLE_ROWS * 42}px;border:1px solid #d0d8e8;border-radius:4px;">
-          <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;min-width:100%;">
-            <thead style="position:sticky;top:0;z-index:1;">
-              <tr>${headerCells}</tr>
-            </thead>
-            <tbody>
-              ${allDataRows}
-            </tbody>
-          </table>
-        </div>
-      </td>
-    </tr>
+    <!-- Detail table — omitted for Voice Account+Destination totals-only alerts -->
+    ${detailSection}
     <!-- Totals by Account + Destination -->
     ${totalsSection}
     <!-- Footer -->

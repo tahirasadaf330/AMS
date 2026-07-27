@@ -94,10 +94,21 @@ export class NotificationsService {
    * Dispatches notifications to all enabled channels independently.
    * Failure in one channel never blocks the other.
    */
+  /**
+   * True when a condition names a vendor (has a `vendor` clause). Drives whether the
+   * Account+Destination totals show the real vendor or 'All vendors' — the totals are
+   * call-weighted, so only a vendor-scoped alert should attribute them to one vendor.
+   */
+  private conditionHasVendorClause(condition: Condition): boolean {
+    const rows = condition?.conditionRows;
+    return Array.isArray(rows) && rows.some((r) => (r as { column?: string })?.column === 'vendor');
+  }
+
   async dispatch(params: DispatchParams): Promise<void> {
     const { condition, datasetName, matchedRows, columnMeta } = params;
     const channels: ConditionChannels = condition.channels || {};
     const channelsDispatched: string[] = [];
+    const vendorScoped = this.conditionHasVendorClause(condition);
 
     const subject = `[AMS Alert] ${condition.name} — ${matchedRows.length} rows matched`;
     const tasks: Promise<void>[] = [];
@@ -111,6 +122,7 @@ export class NotificationsService {
           datasetName,
           matchedRows,
           columnMeta,
+          vendorScoped,
           subject,
           recipients: channels.email.recipients,
         }).catch((err) => this.logger.error('Email dispatch unhandled error', err)),
@@ -126,6 +138,7 @@ export class NotificationsService {
           datasetName,
           matchedRows,
           columnMeta,
+          vendorScoped,
           selectedColumns: channels.email?.columns,
           webhookUrl: channels.teams.webhook_url,
           severity: channels.teams.severity || 'info',
@@ -159,6 +172,7 @@ export class NotificationsService {
     datasetName: string;
     matchedRows: Record<string, unknown>[];
     columnMeta?: ColumnMeta[];
+    vendorScoped?: boolean;
     subject: string;
     recipients: string[];
   }): Promise<void> {
@@ -183,6 +197,7 @@ export class NotificationsService {
         emailText: params.condition.channels?.email?.text,
         columnMeta: params.columnMeta,
         selectedColumns: params.condition.channels?.email?.columns,
+        vendorScoped: params.vendorScoped,
       });
 
       await this.notifLogRepo.update(saved.id, { status: 'sent' });
@@ -218,6 +233,7 @@ export class NotificationsService {
     datasetName: string;
     matchedRows: Record<string, unknown>[];
     columnMeta?: ColumnMeta[];
+    vendorScoped?: boolean;
     selectedColumns?: string[];
     webhookUrl?: string;
     severity: 'critical' | 'warning' | 'info';
@@ -245,6 +261,7 @@ export class NotificationsService {
         timestamp: new Date().toISOString(),
         selectedColumns: params.selectedColumns,
         columnMeta: params.columnMeta,
+        vendorScoped: params.vendorScoped,
       });
 
       await this.notifLogRepo.update(saved.id, { status: 'sent' });
@@ -416,6 +433,7 @@ export class NotificationsService {
           conditionName: condition.name,
           datasetName,
           matchedRows,
+          vendorScoped: this.conditionHasVendorClause(condition),
         });
         await this.notifLogRepo.update(id, { status: 'sent' });
       } catch (err) {
@@ -433,6 +451,7 @@ export class NotificationsService {
           matchedCount: matchedRows.length,
           severity: teamsChannels?.severity || 'info',
           columnMeta: Array.isArray(log.dataset?.columnMetadata) ? (log.dataset?.columnMetadata as any[]) : undefined,
+          vendorScoped: this.conditionHasVendorClause(condition),
         });
         await this.notifLogRepo.update(id, { status: 'sent' });
       } catch (err) {
@@ -519,7 +538,7 @@ export class NotificationsService {
         if (log.channel === 'email') {
           const recipients = condition.channels?.email?.recipients ?? (log.recipients as string[]) ?? [];
           const subject = `[AMS Alert] ${condition.name} — ${matchedRows.length} rows matched`;
-          await this.graphEmailService.sendAlert({ recipients, subject, conditionName: condition.name, datasetName, matchedRows });
+          await this.graphEmailService.sendAlert({ recipients, subject, conditionName: condition.name, datasetName, matchedRows, vendorScoped: this.conditionHasVendorClause(condition) });
           handled = true;
         } else if (log.channel === 'teams') {
           await this.teamsWebhookService.sendAlert({
@@ -530,6 +549,7 @@ export class NotificationsService {
             matchedCount: matchedRows.length,
             severity: condition.channels?.teams?.severity || 'info',
             columnMeta: Array.isArray(log.dataset?.columnMetadata) ? (log.dataset?.columnMetadata as any[]) : undefined,
+            vendorScoped: this.conditionHasVendorClause(condition),
           });
           handled = true;
         }
