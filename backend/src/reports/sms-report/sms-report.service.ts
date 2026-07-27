@@ -176,11 +176,7 @@ EdrStats AS (
         SUM(IIF((mt.RetryNumber = 0 OR mt.RetryNumber IS NULL)
                 AND mt.DlrStatusId = 8, mt.PartsSent, NULL))                             AS failed,
         SUM(CASE WHEN mt.DlrStatusId = 2 THEN mt.PartsSent ELSE 0 END)                   AS delivered,
-        -- Both CustomerCost and MtVendorCost are booked in the CUSTOMER's deal currency (business-
-        -- confirmed) — so vendor cost must be converted with the CUSTOMER's rate (cv), NOT the vendor
-        -- company's own currency. Using the vendor-company rate inflated expenses (e.g. MessageBird
-        -- EUR routed via a USD vendor company read ~1.2x too high vs the aSMSc platform).
-        ROUND(CAST(SUM(mt.MtVendorCost * COALESCE(cv.ConversionRate, 1)) AS FLOAT), 5)   AS expenses,
+        ROUND(CAST(SUM(mt.MtVendorCost * COALESCE(vcv.ConversionRate, 1)) AS FLOAT), 5)  AS expenses,
         ROUND(CAST(SUM(mt.CustomerCost  * COALESCE(cv.ConversionRate,  1)) AS FLOAT), 5) AS income
     FROM AllMtEdr mt
     JOIN  SMSCPhoenix.dbo.CustomerConnections cc    WITH(NOLOCK) ON cc.CustomerConnectionId    = mt.CustomerConnectionId
@@ -190,6 +186,8 @@ EdrStats AS (
     LEFT  JOIN SMSCPhoenix.dbo.MccMncDb mmd         WITH(NOLOCK) ON mmd.MccMnc                 = mt.MccMnc
     LEFT  JOIN SMSCPhoenix.dbo.Countries co         WITH(NOLOCK) ON co.CountryId               = mmd.CountryId
     LEFT  JOIN SMSCPhoenix.dbo.MtVendorConnection mvc  WITH(NOLOCK) ON mvc.MtVendorConnectionId = mt.MtVendorConnectionId
+    LEFT  JOIN SMSCPhoenix.dbo.Company vcomp        WITH(NOLOCK) ON vcomp.CompanyId            = mvc.CompanyId
+    LEFT  JOIN SMSCPhoenix.dbo.CurrencyConversion vcv  WITH(NOLOCK) ON vcv.CurrencyId          = vcomp.CurrencyId
     WHERE comp.CompanyDeleted = 0
     GROUP BY
         CAST(mt.SubmitDateTime AS DATE), comp.Name, comp.CompanyId, cc.CustomerConnectionId, cc.Name,
