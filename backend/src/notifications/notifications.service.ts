@@ -198,6 +198,8 @@ export class NotificationsService {
         columnMeta: params.columnMeta,
         selectedColumns: params.condition.channels?.email?.columns,
         vendorScoped: params.vendorScoped,
+        // Scopes the identifier/text-column formatting fix to this dataset only.
+        stageTableName: params.condition.dataset?.stageTableName,
       });
 
       await this.notifLogRepo.update(saved.id, { status: 'sent' });

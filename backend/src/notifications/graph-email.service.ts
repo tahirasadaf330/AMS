@@ -288,9 +288,10 @@ export class GraphEmailService {
     datasetName: string;
     matchedRows: Record<string, unknown>[];
     emailText?: string;
-    columnMeta?: Array<{ key: string; label: string; visible: boolean }>;
+    columnMeta?: Array<{ key: string; label: string; visible: boolean; type?: string }>;
     selectedColumns?: string[];
     vendorScoped?: boolean;
+    stageTableName?: string;
   }): Promise<void> {
     const { token, senderEmail } = await this.getAccessToken();
     const html = this.buildHtml({ ...params });
@@ -393,9 +394,10 @@ export class GraphEmailService {
     datasetName: string;
     matchedRows: Record<string, unknown>[];
     emailText?: string;
-    columnMeta?: Array<{ key: string; label: string; visible: boolean }>;
+    columnMeta?: Array<{ key: string; label: string; visible: boolean; type?: string }>;
     selectedColumns?: string[];
     vendorScoped?: boolean;
+    stageTableName?: string;
   }): string {
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -405,12 +407,16 @@ export class GraphEmailService {
     const selectedSet = params.selectedColumns && params.selectedColumns.length > 0
       ? new Set(params.selectedColumns)
       : null;
-    let colDefs: Array<{ key: string; label: string }> = [];
+    let colDefs: Array<{ key: string; label: string; type?: string }> = [];
     const fmtLabel = (l: string) => l.replace(/_/g, ' ').toUpperCase();
+    // SCOPED to SRC/DST Number Monitoring: carry column types through so identifier/text columns
+    // (e.g. the phone `number`) render verbatim instead of being comma/decimal-formatted like a
+    // metric. For every other dataset `type` stays undefined → formatting is unchanged (no blast).
+    const respectColumnTypes = params.stageTableName === 'ds_src_dst_number_monitoring';
     if (params.columnMeta && params.columnMeta.length > 0) {
       colDefs = params.columnMeta
         .filter((c) => c.visible !== false && !EXCLUDED_KEYS.has(c.key.toLowerCase()) && (!selectedSet || selectedSet.has(c.key)))
-        .map((c) => ({ key: c.key, label: fmtLabel(c.label) }));
+        .map((c) => ({ key: c.key, label: fmtLabel(c.label), type: respectColumnTypes ? c.type : undefined }));
     } else if (params.matchedRows.length > 0) {
       colDefs = Object.keys(params.matchedRows[0])
         .filter((k) => !EXCLUDED_KEYS.has(k.toLowerCase()) && (!selectedSet || selectedSet.has(k)))
@@ -428,8 +434,8 @@ export class GraphEmailService {
         const bg = idx % 2 === 0 ? '#ffffff' : '#f5f8fc';
         const cells = colDefs.map((c) => {
           const val = row[c.key];
-          const formatted = this.formatCellValue(val);
-          const style = this.getCellStyle(val);
+          const formatted = this.formatCellValue(val, c.type);
+          const style = this.getCellStyle(val, c.type);
           return `<td style="padding:6px 12px;border-bottom:1px solid #e8edf5;white-space:nowrap;font-size:13px;${style}">${formatted}</td>`;
         }).join('');
         return `<tr style="background:${bg};">${cells}</tr>`;
@@ -460,7 +466,7 @@ export class GraphEmailService {
             failed_calls: t.failed_calls, volume: t.volume, answered_calls: t.answered_calls,
           };
           const cells = colDefs
-            .map((c) => `<td style="padding:7px 12px;border-bottom:1px solid #e8edf5;white-space:nowrap;font-size:13px;font-weight:700;">${this.formatCellValue(synthetic[c.key])}</td>`)
+            .map((c) => `<td style="padding:7px 12px;border-bottom:1px solid #e8edf5;white-space:nowrap;font-size:13px;font-weight:700;">${this.formatCellValue(synthetic[c.key], c.type)}</td>`)
             .join('');
           return `<tr style="background:#eef3fa;">${cells}</tr>`;
         })
@@ -536,8 +542,16 @@ export class GraphEmailService {
 </html>`;
   }
 
-  private formatCellValue(val: unknown): string {
+  private formatCellValue(val: unknown, type?: string): string {
     if (val === null || val === undefined || val === '') return '<span style="color:#bbb;">&mdash;</span>';
+    // Identifier / text columns render verbatim — a phone number must never be comma/decimal
+    // formatted like a metric. Only reached when a non-numeric type is explicitly supplied (scoped
+    // to SRC/DST); numeric columns and callers without type fall through to the formatting below.
+    if (type && type !== 'numeric') {
+      const s = String(val);
+      if (type === 'date' || /^\d{4}-\d{2}-\d{2}(T|\s|Z|$)/.test(s)) return this.escapeHtml(s.slice(0, 10));
+      return this.escapeHtml(s);
+    }
     if (typeof val === 'number') {
       if (val === 0) return '<span style="color:#bbb;">0.00</span>';
       const formatted = val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -559,7 +573,9 @@ export class GraphEmailService {
     return this.escapeHtml(strVal);
   }
 
-  private getCellStyle(val: unknown): string {
+  private getCellStyle(val: unknown, type?: string): string {
+    // Text/identifier columns get no numeric coloring (a phone number isn't a negative/zero metric).
+    if (type && type !== 'numeric') return '';
     if (val === null || val === undefined) return '';
     const num = typeof val === 'number' ? val : parseFloat(String(val));
     if (!isNaN(num) && num < 0) return 'color:#c00000;';
