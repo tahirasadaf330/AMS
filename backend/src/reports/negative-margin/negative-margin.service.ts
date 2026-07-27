@@ -15,11 +15,13 @@ const SCHEDULE_CRON = '*/5 * * * *'; // every 5 minutes
 // One row per (orig account → destination → term/vendor account) combination,
 // aggregated from REAL call traffic (not rate-table config). For each combo we
 // compute the volume-weighted average origination and termination rates PER
-// MINUTE. NOTE: origterm.volume is stored in SECONDS, but rates are per minute,
-// so we divide volume by 60 to convert to minutes before dividing cost by it:
-//     minutes   = SUM(volume) / 60
-//     orig_rate = SUM(|orig_cost|) / minutes
-//     term_rate = SUM(|term_cost|) / minutes
+// BILLED MINUTE — exactly how Jerasoft computes its avg rates.
+// IMPORTANT: divide cost by the BILLED volume (orig_volume_billed / term_volume_billed),
+// NOT the raw call seconds (volume). Billing rounds short calls up to the increment
+// (e.g. a 4-second call bills as 60s), so raw seconds understate minutes and inflate
+// the rate massively on low-volume routes. All *_volume_billed are in SECONDS, so /60:
+//     orig_rate = SUM(|orig_cost|) / (SUM(orig_volume_billed) / 60)
+//     term_rate = SUM(|term_cost|) / (SUM(term_volume_billed) / 60)
 //     negative_margin = orig_rate - term_rate  (per minute; NEGATIVE = negative margin)
 // A combination is "negative margin" when term_rate > orig_rate (value < 0):
 // we pay the vendor more per minute than we bill the originator. We also resolve
@@ -40,10 +42,10 @@ SELECT
     COALESCE(oc.name, 'UNKNOWN')                                        AS orig_dst_code_name,
     ta.name                                                             AS term_account,
     COALESCE(tc.name, 'UNKNOWN')                                        AS term_dst_code_name,
-    ROUND(SUM(ABS(ot.orig_cost)) / NULLIF(SUM(ot.volume) / 60.0, 0), 6) AS orig_rate,
-    ROUND(SUM(ABS(ot.term_cost)) / NULLIF(SUM(ot.volume) / 60.0, 0), 6) AS term_rate,
-    ROUND(SUM(ABS(ot.orig_cost)) / NULLIF(SUM(ot.volume) / 60.0, 0)
-        - SUM(ABS(ot.term_cost)) / NULLIF(SUM(ot.volume) / 60.0, 0), 6) AS negative_margin
+    ROUND(SUM(ABS(ot.orig_cost)) / NULLIF(SUM(ot.orig_volume_billed) / 60.0, 0), 6) AS orig_rate,
+    ROUND(SUM(ABS(ot.term_cost)) / NULLIF(SUM(ot.term_volume_billed) / 60.0, 0), 6) AS term_rate,
+    ROUND(SUM(ABS(ot.orig_cost)) / NULLIF(SUM(ot.orig_volume_billed) / 60.0, 0)
+        - SUM(ABS(ot.term_cost)) / NULLIF(SUM(ot.term_volume_billed) / 60.0, 0), 6) AS negative_margin
 FROM origterm ot
 JOIN accounts oa     ON oa.id  = ot.orig_accounts_id
 JOIN accounts ta     ON ta.id  = ot.term_accounts_id
