@@ -5,16 +5,13 @@ import { Repository } from 'typeorm';
 import { Setting } from '../common/entities/setting.entity';
 import { CredentialsService } from '../credentials/credentials.service';
 import { buildAccountDestinationTotals } from './alert-totals.util';
+import * as nodemailer from 'nodemailer';
 import axios from 'axios';
 
 interface TokenCache {
   token: string;
   expiresAt: number;
   credFingerprint: string;
-}
-
-interface EmailRecipient {
-  emailAddress: { address: string; name?: string };
 }
 
 interface GraphCredentials {
@@ -24,6 +21,9 @@ interface GraphCredentials {
   senderEmail: string;
 }
 
+// NOTE: email SENDING moved from Microsoft Graph to a plain SMTP relay (see below). The Microsoft
+// Graph app-only TOKEN logic is retained because SharePoint file sync (sharepoint-sync.service) still
+// uses getGraphToken(); only the three send* methods now go through SMTP instead of Graph /sendMail.
 @Injectable()
 export class GraphEmailService {
   private readonly logger = new Logger(GraphEmailService.name);
@@ -37,6 +37,12 @@ export class GraphEmailService {
   private readonly envClientSecret: string;
   private readonly envSenderEmail: string;
 
+  // SMTP relay (email transport). Plain, no auth — internal relay. Env-overridable; defaults are prod.
+  private readonly smtpHost: string;
+  private readonly smtpPort: number;
+  private readonly smtpSender: string;
+  private transporter: nodemailer.Transporter | null = null;
+
   constructor(
     private configService: ConfigService,
     @InjectRepository(Setting) private settingRepo: Repository<Setting>,
@@ -46,6 +52,31 @@ export class GraphEmailService {
     this.envClientId = this.configService.get<string>('GRAPH_CLIENT_ID', '');
     this.envClientSecret = this.configService.get<string>('GRAPH_CLIENT_SECRET', '');
     this.envSenderEmail = this.configService.get<string>('GRAPH_SENDER_EMAIL', '');
+
+    this.smtpHost = this.configService.get<string>('SMTP_HOST', '10.10.14.11');
+    this.smtpPort = Number(this.configService.get<string>('SMTP_PORT', '25'));
+    this.smtpSender = this.configService.get<string>('SMTP_SENDER', 'donotreply@hayo.net');
+  }
+
+  /** Lazily-built SMTP transport for the internal relay (port 25, plain, no auth). */
+  private getTransporter(): nodemailer.Transporter {
+    if (!this.transporter) {
+      this.transporter = nodemailer.createTransport({
+        host: this.smtpHost,
+        port: this.smtpPort,
+        secure: false,      // no implicit TLS on connect (plain relay)
+        ignoreTLS: true,    // don't attempt STARTTLS upgrade — the relay is plain
+        connectionTimeout: 15000,
+        greetingTimeout: 10000,
+      });
+      this.logger.log(`SMTP transport ready: ${this.smtpHost}:${this.smtpPort} (plain, no auth), from ${this.smtpSender}`);
+    }
+    return this.transporter;
+  }
+
+  /** From header — friendly name over the configured relay sender address. */
+  private mailFrom(): string {
+    return `AMS Alert Management System <${this.smtpSender}>`;
   }
 
   private async loadCredentials(): Promise<GraphCredentials> {
@@ -147,8 +178,9 @@ export class GraphEmailService {
     return token;
   }
 
+  /** Email health check — now verifies the SMTP relay (email moved off Graph). */
   async testConnection(): Promise<void> {
-    await this.getAccessToken();
+    await this.getTransporter().verify();
   }
 
   async sendWelcome(params: {
@@ -158,32 +190,15 @@ export class GraphEmailService {
     role: string;
     appUrl?: string;
   }): Promise<void> {
-    const { token, senderEmail } = await this.getAccessToken();
     const appUrl = (params.appUrl || this.configService.get<string>('APP_URL', 'http://ams.voipsystem.org')).replace(/\/$/, '');
     const html = this.buildWelcomeHtml({ ...params, appUrl });
 
-    const payload = {
-      message: {
-        subject: 'Welcome to AMS — Your Account is Ready',
-        body: { contentType: 'HTML', content: html },
-        toRecipients: [{ emailAddress: { address: params.recipientEmail, name: params.recipientName } }],
-      },
-      saveToSentItems: true,
-    };
-
-    const response = await axios.post(
-      `https://graph.microsoft.com/v1.0/users/${senderEmail}/sendMail`,
-      payload,
-      {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        timeout: 30000,
-        validateStatus: (status) => status === 202,
-      },
-    );
-
-    if (response.status !== 202) {
-      throw new Error(`Graph API returned status ${response.status}`);
-    }
+    await this.getTransporter().sendMail({
+      from: this.mailFrom(),
+      to: `${params.recipientName} <${params.recipientEmail}>`,
+      subject: 'Welcome to AMS — Your Account is Ready',
+      html,
+    });
   }
 
   private buildWelcomeHtml(params: {
@@ -291,38 +306,14 @@ export class GraphEmailService {
     columnMeta?: Array<{ key: string; label: string; visible: boolean }>;
     selectedColumns?: string[];
   }): Promise<void> {
-    const { token, senderEmail } = await this.getAccessToken();
     const html = this.buildHtml({ ...params });
 
-    const toRecipients: EmailRecipient[] = params.recipients.map((addr) => ({
-      emailAddress: { address: addr },
-    }));
-
-    const payload = {
-      message: {
-        subject: params.subject,
-        body: { contentType: 'HTML', content: html },
-        toRecipients,
-      },
-      saveToSentItems: true,
-    };
-
-    const response = await axios.post(
-      `https://graph.microsoft.com/v1.0/users/${senderEmail}/sendMail`,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 30000,
-        validateStatus: (status) => status === 202,
-      },
-    );
-
-    if (response.status !== 202) {
-      throw new Error(`Graph API returned status ${response.status}`);
-    }
+    await this.getTransporter().sendMail({
+      from: this.mailFrom(),
+      to: params.recipients,
+      subject: params.subject,
+      html,
+    });
   }
 
   /**
@@ -337,54 +328,26 @@ export class GraphEmailService {
     html: string;
     inlineImages?: Array<{ cid: string; contentBytes: string; contentType?: string; name?: string }>;
   }): Promise<void> {
-    const { token, senderEmail } = await this.getAccessToken();
-
-    const toRecipients: EmailRecipient[] = params.recipients.map((addr) => ({
-      emailAddress: { address: addr },
-    }));
-    const ccRecipients: EmailRecipient[] = (params.cc ?? []).map((addr) => ({
-      emailAddress: { address: addr },
-    }));
-
-    // Inline (cid) images are attached to the single /sendMail action. Note: Outlook desktop
-    // reliably renders cid images only when there is ONE inline image — multiple inline images
-    // sent this way show as broken (red X) in the Word-based desktop client. Report scripts that
-    // need several charts must composite them into a single image (one cid), not many.
+    // Inline (cid) images become multipart/related attachments referenced by the HTML as
+    // <img src="cid:<cid>">. nodemailer sets Content-ID and Content-Disposition: inline for these.
     const attachments = (params.inlineImages ?? [])
       .filter((img) => img.cid && img.contentBytes)
       .map((img) => ({
-        '@odata.type': '#microsoft.graph.fileAttachment',
-        name: img.name ?? `${img.cid}.png`,
+        filename: img.name ?? `${img.cid}.png`,
+        content: img.contentBytes,
+        encoding: 'base64' as const,
+        cid: img.cid,
         contentType: img.contentType ?? 'image/png',
-        contentBytes: img.contentBytes,
-        isInline: true,
-        contentId: img.cid,
       }));
 
-    const message: Record<string, unknown> = {
+    await this.getTransporter().sendMail({
+      from: this.mailFrom(),
+      to: params.recipients,
+      cc: params.cc && params.cc.length ? params.cc : undefined,
       subject: params.subject,
-      body: { contentType: 'HTML', content: params.html },
-      toRecipients,
-    };
-    if (ccRecipients.length) message.ccRecipients = ccRecipients;
-    if (attachments.length) message.attachments = attachments;
-
-    const response = await axios.post(
-      `https://graph.microsoft.com/v1.0/users/${senderEmail}/sendMail`,
-      { message, saveToSentItems: true },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 60000,
-        validateStatus: (status) => status === 202,
-      },
-    );
-
-    if (response.status !== 202) {
-      throw new Error(`Graph API returned status ${response.status}`);
-    }
+      html: params.html,
+      attachments: attachments.length ? attachments : undefined,
+    });
   }
 
   private buildHtml(params: {
