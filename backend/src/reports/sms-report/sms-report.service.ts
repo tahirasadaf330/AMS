@@ -235,6 +235,13 @@ FULL OUTER JOIN ReceivedStats rs
     AND ISNULL(rs.raw_vendorid, -1) = ISNULL(es.raw_vendorid, -1)
     AND ISNULL(rs.TerminatedSenderId, N'') = ISNULL(es.TerminatedSenderId, N'')
 LEFT JOIN CompanyLookup cl ON cl.CustomerConnectionId = rs.CustomerConnectionId
+-- Drop pure received-only, zero-value rows: a customer sent us a message or two that was never
+-- forwarded to a vendor and never billed (no successful sent, no income, no expenses). These add
+-- nothing to profit and Power BI's sender-keyed view excludes them, so dropping them makes the
+-- company list/count match Power BI. Any row with real sent OR billing is always kept.
+WHERE COALESCE(es.successful_sent, 0) <> 0
+   OR COALESCE(es.income, 0) <> 0
+   OR COALESCE(es.expenses, 0) <> 0
 `;
 
 // Keys must match sanitizeRowKeys output: lowercase, non-alphanum runs → single underscore
