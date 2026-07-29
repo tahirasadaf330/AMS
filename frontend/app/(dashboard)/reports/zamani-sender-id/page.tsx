@@ -250,15 +250,15 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
   return (
     <div style={{ marginTop: 20, border: '1px solid var(--ln)', borderRadius: 10, background: 'var(--sf)', padding: '14px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-        <input className="edr-inp" type="text" style={{ width: 200 }}
-          placeholder="Search sender / customer…"
-          value={chartSearch} onChange={(e) => setChartSearch(e.target.value)} />
         <span style={{ fontSize: '.9rem', fontWeight: 700, color: 'var(--ink)', marginRight: 4 }}>Trend</span>
         <span className="edr-seg">{seg('messages', metric, setMetric, 'Messages')}{seg('dlr', metric, setMetric, 'DLR %')}</span>
         <span className="edr-seg">{seg('customer', dim, setDim, 'By Customer')}{seg('sender', dim, setDim, 'By Sender ID')}</span>
         <span className="edr-seg">{seg('hour', gran, setGran, 'Hour')}{seg('day', gran, setGran, 'Day')}{seg('week', gran, setGran, 'Week')}{seg('month', gran, setGran, 'Month')}</span>
         <MultiSelect options={options} selected={keys} onChange={setKeys} placeholder={dim === 'customer' ? 'All customers' : 'All sender IDs'} />
         {loading && <span style={{ fontSize: '.72rem', color: 'var(--mu)' }}>Loading…</span>}
+        <input className="edr-inp" type="text" style={{ width: 200, marginLeft: 'auto' }}
+          placeholder="Search sender / customer…"
+          value={chartSearch} onChange={(e) => setChartSearch(e.target.value)} />
       </div>
       {err ? <div className="edr-err">{err}</div> : (
         <div style={{ height: 340 }}>
