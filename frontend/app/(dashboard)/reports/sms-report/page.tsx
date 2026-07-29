@@ -781,11 +781,12 @@ function ProfitDataTab({ rows, lastRefreshed }: ProfitTabProps) {
   const daysInMonth = new Date(Number(mtdEnd.slice(0,4)), Number(mtdEnd.slice(5,7)), 0).getDate();
   const daysElapsed = Math.max(1, Number(mtdEnd.slice(8,10)));
   const projFactor  = daysInMonth / daysElapsed;
-  // Enrich MTD rows with the BI columns: target, pending (achieved − target), projected (EOM)
+  // Enrich MTD rows with the BI columns: target, pending, projected (EOM).
+  // Pending = 0 once achieved margin reaches the target; only a shortfall is shown (negative). Matches Power BI.
   const mtdByMgr = React.useMemo(()=>mtdByMgrRaw.map((r:any)=>({
     ...r,
     target: PROFIT_MONTHLY_TARGET,
-    pending: r.profit - PROFIT_MONTHLY_TARGET,
+    pending: r.profit >= PROFIT_MONTHLY_TARGET ? 0 : r.profit - PROFIT_MONTHLY_TARGET,
     projected: r.profit * projFactor,
     customers: (r.customers as any[]).map((c:any)=>({ ...c, projected: c.profit * projFactor })),
   })),[mtdByMgrRaw,projFactor]);
@@ -798,6 +799,9 @@ function ProfitDataTab({ rows, lastRefreshed }: ProfitTabProps) {
     const sorted = sort.sort(data);
     const totProfit = data.reduce((s,r)=>s+r.profit,0);
     const totProj   = data.reduce((s,r)=>s+r.projected,0);
+    const totTarget = data.length * PROFIT_MONTHLY_TARGET;
+    // Pending shows 0 once total achieved reaches total target; only a shortfall is shown (negative).
+    const totPending = totProfit >= totTarget ? 0 : totProfit - totTarget;
     return (
       <div className="zpnl" style={{marginBottom:14}}>
         <PH title={title} right={range} />
@@ -838,9 +842,9 @@ function ProfitDataTab({ rows, lastRefreshed }: ProfitTabProps) {
             </tbody>
             <tfoot><tr>
               <td>Total ({data.length})</td>
-              <td>{fN(data.length*PROFIT_MONTHLY_TARGET)}</td>
+              <td>{fN(totTarget)}</td>
               <td className={totProfit<0?'zneg':'zpos'}>{f2(totProfit)}</td>
-              <td className={(totProfit-data.length*PROFIT_MONTHLY_TARGET)<0?'zneg':'zpos'}>{f2(totProfit-data.length*PROFIT_MONTHLY_TARGET)}</td>
+              <td className={totPending<0?'zneg':'zpos'}>{f2(totPending)}</td>
               <td style={{fontWeight:700,color:totProj>=0?'var(--pos)':'var(--neg)'}}>{f2(totProj)}</td>
             </tr></tfoot>
           </table>
