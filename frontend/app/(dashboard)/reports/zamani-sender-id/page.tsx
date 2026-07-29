@@ -204,6 +204,7 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
   const [dim, setDim] = React.useState<'customer' | 'sender'>('customer');
   const [gran, setGran] = React.useState<'hour' | 'day' | 'week' | 'month'>('day');
   const [keys, setKeys] = React.useState<string[]>([]);
+  const [chartSearch, setChartSearch] = React.useState('');
   const [ts, setTs] = React.useState<{ buckets: string[]; keys: string[]; points: any[] } | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -227,6 +228,13 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
   }, [dim, gran, keys, preset, customFrom, customTo, reloadKey]);
 
   const seriesKeys = ts?.keys ?? [];
+  // Live text filter on the plotted series — mirrors the table's "Search sender / customer" box.
+  const visibleKeys = React.useMemo(
+    () => chartSearch.trim()
+      ? seriesKeys.filter((k) => k.toLowerCase().includes(chartSearch.trim().toLowerCase()))
+      : seriesKeys,
+    [seriesKeys, chartSearch],
+  );
   const chartData = React.useMemo(() => {
     if (!ts) return [];
     const byBucket = new Map<string, any>();
@@ -242,6 +250,9 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
   return (
     <div style={{ marginTop: 20, border: '1px solid var(--ln)', borderRadius: 10, background: 'var(--sf)', padding: '14px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+        <input className="edr-inp" type="text" style={{ width: 200 }}
+          placeholder="Search sender / customer…"
+          value={chartSearch} onChange={(e) => setChartSearch(e.target.value)} />
         <span style={{ fontSize: '.9rem', fontWeight: 700, color: 'var(--ink)', marginRight: 4 }}>Trend</span>
         <span className="edr-seg">{seg('messages', metric, setMetric, 'Messages')}{seg('dlr', metric, setMetric, 'DLR %')}</span>
         <span className="edr-seg">{seg('customer', dim, setDim, 'By Customer')}{seg('sender', dim, setDim, 'By Sender ID')}</span>
@@ -251,17 +262,22 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
       </div>
       {err ? <div className="edr-err">{err}</div> : (
         <div style={{ height: 340 }}>
-          {chartData.length === 0 ? (
-            <div className="edr-empty">No data to plot for this selection</div>
+          {chartData.length === 0 || visibleKeys.length === 0 ? (
+            <div className="edr-empty">
+              {chartData.length > 0 && chartSearch.trim()
+                ? `No sender / customer matches “${chartSearch.trim()}”`
+                : 'No data to plot for this selection'}
+            </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 8, right: 24, left: 0, bottom: 4 }}>
                 <defs>
-                  {seriesKeys.map((k, i) => {
+                  {visibleKeys.map((k) => {
+                    const i = seriesKeys.indexOf(k);
                     const c = SERIES_COLORS[i % SERIES_COLORS.length];
                     return (
                       <linearGradient key={k} id={`zsg_${i}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={c} stopOpacity={seriesKeys.length > 1 ? 0.18 : 0.45} />
+                        <stop offset="0%" stopColor={c} stopOpacity={visibleKeys.length > 1 ? 0.18 : 0.45} />
                         <stop offset="100%" stopColor={c} stopOpacity={0.02} />
                       </linearGradient>
                     );
@@ -274,7 +290,8 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
                   tickFormatter={(v: number) => metric === 'dlr' ? `${v}%` : (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v))} />
                 <Tooltip {...TIP} formatter={(v: any, name: string) => [metric === 'dlr' ? `${v}%` : Number(v).toLocaleString(), name]} />
                 <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                {seriesKeys.map((k, i) => {
+                {visibleKeys.map((k) => {
+                  const i = seriesKeys.indexOf(k);
                   const c = SERIES_COLORS[i % SERIES_COLORS.length];
                   return (
                     <Area key={k} type="monotone" dataKey={k} name={k} stroke={c} strokeWidth={2.5}
@@ -297,7 +314,7 @@ export default function ZamaniSenderIdPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [lastLoaded, setLastLoaded] = React.useState<Date | null>(null);
 
-  const [view, setView] = React.useState<'senders' | 'aggregators' | 'pairs' | 'routing'>('senders');
+  const [view, setView] = React.useState<'senders' | 'aggregators' | 'routing'>('senders');
   const [search, setSearch] = React.useState('');
   const [amFilter, setAmFilter] = React.useState('all');
   const [misOnly, setMisOnly] = React.useState(false);
@@ -331,7 +348,7 @@ export default function ZamaniSenderIdPage() {
   React.useEffect(() => { load(); }, [load]);
 
   const t = data?.totals;
-  const baseRows: any[] = view === 'senders' ? (data?.senders ?? []) : view === 'aggregators' ? (data?.aggregators ?? []) : view === 'pairs' ? (data?.senderCustomer ?? []) : (data?.routing ?? []);
+  const baseRows: any[] = view === 'senders' ? (data?.senders ?? []) : view === 'aggregators' ? (data?.aggregators ?? []) : (data?.routing ?? []);
   const accountManagers = React.useMemo(
     () => Array.from(new Set(baseRows.map((r) => r.account_manager).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b)),
     [baseRows],
@@ -374,7 +391,7 @@ export default function ZamaniSenderIdPage() {
 
   const hasFilter = !!(search || misOnly || amFilter !== 'all' || statusFilters.size);
   const sharedTH = { sort, onSort };
-  const cols = view === 'senders' ? 11 : view === 'aggregators' ? 7 : view === 'pairs' ? 8 : 4;
+  const cols = view === 'senders' ? 11 : view === 'aggregators' ? 7 : 4;
 
   return (
     <>
@@ -438,7 +455,6 @@ export default function ZamaniSenderIdPage() {
             <span className="edr-seg">
               <button className={view === 'senders' ? 'on' : ''} onClick={() => setView('senders')}>By Sender ID</button>
               <button className={view === 'aggregators' ? 'on' : ''} onClick={() => setView('aggregators')}>By Customer</button>
-              <button className={view === 'pairs' ? 'on' : ''} onClick={() => setView('pairs')}>Sender × Customer</button>
               <button className={view === 'routing' ? 'on' : ''} onClick={() => setView('routing')}>Routing Errors{(t?.misrouted ?? 0) > 0 ? ` (${data?.routing.length ?? 0})` : ''}</button>
             </span>
             <input className="edr-inp" type="text" placeholder="Search sender / customer…" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -490,17 +506,6 @@ export default function ZamaniSenderIdPage() {
                         <TH w={80} colKey="dlr_pct" {...sharedTH}>DLR %</TH>
                         <TH w={90} colKey="misrouted" {...sharedTH}>Mis-routed</TH>
                       </>
-                    ) : view === 'pairs' ? (
-                      <>
-                        <TH left w={190} colKey="sender_id" {...sharedTH}>Sender ID</TH>
-                        <TH left w={170} colKey="aggregator" {...sharedTH}>Customer</TH>
-                        <TH left w={150} colKey="account_manager" {...sharedTH}>Account Manager</TH>
-                        <TH w={95} colKey="submitted" {...sharedTH}>Messages</TH>
-                        <TH w={95} colKey="delivered" {...sharedTH}>Delivered</TH>
-                        <TH w={80} colKey="dlr_pct" {...sharedTH}>DLR %</TH>
-                        <TH w={90} colKey="misrouted" {...sharedTH}>Mis-routed</TH>
-                        <TH w={140} colKey="last_seen" {...sharedTH}>Last Seen (UTC)</TH>
-                      </>
                     ) : (
                       <>
                         <TH left w={200} colKey="sender_id" {...sharedTH}>Sender ID</TH>
@@ -541,17 +546,6 @@ export default function ZamaniSenderIdPage() {
                           <TD><span className={dlrCls(row.dlr_pct)}>{row.dlr_pct}%</span></TD>
                           <TD>{row.misrouted > 0 ? <span className="bdg bdg-neg">{fmtN(row.misrouted)}</span> : <span style={{ color: 'var(--mu)' }}>—</span>}</TD>
                         </>
-                      ) : view === 'pairs' ? (
-                        <>
-                          <TD left><span style={{ fontWeight: 600 }}>{row.sender_id || '—'}</span></TD>
-                          <TD left>{row.aggregator || '—'}</TD>
-                          <TD left><span style={{ color: row.account_manager ? 'var(--inks)' : 'var(--mu)' }}>{row.account_manager || '—'}</span></TD>
-                          <TD><span style={{ fontWeight: 700 }}>{fmtN(row.submitted)}</span></TD>
-                          <TD>{fmtN(row.delivered)}</TD>
-                          <TD><span className={dlrCls(row.dlr_pct)}>{row.dlr_pct}%</span></TD>
-                          <TD>{row.misrouted > 0 ? <span className="bdg bdg-neg">{fmtN(row.misrouted)}</span> : <span style={{ color: 'var(--mu)' }}>—</span>}</TD>
-                          <TD mono>{row.last_seen || '—'}</TD>
-                        </>
                       ) : (
                         <>
                           <TD left><span style={{ fontWeight: 600 }}>{row.sender_id || '—'}</span></TD>
@@ -568,7 +562,7 @@ export default function ZamaniSenderIdPage() {
           </div>
 
           {!loading && sorted.length > 0 && (
-            <div className="edr-footer">{sorted.length.toLocaleString()} of {baseRows.length.toLocaleString()} {view === 'senders' ? 'sender IDs' : view === 'aggregators' ? 'customers' : view === 'pairs' ? 'sender × customer pairs' : 'routing errors'}</div>
+            <div className="edr-footer">{sorted.length.toLocaleString()} of {baseRows.length.toLocaleString()} {view === 'senders' ? 'sender IDs' : view === 'aggregators' ? 'customers' : 'routing errors'}</div>
           )}
 
           <TrendChart senders={data?.senders ?? []} aggregators={data?.aggregators ?? []} preset={preset} customFrom={customFrom} customTo={customTo} reloadKey={lastLoaded?.getTime()} />
