@@ -24,9 +24,15 @@ const SCHEDULE_CRON = '*/5 * * * *'; // every 5 minutes
 //     term_rate = SUM(|term_cost|) / (SUM(term_volume_billed) / 60)
 //     negative_margin = orig_rate - term_rate  (per minute; NEGATIVE = negative margin)
 // A combination is "negative margin" when term_rate > orig_rate (value < 0):
-// we pay the vendor more per minute than we bill the originator. We also resolve
-// the destination name on BOTH sides — orig_dst_code_name (from the orig rate)
-// and term_dst_code_name (from the term rate); they usually match but can differ.
+// we pay the vendor more per minute than we bill the originator.
+//
+// Destination names: resolved the way Jerasoft's report does — by LONGEST-PREFIX
+// match of the rate's code against the default destination deck HY-DEFAULT
+// (code_decks_id = 19), NOT by exact match on the rate's own deck. Many accounts
+// (e.g. NOC-*) rate on raw/aggregate codes whose deck has no names, so an exact
+// match yields UNKNOWN while Jera prefix-matches them (e.g. 21654 -> 2165 ->
+// "TUNISIA MOBILE ORANGE"). We resolve each distinct rate id ONCE in a CTE and
+// match via generated prefixes (index-friendly exact lookups), keeping it ~2s.
 //
 // Time window: TODAY, since midnight UTC (matches Jerasoft's daily "today" view,
 // which is UTC-aligned). Values accumulate through the day and reset at midnight
@@ -37,31 +43,46 @@ const SCHEDULE_CRON = '*/5 * * * *'; // every 5 minutes
 // prunes to just today's partition, so this runs in ~1.3s and refreshes every
 // 5 minutes. rates/accounts/codes joins are all indexed PK/code lookups.
 const SEED_SQL = `
+WITH base AS (
+    SELECT oa.name AS orig_account, ta.name AS term_account,
+           ot.orig_rates_id, ot.term_rates_id,
+           ot.orig_cost, ot.term_cost, ot.orig_volume_billed, ot.term_volume_billed
+    FROM origterm ot
+    JOIN accounts oa  ON oa.id  = ot.orig_accounts_id
+    JOIN accounts ta  ON ta.id  = ot.term_accounts_id
+    JOIN clients  ocl ON ocl.id = oa.clients_id AND ocl.status = 'active'
+    JOIN clients  tcl ON tcl.id = ta.clients_id AND tcl.status = 'active'
+    WHERE ot.aggr_date >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+      AND ot.result_status = 'success'
+      AND ot.volume > 0
+),
+rate_name AS (
+    -- Resolve each distinct rate's destination name once, via longest-prefix match
+    -- against the default destination deck HY-DEFAULT (19). Matching by generated
+    -- prefixes uses the exact-code index, so it stays fast.
+    SELECT r.id AS rate_id,
+        (SELECT c.name FROM codes c
+           WHERE c.code_decks_id = 19 AND c.name <> ''
+             AND c.code IN (SELECT substring(r.code FROM 1 FOR g)
+                            FROM generate_series(1, length(r.code)) g)
+           ORDER BY length(c.code) DESC LIMIT 1) AS dst
+    FROM (SELECT orig_rates_id AS id FROM base UNION SELECT term_rates_id FROM base) ids
+    JOIN rates r ON r.id = ids.id
+)
 SELECT
-    oa.name                                                             AS orig_account,
-    COALESCE(oc.name, 'UNKNOWN')                                        AS orig_dst_code_name,
-    ta.name                                                             AS term_account,
-    COALESCE(tc.name, 'UNKNOWN')                                        AS term_dst_code_name,
-    ROUND(SUM(ABS(ot.orig_cost)) / NULLIF(SUM(ot.orig_volume_billed) / 60.0, 0), 6) AS orig_rate,
-    ROUND(SUM(ABS(ot.term_cost)) / NULLIF(SUM(ot.term_volume_billed) / 60.0, 0), 6) AS term_rate,
-    ROUND(SUM(ABS(ot.orig_cost)) / NULLIF(SUM(ot.orig_volume_billed) / 60.0, 0)
-        - SUM(ABS(ot.term_cost)) / NULLIF(SUM(ot.term_volume_billed) / 60.0, 0), 6) AS negative_margin
-FROM origterm ot
-JOIN accounts oa     ON oa.id  = ot.orig_accounts_id
-JOIN accounts ta     ON ta.id  = ot.term_accounts_id
-JOIN clients  ocl    ON ocl.id = oa.clients_id AND ocl.status = 'active'
-JOIN clients  tcl    ON tcl.id = ta.clients_id AND tcl.status = 'active'
-JOIN rates ro        ON ro.id  = ot.orig_rates_id
-JOIN rate_tables rto ON rto.id = ro.rate_tables_id
-LEFT JOIN codes oc   ON oc.code = ro.code AND oc.code_decks_id = rto.code_decks_id
-JOIN rates rm        ON rm.id  = ot.term_rates_id
-JOIN rate_tables rtm ON rtm.id = rm.rate_tables_id
-LEFT JOIN codes tc   ON tc.code = rm.code AND tc.code_decks_id = rtm.code_decks_id
-WHERE ot.aggr_date >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
-  AND ot.result_status = 'success'
-  AND ot.volume > 0
-GROUP BY oa.name, oc.name, ta.name, tc.name
-HAVING SUM(ABS(ot.term_cost)) > SUM(ABS(ot.orig_cost))
+    b.orig_account                                                              AS orig_account,
+    COALESCE(rno.dst, 'UNKNOWN')                                                AS orig_dst_code_name,
+    b.term_account                                                              AS term_account,
+    COALESCE(rnt.dst, 'UNKNOWN')                                                AS term_dst_code_name,
+    ROUND(SUM(ABS(b.orig_cost)) / NULLIF(SUM(b.orig_volume_billed) / 60.0, 0), 6) AS orig_rate,
+    ROUND(SUM(ABS(b.term_cost)) / NULLIF(SUM(b.term_volume_billed) / 60.0, 0), 6) AS term_rate,
+    ROUND(SUM(ABS(b.orig_cost)) / NULLIF(SUM(b.orig_volume_billed) / 60.0, 0)
+        - SUM(ABS(b.term_cost)) / NULLIF(SUM(b.term_volume_billed) / 60.0, 0), 6) AS negative_margin
+FROM base b
+LEFT JOIN rate_name rno ON rno.rate_id = b.orig_rates_id
+LEFT JOIN rate_name rnt ON rnt.rate_id = b.term_rates_id
+GROUP BY b.orig_account, rno.dst, b.term_account, rnt.dst
+HAVING SUM(ABS(b.term_cost)) > SUM(ABS(b.orig_cost))
 ORDER BY negative_margin ASC
 `;
 
