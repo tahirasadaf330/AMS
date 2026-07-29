@@ -205,6 +205,7 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
   const [gran, setGran] = React.useState<'hour' | 'day' | 'week' | 'month'>('day');
   const [keys, setKeys] = React.useState<string[]>([]);
   const [chartSearch, setChartSearch] = React.useState('');
+  const [sel, setSel] = React.useState(''); // highlighted series — click a legend name (or the line) to emphasize it
   const [ts, setTs] = React.useState<{ buckets: string[]; keys: string[]; points: any[] } | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -216,7 +217,7 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
     [dim, aggregators, senders],
   );
   // Switching dimension: drop any picked keys that don't exist in the new option set.
-  React.useEffect(() => { setKeys((k) => k.filter((x) => options.includes(x))); }, [dim]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { setKeys((k) => k.filter((x) => options.includes(x))); setSel(''); }, [dim]); // eslint-disable-line react-hooks/exhaustive-deps
 
   React.useEffect(() => {
     const { fromISO, toISO } = computeWindowISO(preset, customFrom, customTo);
@@ -235,6 +236,9 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
       : seriesKeys,
     [seriesKeys, chartSearch],
   );
+  // Highlighted series (click a legend name / line). Guarded to plotted keys so a stale
+  // selection never dims every visible line.
+  const hl = visibleKeys.includes(sel) ? sel : '';
   const chartData = React.useMemo(() => {
     if (!ts) return [];
     const byBucket = new Map<string, any>();
@@ -289,13 +293,20 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
                   domain={metric === 'dlr' ? [0, 100] : undefined}
                   tickFormatter={(v: number) => metric === 'dlr' ? `${v}%` : (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v))} />
                 <Tooltip {...TIP} formatter={(v: any, name: string) => [metric === 'dlr' ? `${v}%` : Number(v).toLocaleString(), name]} />
-                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, cursor: 'pointer' }}
+                  onClick={(e: any) => { const v = e?.value ?? e?.dataKey; if (v) setSel((s) => (s === v ? '' : String(v))); }} />
                 {visibleKeys.map((k) => {
                   const i = seriesKeys.indexOf(k);
                   const c = SERIES_COLORS[i % SERIES_COLORS.length];
+                  const faded = !!hl && hl !== k; // another series is highlighted → recede this one
                   return (
-                    <Area key={k} type="monotone" dataKey={k} name={k} stroke={c} strokeWidth={2.5}
-                      fill={`url(#zsg_${i})`} dot={false} connectNulls isAnimationActive={false}
+                    <Area key={k} type="monotone" dataKey={k} name={k} stroke={c}
+                      strokeWidth={hl === k ? 3.6 : 2.5}
+                      strokeOpacity={faded ? 0.12 : 1}
+                      fill={`url(#zsg_${i})`} fillOpacity={faded ? 0.05 : 1}
+                      dot={false} connectNulls isAnimationActive={false}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setSel((s) => (s === k ? '' : k))}
                       activeDot={{ r: 4, stroke: '#fff', strokeWidth: 2, fill: c }} />
                   );
                 })}
