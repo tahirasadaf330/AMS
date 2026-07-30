@@ -51,6 +51,7 @@ import { DealsAutomationModule } from "./reports/deals-automation/deals-automati
 import { VoiceLiveTrafficModule } from "./reports/voice-live-traffic/voice-live-traffic.module";
 import { AppleTrafficModule } from "./reports/apple-traffic/apple-traffic.module";
 import { SrcDstNumberMonitoringModule } from "./reports/src-dst-number-monitoring/src-dst-number-monitoring.module";
+import { McpModule } from "./mcp/mcp.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -128,6 +129,7 @@ import { SrcDstNumberMonitoringModule } from "./reports/src-dst-number-monitorin
     SrcDstNumberMonitoringModule,
     ReportsRegistryModule,
     AdminGroupsModule,
+    McpModule,
   ],
 })
 export class AppModule {}

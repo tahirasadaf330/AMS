@@ -165,6 +165,9 @@ export default function AdminUsersPage() {
   // Server-generated temp password, shown once after creation
   const [tempPwResult, setTempPwResult]   = React.useState<{ email: string; password: string } | null>(null);
   const [tempPwCopied, setTempPwCopied]   = React.useState(false);
+  const [mcpKeyUser, setMcpKeyUser]       = React.useState<AdminUser | null>(null);
+  const [mcpKeyReveal, setMcpKeyReveal]   = React.useState<string | null>(null);
+  const [mcpKeyCopied, setMcpKeyCopied]   = React.useState(false);
   const [userForm, setUserForm]           = React.useState(defaultUserForm);
   const [deactivateTarget, setDeactivateTarget] = React.useState<AdminUser | null>(null);
   const [deleteUserTarget, setDeleteUserTarget] = React.useState<AdminUser | null>(null);
@@ -262,6 +265,31 @@ export default function AdminUsersPage() {
   const delSessionMut = useMutation({
     mutationFn: async ({ userId, sessionId }: { userId: string; sessionId: string }) => adminUsersApi.deleteSession(userId, sessionId),
     onSuccess: () => { addToast({ title: 'Session revoked', variant: 'success' }); if (drawerUser) void loadSessions(drawerUser.id); },
+  });
+
+  // MCP API key: status query (enabled only while the dialog is open) + generate/revoke.
+  const mcpKeyQuery = useQuery({
+    queryKey: ['admin', 'mcp-key', mcpKeyUser?.id],
+    queryFn: async () => (await adminUsersApi.getMcpKey(mcpKeyUser!.id)).data,
+    enabled: !!mcpKeyUser,
+  });
+  const genMcpKeyMut = useMutation({
+    mutationFn: async (id: string) => adminUsersApi.generateMcpKey(id),
+    onSuccess: (res) => {
+      setMcpKeyReveal(res.data.key);
+      setMcpKeyCopied(false);
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'mcp-key'] });
+    },
+    onError: () => addToast({ title: 'Failed to generate MCP key', variant: 'destructive' }),
+  });
+  const revokeMcpKeyMut = useMutation({
+    mutationFn: async (id: string) => adminUsersApi.revokeMcpKey(id),
+    onSuccess: () => {
+      setMcpKeyReveal(null);
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'mcp-key'] });
+      addToast({ title: 'MCP key revoked', variant: 'success' });
+    },
+    onError: () => addToast({ title: 'Failed to revoke MCP key', variant: 'destructive' }),
   });
 
   const saveAccess = async () => {
@@ -394,6 +422,9 @@ export default function AdminUsersPage() {
                                   <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
                                 </Button>
                               )}
+                              <Button variant="ghost" size="icon-sm" title="MCP API key (read-only DB)" onClick={() => { setMcpKeyUser(user); setMcpKeyReveal(null); setMcpKeyCopied(false); }}>
+                                <KeyRound className="h-3.5 w-3.5 text-violet-400" />
+                              </Button>
                               {user.is_active && (
                                 <Button variant="ghost" size="icon-sm" onClick={() => setDeactivateTarget(user)} title="Deactivate"><UserX className="h-3.5 w-3.5 text-red-400" /></Button>
                               )}
@@ -660,6 +691,57 @@ export default function AdminUsersPage() {
           <div className="flex justify-end mt-4">
             <Button onClick={() => { setTempPwResult(null); setTempPwCopied(false); }}>Done</Button>
           </div>
+        </DialogBody>
+      </Dialog>
+
+      {/* MCP API key — read-only DB access for Atlas / AI clients */}
+      <Dialog open={!!mcpKeyUser} onClose={() => { setMcpKeyUser(null); setMcpKeyReveal(null); setMcpKeyCopied(false); }} className="max-w-md">
+        <DialogHeader title="MCP API Key" onClose={() => { setMcpKeyUser(null); setMcpKeyReveal(null); setMcpKeyCopied(false); }} />
+        <DialogBody>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+            Grants <span className="font-medium text-gray-800 dark:text-gray-100">{mcpKeyUser?.email}</span> read-only access to the AMS database through the MCP server. Every query is audited under this user, and the key stops working the moment the user is deactivated or the key is revoked.
+          </p>
+
+          {mcpKeyReveal ? (
+            // One-time reveal after generate
+            <div>
+              <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1.5">Copy this key now — it will not be shown again.</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2.5 font-mono text-xs text-gray-900 dark:text-gray-100 break-all select-all">{mcpKeyReveal}</code>
+                <Button variant="secondary" size="sm" onClick={() => { void navigator.clipboard.writeText(mcpKeyReveal).then(() => { setMcpKeyCopied(true); addToast({ title: 'Key copied', variant: 'success' }); }); }}>
+                  {mcpKeyCopied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}{mcpKeyCopied ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                Configure the client with URL <code className="font-mono">/mcp</code> and header <code className="font-mono">Authorization: Bearer &lt;key&gt;</code>.
+              </p>
+            </div>
+          ) : (
+            // Status + generate/revoke
+            <div className="space-y-3">
+              {mcpKeyQuery.isLoading ? (
+                <p className="text-sm text-gray-400">Loading…</p>
+              ) : mcpKeyQuery.data ? (
+                <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2.5 text-sm">
+                  <div className="flex items-center justify-between"><span className="text-gray-500 dark:text-gray-400">Active key</span><code className="font-mono text-gray-800 dark:text-gray-100">{mcpKeyQuery.data.prefix}…</code></div>
+                  <div className="flex items-center justify-between mt-1 text-xs text-gray-400"><span>Created</span><span>{formatDatetime(mcpKeyQuery.data.created_at)}</span></div>
+                  <div className="flex items-center justify-between mt-0.5 text-xs text-gray-400"><span>Last used</span><span>{mcpKeyQuery.data.last_used_at ? formatDatetime(mcpKeyQuery.data.last_used_at) : 'never'}</span></div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">No active MCP key.</p>
+              )}
+
+              <div className="flex items-center gap-2">
+                <Button size="sm" isLoading={genMcpKeyMut.isPending} onClick={() => mcpKeyUser && genMcpKeyMut.mutate(mcpKeyUser.id)}>
+                  <KeyRound className="h-4 w-4" />{mcpKeyQuery.data ? 'Regenerate key' : 'Generate key'}
+                </Button>
+                {mcpKeyQuery.data && (
+                  <Button variant="destructive" size="sm" isLoading={revokeMcpKeyMut.isPending} onClick={() => mcpKeyUser && revokeMcpKeyMut.mutate(mcpKeyUser.id)}>Revoke</Button>
+                )}
+              </div>
+              {mcpKeyQuery.data && <p className="text-xs text-gray-400">Regenerating immediately invalidates the current key.</p>}
+            </div>
+          )}
         </DialogBody>
       </Dialog>
 

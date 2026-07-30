@@ -259,6 +259,13 @@ export const adminUsersApi = {
 
   deleteSession: (userId: string, sessionId: string) =>
     api.delete(`/admin/users/${userId}/sessions/${sessionId}`),
+
+  // MCP API key management (read-only DB access). generate returns the plaintext key ONCE.
+  getMcpKey: (id: string) =>
+    api.get<{ prefix: string; created_at: string; last_used_at: string | null } | null>(`/admin/users/${id}/mcp-key`),
+  generateMcpKey: (id: string) =>
+    api.post<{ key: string; prefix: string; created_at: string }>(`/admin/users/${id}/mcp-key`),
+  revokeMcpKey: (id: string) => api.delete(`/admin/users/${id}/mcp-key`),
 };
 
 // ── ADMIN — GROUPS ────────────────────────────────────────────

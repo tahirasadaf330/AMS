@@ -27,6 +27,9 @@ PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR
 PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR/backend/src/database/migrations/002_data_sources.sql"
 PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR/backend/src/database/migrations/003_conditions_python.sql"
 PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR/backend/src/database/migrations/009_user_oid.sql"
+# 010 grants read-only SELECT to the ams_readonly role (MCP). No-ops with a notice if that
+# role doesn't exist yet — create it once manually first (see docs/mcp-server.md).
+PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR/backend/src/database/migrations/010_mcp_readonly_grants.sql"
 
 echo "==> Installing backend dependencies..."
 cd "$APP_DIR/backend"

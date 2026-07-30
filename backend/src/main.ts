@@ -6,6 +6,8 @@ import * as cookieParser from 'cookie-parser';
 import type { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
 import { SnakeCaseInterceptor } from './common/interceptors/snake-case.interceptor';
+import { McpHttpService } from './mcp/mcp-http.service';
+import type { Router } from 'express';
 
 function toCamel(key: string): string {
   return key.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
@@ -30,6 +32,17 @@ async function bootstrap(): Promise<void> {
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT', 3001);
+
+  // MCP endpoint — mounted FIRST, before the camelize body middleware and the global
+  // SnakeCaseInterceptor, so JSON-RPC payloads (e.g. `row_limit`) are never rewritten and
+  // responses aren't snake_cased. The router is resolved from DI after app.init() below;
+  // until then the lazy shim answers 503. Nest's built-in body parser (registered at
+  // create()) has already populated req.body by the time this handler runs.
+  let mcpRouter: Router | null = null;
+  app.use('/mcp', (req, res, next) => {
+    if (mcpRouter) return mcpRouter(req, res, next);
+    res.status(503).json({ jsonrpc: '2.0', error: { code: -32001, message: 'MCP not ready.' }, id: null });
+  });
 
   // CORS
   const allowedOrigins = (
@@ -67,6 +80,10 @@ async function bootstrap(): Promise<void> {
 
   // WebSocket adapter
   app.useWebSocketAdapter(new SocketIoAdapter(app));
+
+  // DI container is ready — resolve the MCP router so the /mcp shim above starts serving.
+  await app.init();
+  mcpRouter = app.get(McpHttpService).router;
 
   await app.listen(port);
   console.log(`AMS Backend running on port ${port}`);
