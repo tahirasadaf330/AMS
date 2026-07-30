@@ -89,7 +89,16 @@ export class AuthService {
   ): Promise<{ token: string; refreshToken: string; must_change_password: boolean; user: Partial<User> & { dataset_access: string[]; report_access: string[] } }> {
     const mustChange = opts?.suppressMustChange ? false : user.mustChangePassword;
 
-    await this.userRepo.update(user.id, { lastLogin: new Date() });
+    // SSO users are Microsoft-verified, so the temp-password-change requirement doesn't
+    // apply to them. PERSIST the cleared flag (not just suppress it in this token) — otherwise
+    // /auth/refresh re-reads must_change_password=true from the DB, and the JwtAuthGuard then
+    // blocks every route (incl. /auth/me), breaking SSO for any user who hasn't changed their
+    // temp password yet.
+    const updates: Partial<User> = { lastLogin: new Date() };
+    if (opts?.suppressMustChange && user.mustChangePassword) {
+      updates.mustChangePassword = false;
+    }
+    await this.userRepo.update(user.id, updates);
 
     const jti = generateJti();
     const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '8h');
