@@ -154,6 +154,34 @@ export default function LoginPage() {
               Sign In
             </Button>
           </form>
+
+          {/* Microsoft SSO (Phase 1: alongside password login). Hidden unless enabled —
+              NEXT_PUBLIC_SSO_ENABLED is inlined at build time. Plain navigation, not XHR:
+              the backend 302s the browser to Microsoft and back. */}
+          {process.env.NEXT_PUBLIC_SSO_ENABLED === 'true' && (
+            <>
+              <div className="relative my-5">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-200 dark:border-gray-700" />
+                </div>
+                <div className="relative flex justify-center">
+                  <span className="bg-white dark:bg-gray-800 px-3 text-xs text-gray-400 dark:text-gray-500">or</span>
+                </div>
+              </div>
+              <a
+                href={`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/auth/sso/login`}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700/40 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                <svg width="16" height="16" viewBox="0 0 21 21" aria-hidden="true">
+                  <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                  <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                  <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                  <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                </svg>
+                Sign in with Microsoft
+              </a>
+            </>
+          )}
         </div>
 
         <p className="mt-4 text-center text-xs text-gray-400 dark:text-gray-600">

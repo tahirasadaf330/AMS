@@ -104,6 +104,14 @@ export class AuthController {
     return { message: 'Logged out successfully' };
   }
 
+  // Current user + access arrays (same shape as login's `user`). Used by the SSO
+  // callback page to hydrate the frontend auth store after cookie-bootstrapping a token.
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  async me(@CurrentUser() user: JwtUser) {
+    return this.authService.me(user.sub);
+  }
+
   @Post('change-password')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)

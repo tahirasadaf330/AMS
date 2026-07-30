@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Session } from '../common/entities/session.entity';
+import { User } from '../common/entities/user.entity';
 
 export interface JwtPayload {
   sub: string;
@@ -20,6 +21,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private configService: ConfigService,
     @InjectRepository(Session)
     private sessionRepo: Repository<Session>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -36,6 +39,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
     if (session.expiresAt < new Date()) {
       throw new UnauthorizedException('Session has expired');
+    }
+    // Re-check the account is still active on EVERY request (not only at login), so
+    // deactivating a user takes effect on their next request — the offboarding
+    // kill-switch required by the SSO playbook (§3.4/§7.3).
+    const user = await this.userRepo.findOne({ where: { id: payload.sub }, select: ['id', 'isActive'] });
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Account is deactivated');
     }
     return payload;
   }

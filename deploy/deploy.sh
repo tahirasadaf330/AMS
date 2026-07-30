@@ -26,6 +26,7 @@ echo "==> Running DB migrations..."
 PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR/backend/src/database/migrations/001_initial_schema.sql"
 PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR/backend/src/database/migrations/002_data_sources.sql"
 PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR/backend/src/database/migrations/003_conditions_python.sql"
+PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR/backend/src/database/migrations/009_user_oid.sql"
 
 echo "==> Installing backend dependencies..."
 cd "$APP_DIR/backend"

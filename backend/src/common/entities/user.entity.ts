@@ -55,6 +55,11 @@ export class User {
   @Column({ name: 'group_id', type: 'uuid', nullable: true })
   groupId: string | null;
 
+  // Microsoft Entra Object ID — permanent identity key for SSO (see migration 009).
+  // Backfilled once on first SSO login (matched by email); never overwritten.
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  oid: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

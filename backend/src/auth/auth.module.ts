@@ -8,6 +8,8 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { BootstrapService } from './bootstrap.service';
+import { SsoController } from './sso/sso.controller';
+import { SsoService } from './sso/sso.service';
 
 import { User } from '../common/entities/user.entity';
 import { Session } from '../common/entities/session.entity';
@@ -33,8 +35,8 @@ import { AuditModule } from '../audit/audit.module';
     }),
     AuditModule,
   ],
-  controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, BootstrapService],
+  controllers: [AuthController, SsoController],
+  providers: [AuthService, JwtStrategy, BootstrapService, SsoService],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

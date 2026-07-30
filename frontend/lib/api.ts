@@ -125,6 +125,11 @@ export const authApi = {
 
   refresh: () => api.post<AuthResponse>('/auth/refresh'),
 
+  // Current user + access arrays (same shape as login's `user`) — used by the SSO
+  // callback page; `token` lets it authenticate before the store is hydrated.
+  me: (token?: string) =>
+    api.get<AuthResponse['user']>('/auth/me', token ? { headers: { Authorization: `Bearer ${token}` } } : undefined),
+
   logout: () => api.post('/auth/logout'),
 
   changePassword: (currentPassword: string, newPassword: string) =>

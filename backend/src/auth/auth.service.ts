@@ -69,6 +69,26 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    return this.issueSession(user, ipAddress, userAgent);
+  }
+
+  /**
+   * Mint an AMS session for an already-authenticated user: access + refresh JWTs, both
+   * backed by rows in `sessions`, plus the user payload with its access arrays.
+   * Shared by password login and Microsoft SSO — the "how we verified you" step differs,
+   * the session issued is identical. SSO passes suppressMustChange because the
+   * must-change flag applies to the local password credential, not a Microsoft-verified
+   * session (blocking an SSO login on a temp-password change makes no sense, and Phase 2
+   * removes local passwords entirely).
+   */
+  async issueSession(
+    user: User,
+    ipAddress?: string,
+    userAgent?: string,
+    opts?: { suppressMustChange?: boolean },
+  ): Promise<{ token: string; refreshToken: string; must_change_password: boolean; user: Partial<User> & { dataset_access: string[]; report_access: string[] } }> {
+    const mustChange = opts?.suppressMustChange ? false : user.mustChangePassword;
+
     await this.userRepo.update(user.id, { lastLogin: new Date() });
 
     const jti = generateJti();
@@ -95,7 +115,7 @@ export class AuthService {
       email: user.email,
       role: user.role,
       jti,
-      mustChangePassword: user.mustChangePassword,
+      mustChangePassword: mustChange,
     };
 
     const accessToken = this.jwtService.sign(payload, { expiresIn });
@@ -119,7 +139,27 @@ export class AuthService {
       }),
     );
 
-    // Admin users have access to all active datasets/reports; others use their explicit grants
+    const { datasetAccessIds, reportAccessSlugs } = await this.buildAccessArrays(user);
+
+    return {
+      token: accessToken,
+      refreshToken,
+      must_change_password: mustChange,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        mustChangePassword: mustChange,
+        dataset_access: datasetAccessIds,
+        report_access: reportAccessSlugs,
+      },
+    };
+  }
+
+  /** Dataset/report access arrays for the login payload — admins see everything active,
+   *  others get their explicit grants merged with their group's. */
+  private async buildAccessArrays(user: User): Promise<{ datasetAccessIds: string[]; reportAccessSlugs: string[] }> {
     let datasetAccessIds: string[];
     let reportAccessSlugs: string[];
     if (user.role === 'admin') {
@@ -153,20 +193,26 @@ export class AuthService {
       datasetAccessIds = datasetIds;
       reportAccessSlugs = reportSlugs;
     }
+    return { datasetAccessIds, reportAccessSlugs };
+  }
 
+  /** Current user + access arrays (same shape as login's `user`) — used by the SSO
+   *  callback page to hydrate the frontend auth store, since the JWT alone doesn't
+   *  carry dataset/report access. */
+  async me(userId: string): Promise<Partial<User> & { dataset_access: string[]; report_access: string[] }> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('User not found');
+    }
+    const { datasetAccessIds, reportAccessSlugs } = await this.buildAccessArrays(user);
     return {
-      token: accessToken,
-      refreshToken,
-      must_change_password: user.mustChangePassword,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        mustChangePassword: user.mustChangePassword,
-        dataset_access: datasetAccessIds,
-        report_access: reportAccessSlugs,
-      },
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword,
+      dataset_access: datasetAccessIds,
+      report_access: reportAccessSlugs,
     };
   }
 
