@@ -25,11 +25,12 @@ export class ZamaniSenderIdController {
     @Query('dimension') dimension?: string,
     @Query('granularity') granularity?: string,
     @Query('keys') keys?: string,
+    @Query('filter') filter?: string,
   ) {
     let keyList: string[] = [];
     if (keys) { try { const parsed = JSON.parse(keys); if (Array.isArray(parsed)) keyList = parsed.map(String); } catch { /* ignore */ } }
     const dim = dimension === 'sender' ? 'sender' : 'customer';
     const gran = (['hour', 'day', 'week', 'month'].includes(granularity ?? '') ? granularity : 'day') as 'hour' | 'day' | 'week' | 'month';
-    return this.service.getTimeseries(from, to, dim, gran, keyList);
+    return this.service.getTimeseries(from, to, dim, gran, keyList, filter);
   }
 }

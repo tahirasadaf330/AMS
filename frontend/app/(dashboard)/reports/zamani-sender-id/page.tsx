@@ -204,6 +204,7 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
   const [dim, setDim] = React.useState<'customer' | 'sender'>('customer');
   const [gran, setGran] = React.useState<'hour' | 'day' | 'week' | 'month'>('day');
   const [keys, setKeys] = React.useState<string[]>([]);
+  const [crossFilter, setCrossFilter] = React.useState(''); // pin ONE opposite-dim value: a Sender when By Customer, a Customer when By Sender
   const [chartSearch, setChartSearch] = React.useState('');
   const [sel, setSel] = React.useState(''); // highlighted series — click a legend name (or the line) to emphasize it
   const [ts, setTs] = React.useState<{ buckets: string[]; keys: string[]; points: any[] } | null>(null);
@@ -216,17 +217,25 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
       : Array.from(new Set(senders.map((s) => s.sender_id).filter(Boolean)))).sort((a, b) => a.localeCompare(b)),
     [dim, aggregators, senders],
   );
-  // Switching dimension: drop any picked keys that don't exist in the new option set.
-  React.useEffect(() => { setKeys((k) => k.filter((x) => options.includes(x))); setSel(''); }, [dim]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Cross-filter options = the OPPOSITE dimension: pin a sender (when splitting by customer) or a
+  // customer (when splitting by sender) to break that one entity down by the split dimension.
+  const crossOptions = React.useMemo(
+    () => (dim === 'customer'
+      ? Array.from(new Set(senders.map((s) => s.sender_id).filter(Boolean)))
+      : Array.from(new Set(aggregators.map((a) => a.aggregator).filter(Boolean)))).sort((a, b) => a.localeCompare(b)),
+    [dim, senders, aggregators],
+  );
+  // Switching dimension: drop any picked keys that don't exist in the new option set; clear cross-filter.
+  React.useEffect(() => { setKeys((k) => k.filter((x) => options.includes(x))); setSel(''); setCrossFilter(''); }, [dim]); // eslint-disable-line react-hooks/exhaustive-deps
 
   React.useEffect(() => {
     const { fromISO, toISO } = computeWindowISO(preset, customFrom, customTo);
     setLoading(true); setErr(null);
-    zamaniSenderIdApi.getTimeseries({ from: fromISO, to: toISO, dimension: dim, granularity: gran, keys })
+    zamaniSenderIdApi.getTimeseries({ from: fromISO, to: toISO, dimension: dim, granularity: gran, keys, filter: crossFilter || undefined })
       .then((r) => setTs(r.data as any))
       .catch((e: any) => setErr(e?.response?.data?.message ?? e?.message ?? 'Failed to load chart'))
       .finally(() => setLoading(false));
-  }, [dim, gran, keys, preset, customFrom, customTo, reloadKey]);
+  }, [dim, gran, keys, crossFilter, preset, customFrom, customTo, reloadKey]);
 
   const seriesKeys = ts?.keys ?? [];
   // Live text filter on the plotted series — mirrors the table's "Search sender / customer" box.
@@ -257,6 +266,11 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
         <span style={{ fontSize: '.9rem', fontWeight: 700, color: 'var(--ink)', marginRight: 4 }}>Trend</span>
         <span className="edr-seg">{seg('messages', metric, setMetric, 'Messages')}{seg('dlr', metric, setMetric, 'DLR %')}</span>
         <span className="edr-seg">{seg('customer', dim, setDim, 'By Customer')}{seg('sender', dim, setDim, 'By Sender ID')}</span>
+        <select className="edr-inp" style={{ maxWidth: 210 }} value={crossFilter} onChange={(e) => setCrossFilter(e.target.value)}
+          title={dim === 'customer' ? 'Pin one Sender ID → one line per customer that sends it' : 'Pin one Customer → one line per Sender ID it sends'}>
+          <option value="">{dim === 'customer' ? 'All Sender IDs' : 'All Customers'}</option>
+          {crossOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
         <span className="edr-seg">{seg('hour', gran, setGran, 'Hour')}{seg('day', gran, setGran, 'Day')}{seg('week', gran, setGran, 'Week')}{seg('month', gran, setGran, 'Month')}</span>
         <MultiSelect options={options} selected={keys} onChange={setKeys} placeholder={dim === 'customer' ? 'All customers' : 'All sender IDs'} />
         {loading && <span style={{ fontSize: '.72rem', color: 'var(--mu)' }}>Loading…</span>}

@@ -385,9 +385,14 @@ export class ZamaniSenderIdService implements OnModuleInit {
     dimension: 'customer' | 'sender',
     granularity: 'hour' | 'day' | 'week' | 'month',
     keys: string[],
+    filter?: string,
   ): Promise<{ buckets: string[]; keys: string[]; points: Array<{ bucket: string; key: string; messages: number; dlr: number }> }> {
     const MAX_SERIES = 12;
     const dimCol = dimension === 'sender' ? 'terminated_senderid' : 'customer_connection';
+    // Cross-filter: restrict to a single value of the OPPOSITE dimension — e.g. split by customer but
+    // only for one sender ID, giving one line per customer that sends it. null = no cross-filter.
+    const filterCol = dimension === 'sender' ? 'customer_connection' : 'terminated_senderid';
+    const filterVal = filter && filter.trim() !== '' ? filter : null;
     const trunc = (['hour', 'day', 'week', 'month'] as const).includes(granularity) ? granularity : 'day';
     // Truncate in UTC (submit_datetime is stored UTC) so buckets align to UTC day/week/month boundaries.
     const truncExpr = `date_trunc('${trunc}', submit_datetime AT TIME ZONE 'UTC')`;
@@ -403,7 +408,8 @@ export class ZamaniSenderIdService implements OnModuleInit {
         `SELECT ${dimCol} AS k FROM ${STAGE}
          WHERE ($1::timestamptz IS NULL OR submit_datetime >= $1::timestamptz)
            AND ($2::timestamptz IS NULL OR submit_datetime <= $2::timestamptz)
-         GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT ${MAX_SERIES}`, [from ?? null, to ?? null]);
+           AND ($3::text IS NULL OR ${filterCol} = $3)
+         GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT ${MAX_SERIES}`, [from ?? null, to ?? null, filterVal]);
       keyList = top.map((r) => r.k).filter((k) => k != null);
     } else if (keyList.length > MAX_SERIES) {
       keyList = keyList.slice(0, MAX_SERIES);
@@ -417,8 +423,9 @@ export class ZamaniSenderIdService implements OnModuleInit {
        WHERE ($1::timestamptz IS NULL OR submit_datetime >= $1::timestamptz)
          AND ($2::timestamptz IS NULL OR submit_datetime <= $2::timestamptz)
          AND ${dimCol} = ANY($3::text[])
+         AND ($4::text IS NULL OR ${filterCol} = $4)
        GROUP BY ${truncExpr}, ${dimCol}
-       ORDER BY ${truncExpr}`, [from ?? null, to ?? null, keyList]);
+       ORDER BY ${truncExpr}`, [from ?? null, to ?? null, keyList, filterVal]);
 
     const buckets: string[] = [];
     const seen = new Set<string>();

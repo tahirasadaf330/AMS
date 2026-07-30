@@ -402,9 +402,9 @@ export const zamaniApi = {
 export const zamaniSenderIdApi = {
   getData: (params?: { from?: string; to?: string }) =>
     api.get('/reports/zamani-sender-id/data', { params }),
-  getTimeseries: (params: { from?: string; to?: string; dimension: 'customer' | 'sender'; granularity: 'hour' | 'day' | 'week' | 'month'; keys: string[] }) =>
+  getTimeseries: (params: { from?: string; to?: string; dimension: 'customer' | 'sender'; granularity: 'hour' | 'day' | 'week' | 'month'; keys: string[]; filter?: string }) =>
     api.get('/reports/zamani-sender-id/timeseries', {
-      params: { from: params.from, to: params.to, dimension: params.dimension, granularity: params.granularity, keys: JSON.stringify(params.keys) },
+      params: { from: params.from, to: params.to, dimension: params.dimension, granularity: params.granularity, keys: JSON.stringify(params.keys), filter: params.filter || undefined },
     }),
 };
 
