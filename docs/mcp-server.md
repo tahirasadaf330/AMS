@@ -27,14 +27,14 @@ Run in this order (the migration needs the role to already exist; nginx gives TL
 CREATE ROLE ams_readonly LOGIN PASSWORD '<generate a strong password>' CONNECTION LIMIT 10;
 ```
 
-**2. Run migration 010** as `ams_user` (grants/revokes/safe views; idempotent):
+**2. Run migration 010 as a SUPERUSER** (grants/revokes/safe views; idempotent). It needs a
+superuser because it sets role defaults (`ALTER ROLE`) and default privileges for the app's
+table-owning role — so it is deliberately **NOT** run by `deploy.sh` (which runs as the
+non-superuser app role). It only needs to run **once** — grants persist and default privileges
+cover future stage tables.
 ```bash
-PGPASSWORD='<ams_user pw>' psql -U ams_user -d AMS -h localhost \
-  -f /var/www/AMS/backend/src/database/migrations/010_mcp_readonly_grants.sql
+sudo -u postgres psql -d AMS -f /var/www/AMS/backend/src/database/migrations/010_mcp_readonly_grants.sql
 ```
-> Future deploys run 010 automatically via `deploy.sh`, but **the deploy that first ships it
-> must run it manually** — `deploy.sh` git-pulls (replacing itself) before the migration step,
-> so it executes its old copy that doesn't yet know about 010.
 
 **3. Add env** to `/var/www/AMS/backend/.env` (reuses `AMS_PG_HOST/PORT/DB`):
 ```
