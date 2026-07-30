@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Issuer, generators, type Client } from 'openid-client';
+import { Issuer, generators, custom, type Client } from 'openid-client';
 
 import { User } from '../../common/entities/user.entity';
 import { AuthService } from '../auth.service';
@@ -48,6 +48,11 @@ export class SsoService {
     private authService: AuthService,
     @InjectRepository(User) private userRepo: Repository<User>,
   ) {
+    // openid-client defaults to a 3.5s HTTP timeout; the prod link to Microsoft can take
+    // ~5s for discovery/JWKS, which was timing out. Raise it so discovery + token exchange
+    // don't fail on a slow network. (Discovery is cached after the first success.)
+    custom.setHttpOptionsDefaults({ timeout: 15000 });
+
     this.tenantId = this.configService.get<string>('ENTRA_TENANT_ID', '');
     this.clientId = this.configService.get<string>('ENTRA_CLIENT_ID', '');
     this.clientSecret = this.configService.get<string>('ENTRA_CLIENT_SECRET', '');
