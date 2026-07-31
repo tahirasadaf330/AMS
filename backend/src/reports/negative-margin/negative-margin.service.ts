@@ -87,13 +87,13 @@ ORDER BY negative_margin ASC
 `;
 
 const SEED_COLUMNS = [
-  { key: 'orig_account',        label: 'Orig Account',        type: 'text'    },
-  { key: 'orig_dst_code_name',  label: 'Orig Dst Code Name',  type: 'text'    },
-  { key: 'term_account',        label: 'Term Account',        type: 'text'    },
-  { key: 'term_dst_code_name',  label: 'Term Dst Code Name',  type: 'text'    },
-  { key: 'orig_rate',           label: 'Orig Rate',           type: 'numeric' },
-  { key: 'term_rate',           label: 'Term Rate',           type: 'numeric' },
-  { key: 'negative_margin',     label: 'Negative Margin',     type: 'numeric' },
+  { key: 'orig_account',       label: 'Orig Account',       type: 'text',    description: 'Originating (customer) account the traffic came in on — the Jerasoft VCS orig account name (belongs to an active client).' },
+  { key: 'orig_dst_code_name', label: 'Orig Dst Code Name', type: 'text',    description: 'Destination billed to the originator, resolved from the orig rate dial code by longest-prefix match against the HY-DEFAULT deck (code_decks_id 19); shows UNKNOWN when no prefix matches.' },
+  { key: 'term_account',       label: 'Term Account',       type: 'text',    description: 'Terminating (vendor) account the traffic was routed out to — the Jerasoft VCS term account name (belongs to an active client).' },
+  { key: 'term_dst_code_name', label: 'Term Dst Code Name', type: 'text',    description: 'Destination on the vendor leg, resolved from the term rate dial code the same way (HY-DEFAULT longest-prefix match); shows UNKNOWN when no prefix matches.' },
+  { key: 'orig_rate',          label: 'Orig Rate',          type: 'numeric', description: 'Effective per-minute rate billed to the originator = sum(abs(orig cost)) / (sum(orig billed seconds) / 60). Uses BILLED volume (rounded up to the billing increment), not raw call seconds, so it matches Jerasoft.' },
+  { key: 'term_rate',          label: 'Term Rate',          type: 'numeric', description: 'Effective per-minute rate paid to the terminating vendor = sum(abs(term cost)) / (sum(term billed seconds) / 60).' },
+  { key: 'negative_margin',    label: 'Negative Margin',    type: 'numeric', description: 'Per-minute margin = Orig Rate - Term Rate. Always negative in this dataset (rows are filtered to term cost > orig cost, i.e. the vendor costs more per minute than the customer is billed); the more negative, the larger the loss. Sorted most-negative first.' },
 ];
 
 @Injectable()
