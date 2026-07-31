@@ -183,6 +183,19 @@ export class GraphEmailService {
     await this.getTransporter().verify();
   }
 
+  /**
+   * Master kill-switch for ALL outbound email. Set ALERTS_ENABLED=false on local/dev so a
+   * running local backend — which shares the AMS DB's conditions/recipients — never sends
+   * real emails to actual people. Defaults to enabled; prod leaves it unset.
+   */
+  private outboundSuppressed(): boolean {
+    if (this.configService.get<string>('ALERTS_ENABLED', 'true') === 'false') {
+      this.logger.warn('ALERTS_ENABLED=false — outbound email suppressed (local/dev)');
+      return true;
+    }
+    return false;
+  }
+
   async sendWelcome(params: {
     recipientEmail: string;
     recipientName: string;
@@ -190,6 +203,7 @@ export class GraphEmailService {
     role: string;
     appUrl?: string;
   }): Promise<void> {
+    if (this.outboundSuppressed()) return;
     const appUrl = (params.appUrl || this.configService.get<string>('APP_URL', 'http://ams.voipsystem.org')).replace(/\/$/, '');
     const html = this.buildWelcomeHtml({ ...params, appUrl });
 
@@ -308,6 +322,7 @@ export class GraphEmailService {
     vendorScoped?: boolean;
     stageTableName?: string;
   }): Promise<void> {
+    if (this.outboundSuppressed()) return;
     const html = this.buildHtml({ ...params });
 
     await this.getTransporter().sendMail({
@@ -330,6 +345,7 @@ export class GraphEmailService {
     html: string;
     inlineImages?: Array<{ cid: string; contentBytes: string; contentType?: string; name?: string }>;
   }): Promise<void> {
+    if (this.outboundSuppressed()) return;
     // Inline (cid) images become multipart/related attachments referenced by the HTML as
     // <img src="cid:<cid>">. nodemailer sets Content-ID and Content-Disposition: inline for these.
     const attachments = (params.inlineImages ?? [])

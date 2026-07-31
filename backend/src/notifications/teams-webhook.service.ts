@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { buildAccountDestinationTotals } from './alert-totals.util';
 import axios from 'axios';
@@ -13,10 +13,21 @@ const THEME_COLORS: Record<Severity, string> = {
 
 @Injectable()
 export class TeamsWebhookService {
+  private readonly logger = new Logger(TeamsWebhookService.name);
   private readonly defaultWebhookUrl: string;
 
   constructor(private configService: ConfigService) {
     this.defaultWebhookUrl = this.configService.get<string>('TEAMS_DEFAULT_WEBHOOK_URL', '');
+  }
+
+  /** Master kill-switch for outbound Teams messages (see GraphEmailService.outboundSuppressed).
+   *  ALERTS_ENABLED=false on local/dev so a running local backend never posts real alerts. */
+  private outboundSuppressed(): boolean {
+    if (this.configService.get<string>('ALERTS_ENABLED', 'true') === 'false') {
+      this.logger.warn('ALERTS_ENABLED=false — outbound Teams suppressed (local/dev)');
+      return true;
+    }
+    return false;
   }
 
   async sendAlert(params: {
@@ -31,6 +42,7 @@ export class TeamsWebhookService {
     columnMeta?: Array<{ key: string; label: string; visible: boolean }>;
     vendorScoped?: boolean;
   }): Promise<void> {
+    if (this.outboundSuppressed()) return;
     const webhookUrl = params.webhookUrl || this.defaultWebhookUrl;
     if (!webhookUrl) {
       throw new Error('No Teams webhook URL configured');
@@ -129,6 +141,7 @@ export class TeamsWebhookService {
   }
 
   async testWebhook(webhookUrl?: string): Promise<boolean> {
+    if (this.outboundSuppressed()) return false;
     const url = webhookUrl || this.defaultWebhookUrl;
     if (!url) return false;
     try {
