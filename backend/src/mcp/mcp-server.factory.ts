@@ -2,14 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { McpReadonlyDbService } from './mcp-readonly-db.service';
-import { AtlasAuthService, type AtlasAuthResult } from './atlas-auth.service';
+import { type AtlasIdentity } from './atlas-auth.service';
 import { AuditService } from '../audit/audit.service';
 import {
   buildAudit,
   extractRelations,
   toolResult,
   TOOL_OUTPUT_SHAPE,
-  DENY_MESSAGE,
   type McpToolResult,
 } from './mcp-audit';
 
@@ -21,23 +20,24 @@ const INSTRUCTIONS = [
   'Start with list_tables and list_datasets to discover what is available; use describe_table before writing a query.',
 ].join(' ');
 
-/** Per-request context: the raw bearer token Atlas signed + the source IP, for auth + audit. */
+/** Per-request context. `identity` is the caller the HTTP layer already verified (present for
+ *  `tools/call`; absent for `initialize`/`tools/list` discovery, which never run a tool handler). */
 export interface AtlasContext {
-  rawToken?: string;
+  identity?: AtlasIdentity;
   ip: string;
 }
 
 /**
- * Builds a stateless McpServer for one request. `initialize` and `tools/list` are unauthenticated
- * discovery (handled by the SDK). Every `tools/call` authenticates the Atlas JWT *inside the tool
- * handler* and returns an audit block in structuredContent — including denials, which come back as
- * normal HTTP-200 results (never JSON-RPC errors) so Atlas's client can read the audit.
+ * Builds a stateless McpServer for one request. Authentication happens in the HTTP layer BEFORE
+ * this server runs (McpHttpService: a failed `tools/call` is refused with HTTP 401/403 and never
+ * reaches here). `initialize`/`tools/list` are unauthenticated discovery. So by the time a tool
+ * handler runs, `ctx.identity` is present — handlers execute and return the result + an ok/error
+ * audit block in structuredContent.
  */
 @Injectable()
 export class McpServerFactory {
   constructor(
     private readonly db: McpReadonlyDbService,
-    private readonly atlas: AtlasAuthService,
     private readonly audit: AuditService,
   ) {}
 
@@ -57,18 +57,18 @@ export class McpServerFactory {
       },
       async () => {
         const started = Date.now();
-        const auth = await this.atlas.authenticate(ctx.rawToken, ctx.ip);
-        if (!auth.ok) return this.deny('list_tables', 'metadata', auth, started, ctx);
+        const id = ctx.identity;
+        if (!id) return this.unauthenticated('list_tables', 'metadata', started);
         try {
           const tables = await this.db.listTables();
-          return this.ok('list_tables', 'metadata', auth, started, ctx, {
+          return this.ok('list_tables', 'metadata', id, started, ctx, {
             data: tables,
             rowCount: tables.length,
             relations: ['information_schema.tables'],
             text: `Listed ${tables.length} readable tables/views.`,
           });
         } catch (err) {
-          return this.error('list_tables', 'metadata', auth, started, ctx, err);
+          return this.error('list_tables', 'metadata', id, started, ctx, err);
         }
       },
     );
@@ -83,18 +83,18 @@ export class McpServerFactory {
       },
       async ({ table }) => {
         const started = Date.now();
-        const auth = await this.atlas.authenticate(ctx.rawToken, ctx.ip);
-        if (!auth.ok) return this.deny('describe_table', 'metadata', auth, started, ctx);
+        const id = ctx.identity;
+        if (!id) return this.unauthenticated('describe_table', 'metadata', started);
         try {
           const cols = await this.db.describeTable(table);
-          return this.ok('describe_table', 'metadata', auth, started, ctx, {
+          return this.ok('describe_table', 'metadata', id, started, ctx, {
             data: cols,
             rowCount: cols.length,
             relations: [table],
             text: `Described ${table}: ${cols.length} columns.`,
           });
         } catch (err) {
-          return this.error('describe_table', 'metadata', auth, started, ctx, err);
+          return this.error('describe_table', 'metadata', id, started, ctx, err);
         }
       },
     );
@@ -112,11 +112,11 @@ export class McpServerFactory {
       },
       async ({ sql, row_limit }) => {
         const started = Date.now();
-        const auth = await this.atlas.authenticate(ctx.rawToken, ctx.ip);
-        if (!auth.ok) return this.deny('query', 'read', auth, started, ctx, sql);
+        const id = ctx.identity;
+        if (!id) return this.unauthenticated('query', 'read', started);
         try {
           const result = await this.db.runQuery(sql, row_limit);
-          return this.ok('query', 'read', auth, started, ctx, {
+          return this.ok('query', 'read', id, started, ctx, {
             data: result,
             rowCount: result.row_count,
             relations: extractRelations(sql),
@@ -125,7 +125,7 @@ export class McpServerFactory {
             detail: { truncated: result.truncated, elapsed_ms: result.elapsed_ms },
           });
         } catch (err) {
-          return this.error('query', 'read', auth, started, ctx, err, sql);
+          return this.error('query', 'read', id, started, ctx, err, sql);
         }
       },
     );
@@ -140,18 +140,18 @@ export class McpServerFactory {
       },
       async () => {
         const started = Date.now();
-        const auth = await this.atlas.authenticate(ctx.rawToken, ctx.ip);
-        if (!auth.ok) return this.deny('list_datasets', 'metadata', auth, started, ctx);
+        const id = ctx.identity;
+        if (!id) return this.unauthenticated('list_datasets', 'metadata', started);
         try {
           const datasets = await this.db.listDatasets();
-          return this.ok('list_datasets', 'metadata', auth, started, ctx, {
+          return this.ok('list_datasets', 'metadata', id, started, ctx, {
             data: datasets,
             rowCount: datasets.length,
             relations: ['datasets'],
             text: `Listed ${datasets.length} datasets.`,
           });
         } catch (err) {
-          return this.error('list_datasets', 'metadata', auth, started, ctx, err);
+          return this.error('list_datasets', 'metadata', id, started, ctx, err);
         }
       },
     );
@@ -159,27 +159,27 @@ export class McpServerFactory {
     return server;
   }
 
-  // ── result builders (all return normal 200 results carrying the audit block) ──
+  // ── result builders (tool results are HTTP-200; denials are handled at the HTTP layer) ──
 
   private ok(
     tool: string,
     kind: string,
-    auth: Extract<AtlasAuthResult, { ok: true }>,
+    id: AtlasIdentity,
     started: number,
     ctx: AtlasContext,
     r: { data: unknown; rowCount: number; relations: string[]; statement?: string; text: string; detail?: Record<string, unknown> },
   ): McpToolResult {
     this.audit.log({
-      userId: auth.userId,
+      userId: id.userId,
       action: `mcp:${tool}`,
-      detail: { correlation_id: auth.correlationId, row_count: r.rowCount, ...(r.statement ? { sql: r.statement.slice(0, 4000) } : {}), ...r.detail },
+      detail: { correlation_id: id.correlationId, row_count: r.rowCount, ...(r.statement ? { sql: r.statement.slice(0, 4000) } : {}), ...r.detail },
       ipAddress: ctx.ip,
     });
     const audit = buildAudit({
       tool,
       outcome: 'ok',
-      subject: auth.subject,
-      correlationId: auth.correlationId,
+      subject: id.subject,
+      correlationId: id.correlationId,
       operationKind: kind,
       statement: r.statement ?? null,
       relationsTouched: r.relations,
@@ -190,39 +190,10 @@ export class McpServerFactory {
     return toolResult(r.text, r.data, audit);
   }
 
-  private deny(
-    tool: string,
-    kind: string,
-    auth: Extract<AtlasAuthResult, { ok: false }>,
-    started: number,
-    ctx: AtlasContext,
-    statement?: string,
-  ): McpToolResult {
-    this.audit.log({
-      userId: null,
-      action: 'mcp:denied',
-      detail: { tool, deny_reason: auth.denyReason, correlation_id: auth.correlationId },
-      ipAddress: ctx.ip,
-    });
-    const audit = buildAudit({
-      tool,
-      outcome: 'denied',
-      denyReason: auth.denyReason,
-      subject: auth.subject,
-      correlationId: auth.correlationId,
-      operationKind: kind,
-      statement: statement ?? null,
-      relationsTouched: [],
-      rowCount: null,
-      startedAtMs: started,
-    });
-    return toolResult(DENY_MESSAGE, null, audit);
-  }
-
   private error(
     tool: string,
     kind: string,
-    auth: Extract<AtlasAuthResult, { ok: true }>,
+    id: AtlasIdentity,
     started: number,
     ctx: AtlasContext,
     err: unknown,
@@ -230,16 +201,16 @@ export class McpServerFactory {
   ): McpToolResult {
     const message = (err as Error)?.message ?? 'Tool execution failed.';
     this.audit.log({
-      userId: auth.userId,
+      userId: id.userId,
       action: `mcp:${tool}`,
-      detail: { correlation_id: auth.correlationId, error: message, ...(statement ? { sql: statement.slice(0, 4000) } : {}) },
+      detail: { correlation_id: id.correlationId, error: message, ...(statement ? { sql: statement.slice(0, 4000) } : {}) },
       ipAddress: ctx.ip,
     });
     const audit = buildAudit({
       tool,
       outcome: 'error',
-      subject: auth.subject,
-      correlationId: auth.correlationId,
+      subject: id.subject,
+      correlationId: id.correlationId,
       operationKind: kind,
       statement: statement ?? null,
       relationsTouched: statement ? extractRelations(statement) : [],
@@ -248,5 +219,23 @@ export class McpServerFactory {
       detail: { error: message },
     });
     return toolResult(`Error: ${message}`, null, audit);
+  }
+
+  /** Defensive only — the HTTP layer authenticates every tools/call before the transport runs,
+   *  so a handler should never see a missing identity. Returns a well-formed error result. */
+  private unauthenticated(tool: string, kind: string, started: number): McpToolResult {
+    const audit = buildAudit({
+      tool,
+      outcome: 'error',
+      subject: { oid: null, email: null, matchedBy: null, localUserId: null },
+      correlationId: 'unknown',
+      operationKind: kind,
+      statement: null,
+      relationsTouched: [],
+      rowCount: null,
+      startedAtMs: started,
+      detail: { error: 'unauthenticated' },
+    });
+    return toolResult('Error: unauthenticated request reached the tool handler.', null, audit);
   }
 }

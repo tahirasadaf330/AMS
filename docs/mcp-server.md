@@ -15,10 +15,11 @@ Exposes the AMS Postgres database **read-only** through the Model Context Protoc
   redirect can ever touch it** (see "SSO must not front /mcp" below).
 
 ## How a call is authenticated
-Auth runs **inside each tool handler**, not at the HTTP layer — so a denial is returned as a normal
-JSON-RPC **200 result carrying an audit block**, never a JSON-RPC error or an HTTP redirect (Atlas's
-client raises on errors before it can read the audit). `initialize` and `tools/list` are
-unauthenticated discovery. Per `tools/call` (`atlas-auth.service.ts`):
+A `tools/call` is authenticated at the **HTTP layer** (`mcp-http.service.ts`), before the MCP
+transport runs, so a failure is a real **HTTP 401** (bad/expired/replayed token) or **403** (valid
+token, no usable AMS account) with a JSON-RPC error body — **never a redirect or HTML** (Atlas is
+server-to-server and cannot follow a Microsoft login). The audit block rides in `error.data.audit`.
+`initialize` and `tools/list` are unauthenticated discovery. Per `tools/call` (`atlas-auth.service.ts`):
 
 1. **Verify the JWT** against Atlas's JWKS: RS256 pinned (rejects `alg:none` / HS256 confusion),
    exact `iss` + `aud`, `exp`/`nbf` within `ATLAS_TOKEN_LEEWAY_S`, key selected by `kid`
@@ -31,10 +32,11 @@ unauthenticated discovery. Per `tools/call` (`atlas-auth.service.ts`):
    the `oid` write-once (never overwriting a different one). **Any active AMS account is allowed** —
    the read-only PG role, not app logic, bounds what it can read. No account / inactive → denied.
 
-Every `tools/call` returns `structuredContent.{ data, audit }` where `audit` is the Atlas audit
-block (schema v1: `outcome` ok|denied|error, `deny_reason`, `subject.{oid,email,matched_by}`,
-`correlation_id`, `operation`, `relations_touched`, `row_count`, `duration_ms`, …). Denials carry
-the same block with `outcome:"denied"`. A DB `audit_log` row (`mcp:*`) is also written AMS-side.
+A successful `tools/call` returns `structuredContent.{ data, audit }` where `audit` is the Atlas
+audit block (schema v1: `outcome` ok|error, `subject.{oid,email,matched_by}`, `correlation_id`,
+`operation`, `relations_touched`, `row_count`, `duration_ms`, …). A denial returns HTTP 401/403 with
+`error.data.{ deny_reason, audit }` (`audit.outcome:"denied"`). A DB `audit_log` row (`mcp:*` /
+`mcp:denied`) is also written AMS-side either way.
 
 ## Tools
 - `list_tables` — readable tables/views (sensitive tables are simply absent).
@@ -66,8 +68,8 @@ The MCP route is server-to-server: Atlas is not a browser and cannot follow a Mi
 the interactive Entra SSO / redirect layer ever intercepts `/mcp`, Atlas receives a 302 → HTML login
 page → JSON parse failure, and every call fails. AMS avoids this structurally: `/mcp` is a raw
 Express router mounted first in `main.ts` (no `setGlobalPrefix`, no `APP_GUARD`, no SSO middleware),
-and nginx reverse-proxies it with no `auth_request`. On failure it returns 200-deny / 503 / 405 —
-**never a 302 or HTML.** When changing the front door, keep `/mcp` exempt from any interactive-auth
+and nginx reverse-proxies it with no `auth_request`. On failure it returns 401/403 (auth) / 503 / 405
+— **never a 302 or HTML.** When changing the front door, keep `/mcp` exempt from any interactive-auth
 layer; the Atlas JWT is the (stronger, per-request) authentication for this route.
 
 ## One-time server setup (prod) — DB boundary (unchanged)

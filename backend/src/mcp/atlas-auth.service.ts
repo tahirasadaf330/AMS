@@ -29,6 +29,20 @@ export type AtlasAuthResult =
   | { ok: true; userId: string; email: string; correlationId: string; subject: AtlasSubject }
   | { ok: false; denyReason: DenyReason; correlationId: string; subject: AtlasSubject };
 
+/** A verified caller, passed to the per-request MCP server so tool handlers can audit. */
+export interface AtlasIdentity {
+  userId: string;
+  email: string;
+  correlationId: string;
+  subject: AtlasSubject;
+}
+
+/** HTTP status for a denial: authentication failures → 401; a valid token whose user has no
+ *  usable AMS account → 403 (authenticated but not authorized). */
+export function denyHttpStatus(reason: string): number {
+  return reason === 'no_account' || reason === 'ambiguous_account' || reason === 'no_permission' ? 403 : 401;
+}
+
 const NO_SUBJECT: AtlasSubject = { oid: null, email: null, matchedBy: null, localUserId: null };
 
 @Injectable()

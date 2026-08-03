@@ -1,9 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Router, type Request, type Response } from 'express';
+import { Router, json, type Request, type Response } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { McpReadonlyDbService } from './mcp-readonly-db.service';
 import { McpServerFactory } from './mcp-server.factory';
-import { AtlasAuthService } from './atlas-auth.service';
+import { AtlasAuthService, denyHttpStatus, type AtlasIdentity } from './atlas-auth.service';
+import { AuditService } from '../audit/audit.service';
+import { buildAudit, DENY_MESSAGE } from './mcp-audit';
 
 /**
  * Express router for the MCP endpoint, mounted at /mcp in main.ts BEFORE any Nest
@@ -11,10 +13,11 @@ import { AtlasAuthService } from './atlas-auth.service';
  * never touch JSON-RPC traffic. Stateless Streamable HTTP: one McpServer + transport per POST,
  * JSON responses (no SSE).
  *
- * Auth is NOT enforced here. Atlas is the only consumer; it presents an RS256 JWT which is
- * verified *inside each tool handler* so a denial can be returned as a normal 200 result
- * carrying the audit block (Atlas's client raises on JSON-RPC errors before it can read the
- * audit). `initialize` and `tools/list` are unauthenticated discovery.
+ * Atlas is the only consumer; it presents an RS256 JWT. A `tools/call` is authenticated HERE,
+ * before the MCP transport runs, so a failure is refused with **HTTP 401** (bad/expired/replayed
+ * token) or **403** (valid token, no usable AMS account) and a JSON-RPC error body carrying the
+ * audit block — never a redirect or HTML (Atlas is server-to-server and cannot follow a login).
+ * `initialize` and `tools/list` are unauthenticated discovery.
  */
 @Injectable()
 export class McpHttpService {
@@ -25,9 +28,13 @@ export class McpHttpService {
     private readonly db: McpReadonlyDbService,
     private readonly atlas: AtlasAuthService,
     private readonly factory: McpServerFactory,
+    private readonly audit: AuditService,
   ) {
     this.router = Router();
-    this.router.post('/', (req, res) => void this.handlePost(req, res));
+    // Parse the JSON-RPC body here (this route is mounted before Nest's body parser) so we can
+    // read the method for auth. json() does NOT camelize keys, so JSON-RPC payloads stay intact;
+    // the parsed body is then handed to the MCP transport (no double-read).
+    this.router.post('/', json({ limit: '1mb' }), (req, res) => void this.handlePost(req, res));
     // Stateless server: SSE stream / session teardown not supported.
     this.router.get('/', (_req, res) => this.methodNotAllowed(res));
     this.router.delete('/', (_req, res) => this.methodNotAllowed(res));
@@ -45,6 +52,19 @@ export class McpHttpService {
     this.jsonRpcError(res, 405, -32000, 'Method not allowed. This MCP endpoint is stateless; use POST.');
   }
 
+  /** Find the tools/call request in a single or batched JSON-RPC body (that's the only method we
+   *  authenticate; initialize/tools/list/notifications are open discovery). */
+  private findToolCall(body: unknown): { id: unknown; name: string } | null {
+    const messages = Array.isArray(body) ? body : [body];
+    for (const m of messages) {
+      if (m && typeof m === 'object' && (m as { method?: string }).method === 'tools/call') {
+        const msg = m as { id?: unknown; params?: { name?: string } };
+        return { id: msg.id ?? null, name: msg.params?.name ?? 'unknown' };
+      }
+    }
+    return null;
+  }
+
   private async handlePost(req: Request, res: Response): Promise<void> {
     // Disabled (503) unless BOTH the read-only DB role and Atlas token config are present.
     // The rest of the backend runs regardless.
@@ -53,9 +73,50 @@ export class McpHttpService {
       return;
     }
 
-    // Carry the raw bearer token + IP into the per-request server; the tool handlers verify it.
-    const rawToken = AtlasAuthService.extractBearer(req.headers['authorization'] as string | undefined);
-    const server = this.factory.build({ rawToken, ip: this.ip(req) });
+    const ip = this.ip(req);
+    const toolCall = this.findToolCall(req.body);
+
+    // Authenticate a tools/call before the transport runs, so a failure can be a real 401/403.
+    let identity: AtlasIdentity | undefined;
+    if (toolCall) {
+      const started = Date.now();
+      const token = AtlasAuthService.extractBearer(req.headers['authorization'] as string | undefined);
+      const auth = await this.atlas.authenticate(token, ip);
+      if (!auth.ok) {
+        this.audit.log({
+          userId: null,
+          action: 'mcp:denied',
+          detail: { tool: toolCall.name, deny_reason: auth.denyReason, correlation_id: auth.correlationId },
+          ipAddress: ip,
+        });
+        const status = denyHttpStatus(auth.denyReason);
+        const auditBlock = buildAudit({
+          tool: toolCall.name,
+          outcome: 'denied',
+          denyReason: auth.denyReason,
+          subject: auth.subject,
+          correlationId: auth.correlationId,
+          operationKind: 'auth',
+          statement: null,
+          relationsTouched: [],
+          rowCount: null,
+          startedAtMs: started,
+        });
+        if (status === 401) res.setHeader('WWW-Authenticate', 'Bearer');
+        // JSON-RPC error body (never a redirect/HTML); the audit block rides in error.data.
+        res.status(status).json({
+          jsonrpc: '2.0',
+          id: toolCall.id,
+          error: { code: -32001, message: DENY_MESSAGE, data: { deny_reason: auth.denyReason, audit: auditBlock } },
+        });
+        return;
+      }
+      identity = { userId: auth.userId, email: auth.email, correlationId: auth.correlationId, subject: auth.subject };
+    }
+
+    // Fresh stateless server + transport per request. Discovery (initialize/tools/list) runs with
+    // no identity; a tools/call always has one by the time a handler executes.
+    const server = this.factory.build({ identity, ip });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless
       enableJsonResponse: true,
