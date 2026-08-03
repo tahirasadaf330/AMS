@@ -47,6 +47,7 @@ export class AtlasAuthService {
   private readonly issuer: string;
   private readonly audience: string;
   private readonly leewaySeconds: number;
+  private readonly jwksTimeoutMs: number;
   private readonly configured: boolean;
 
   private jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
@@ -61,6 +62,9 @@ export class AtlasAuthService {
     this.issuer = this.config.get<string>('ATLAS_ISS', '').trim();
     this.audience = this.config.get<string>('MCP_AUD', '').trim();
     this.leewaySeconds = Number(this.config.get<string>('ATLAS_TOKEN_LEEWAY_S', '60')) || 60;
+    // JWKS fetch timeout. Default 15s (prod DNS/TLS to atlas.hayo.net can take ~5s; 5s aborted it →
+    // ERR_JWKS_TIMEOUT → bad_token). Only the first verify after startup pays the fetch (keys cache).
+    this.jwksTimeoutMs = Number(this.config.get<string>('ATLAS_JWKS_TIMEOUT_MS', '15000')) || 15000;
     this.configured = !!this.jwksUrl && !!this.issuer && !!this.audience;
     if (!this.configured) {
       this.logger.warn('ATLAS_JWKS_URL/ATLAS_ISS/MCP_AUD not all set — Atlas MCP auth disabled (/mcp → 503).');
@@ -75,7 +79,7 @@ export class AtlasAuthService {
     if (!this.jwks) {
       // Caches keys, selects by `kid`, and refetches once (cooldown-gated) on an unknown kid.
       this.jwks = createRemoteJWKSet(new URL(this.jwksUrl), {
-        timeoutDuration: 5000,
+        timeoutDuration: this.jwksTimeoutMs,
         cooldownDuration: 30000,
         cacheMaxAge: 10 * 60 * 1000,
       });
