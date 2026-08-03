@@ -112,16 +112,18 @@ export class AtlasAuthService {
     const email = String(payload.email ?? '').trim().toLowerCase();
     const jti = typeof payload.jti === 'string' ? payload.jti : undefined;
 
-    // A signed-but-unusable token (missing subject claims) can't be mapped to a user. Reject it
-    // BEFORE touching the replay cache — a malformed token must never consume/poison a jti (else an
-    // attacker could pre-send garbage carrying a victim's jti to block the victim's real token).
-    if (!oid || !email) {
-      this.logger.warn('Atlas token missing oid/email claim');
+    // The token must carry `oid` (the authoritative identity); `email` is only a fallback used until
+    // the oid is stored, so it is OPTIONAL — a user whose email we can't resolve must not be locked
+    // out. Reject a token with no oid BEFORE touching the replay cache — a malformed token must never
+    // consume/poison a jti (an attacker could otherwise pre-send garbage carrying a victim's jti to
+    // block the victim's real token).
+    if (!oid) {
+      this.logger.warn('Atlas token missing oid claim');
       return {
         ok: false,
         denyReason: 'bad_token',
         correlationId,
-        subject: { oid: oid || null, email: email || null, matchedBy: null, localUserId: null },
+        subject: { oid: null, email: email || null, matchedBy: null, localUserId: null },
       };
     }
 
@@ -134,25 +136,31 @@ export class AtlasAuthService {
           ok: false,
           denyReason: 'token_replayed',
           correlationId,
-          subject: { oid, email, matchedBy: null, localUserId: null },
+          subject: { oid, email: email || null, matchedBy: null, localUserId: null },
         };
       }
       const exp = typeof payload.exp === 'number' ? payload.exp : Math.floor(Date.now() / 1000) + 300;
       this.seenJti.set(jti, exp);
     }
 
-    return this.matchUser(oid, email, correlationId);
+    return this.matchUser(oid, email || null, correlationId);
   }
 
-  /** oid → email fallback → backfill-once, mirroring SSO (sso.service.ts). Any active account passes. */
-  private async matchUser(oid: string, email: string, correlationId: string): Promise<AtlasAuthResult> {
-    const denySubject: AtlasSubject = { oid, email, matchedBy: null, localUserId: null };
+  /** oid → email fallback → backfill-once, mirroring SSO (sso.service.ts). Any active account passes.
+   *  `email` is optional: with no email we can only match by oid (no fallback, no backfill). */
+  private async matchUser(oid: string, email: string | null, correlationId: string): Promise<AtlasAuthResult> {
+    const denySubject: AtlasSubject = { oid, email: email || null, matchedBy: null, localUserId: null };
     try {
       let matchedBy: MatchedBy = 'oid';
       let rows: Array<{ id: string; email: string; oid: string | null; is_active: boolean }> =
         await this.dataSource.query(`SELECT id, email, oid, is_active FROM users WHERE oid = $1 LIMIT 1`, [oid]);
 
       if (!rows.length) {
+        // No record bound to this oid. The email fallback needs an email — an oid-only token that
+        // isn't already linked to an account can't be resolved, so deny.
+        if (!email) {
+          return { ok: false, denyReason: 'no_account', correlationId, subject: denySubject };
+        }
         matchedBy = 'email';
         rows = await this.dataSource.query(
           `SELECT id, email, oid, is_active FROM users WHERE lower(email) = $1 LIMIT 1`,
@@ -170,9 +178,10 @@ export class AtlasAuthService {
       if (!user.is_active) return { ok: false, denyReason: 'no_account', correlationId, subject: denySubject };
 
       // Backfill oid exactly once — only after the active check, only when the record's email
-      // truly equals the authenticated identity. Never overwrite an existing oid.
+      // truly equals the authenticated identity. Never overwrite an existing oid. (Reachable only via
+      // the email-match path, so email is present here; the guard keeps it type-safe regardless.)
       if (!user.oid) {
-        if (user.email.toLowerCase() !== email) {
+        if (!email || user.email.toLowerCase() !== email) {
           return { ok: false, denyReason: 'ambiguous_account', correlationId, subject: denySubject };
         }
         await this.dataSource.query(`UPDATE users SET oid = $1 WHERE id = $2 AND oid IS NULL`, [oid, user.id]);
