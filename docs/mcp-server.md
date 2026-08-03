@@ -27,12 +27,19 @@ an outage; a refusal is a successful tool execution with a negative result. `ini
    exact `iss` + `aud`, `exp`/`nbf` within `ATLAS_TOKEN_LEEWAY_S`, key selected by `kid`
    (JWKS refetched once on an unknown kid). Bad signature / wrong iss/aud / expired / not-yet-valid
    are all refused.
-2. **Require an identity** (`oid` + `email`) — checked *before* the replay cache, so a malformed
-   token can never poison a `jti`.
+2. **Require an identity** (`oid`, authoritative) — checked *before* the replay cache, so a malformed
+   token can never poison a `jti`. `email` is an optional fallback (used until the oid is stored).
 3. **Single-use `jti`** — an in-memory cache refuses a replayed token within its lifetime.
 4. **Match to an AMS user**, reusing the SSO rule: by `users.oid`, else by `email`, then backfill
-   the `oid` write-once (never overwriting a different one). **Any active AMS account is allowed** —
-   the read-only PG role, not app logic, bounds what it can read. No account / inactive → denied.
+   the `oid` write-once (never overwriting a different one). Active account required; no account /
+   inactive → denied.
+5. **Scope to the caller's granted datasets** (`mcp-authz.service.ts`): `admin` sees all active
+   datasets; everyone else (viewer/editor/full_rights; unrecognised role → lowest tier) sees only
+   datasets granted to them via `user_dataset_access` ∪ `group_dataset_access` (their `group_id`),
+   filtered to `is_active`, mapped to physical tables by `datasets.stage_table_name`. Resolved per
+   request, cached ≤60s. Enforced deny-by-default in every tool: `query` relations must be a subset
+   of the caller's stage tables — checked via the planner (`EXPLAIN`, no execution), else
+   `denied/no_permission`; `list_tables`/`list_datasets` are filtered; `describe_table` is gated.
 
 Every `tools/call` returns HTTP 200 with `structuredContent.{ data, audit }` where `audit` is the
 Atlas audit block (schema v1: `outcome` ok|denied|error, `deny_reason`, `subject.{oid,email,
@@ -128,9 +135,12 @@ location /mcp {
 names/descriptions so they can register AMS as an MCP.
 
 ## Access
-There is nothing to grant per user: any **active** AMS account is reachable, matched by the Entra
-`oid`/`email` in Atlas's token (the same identity SSO populates). Deactivating a user denies them at
-the next call. The read-only PG role is what bounds what any of them can read.
+Access mirrors AMS's own grants: a caller (matched by the Entra `oid`/`email` in Atlas's token) reads
+only the datasets granted to them in AMS — individually (Admin → Users) or via their group — with
+`admin` seeing all. Grant/revoke through the normal admin UI; changes take effect within ≤60s (the
+scope cache TTL). Deactivating a user denies them at the next call. Two independent boundaries apply:
+the read-only PG role (no secrets, ever) and the per-user dataset scope (need-to-know between
+colleagues) — see step 5 of "How a call is authenticated".
 
 ## Client configuration
 Atlas is the sole consumer and calls the endpoint server-to-server with its signed JWT — nothing to
