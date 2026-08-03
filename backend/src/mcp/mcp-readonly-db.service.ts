@@ -10,6 +10,15 @@ export interface QueryResult {
   elapsed_ms: number;
 }
 
+/** Thrown when a query references a relation the read-only role can't see (42501). Callers turn
+ *  this into a per-user scope denial (deny_reason no_permission). */
+export class ForbiddenRelationsError extends Error {
+  constructor(public readonly relations: string[]) {
+    super('Query references relations outside the read-only scope.');
+    this.name = 'ForbiddenRelationsError';
+  }
+}
+
 const IDENT_RE = /^[a-z_][a-z0-9_]*$/;
 const DEFAULT_ROW_LIMIT = 500;
 const MAX_ROW_LIMIT = 2000;
@@ -97,10 +106,10 @@ export class McpReadonlyDbService implements OnModuleDestroy {
     return res.rows;
   }
 
-  async runQuery(sql: string, rowLimit?: number): Promise<QueryResult> {
+  /** Normalize + wrap a user SELECT as a derived table (single SELECT-expression, row-capped).
+   *  Rejects multi-statement / non-SELECT before it reaches the DB. Shared by runQuery + explain. */
+  private buildWrapped(sql: string, rowLimit?: number): { wrapped: string; cap: number } {
     const cap = Math.min(Math.max(Math.floor(rowLimit ?? DEFAULT_ROW_LIMIT), 1), MAX_ROW_LIMIT);
-
-    // Normalize: allow exactly one trailing semicolon; reject any other → single statement only.
     let q = sql.trim();
     if (q.endsWith(';')) q = q.slice(0, -1).trim();
     if (q.includes(';')) {
@@ -109,10 +118,39 @@ export class McpReadonlyDbService implements OnModuleDestroy {
     if (!/^(select|with)\b/i.test(q)) {
       throw new Error('Only read-only SELECT queries are allowed (the query must start with SELECT or WITH).');
     }
+    return { wrapped: `SELECT * FROM (\n${q}\n) AS _q LIMIT ${cap}`, cap };
+  }
 
-    // Wrap as a derived table: forces the input to be a single SELECT-expression, so any
-    // DDL/DML/multi-statement becomes a syntax error (same approach as validateQuery).
-    const wrapped = `SELECT * FROM (\n${q}\n) AS _q LIMIT ${cap}`;
+  /**
+   * Physical relations a query WOULD read, via `EXPLAIN` (planner only — no execution). This is the
+   * authoritative relation list (the real Postgres parser/planner), used to enforce per-user dataset
+   * scoping without a fragile SQL regex/parser. Throws ForbiddenRelationsError if the query touches a
+   * table the read-only role itself can't see (42501); other errors are mapped normally.
+   */
+  async explainRelations(sql: string, rowLimit?: number): Promise<string[]> {
+    const { wrapped } = this.buildWrapped(sql, rowLimit); // throws on non-SELECT/multi-statement
+    let res;
+    try {
+      res = await this.getPool().query(`EXPLAIN (FORMAT JSON) ${wrapped}`);
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === '42501') throw new ForbiddenRelationsError(['(restricted)']);
+      throw this.mapPgError(err);
+    }
+    const plan = res.rows[0]?.['QUERY PLAN'];
+    const rels = new Set<string>();
+    const visit = (n: unknown): void => {
+      if (!n || typeof n !== 'object') return;
+      if (Array.isArray(n)) { n.forEach(visit); return; }
+      const node = n as Record<string, unknown>;
+      if (typeof node['Relation Name'] === 'string') rels.add((node['Relation Name'] as string).toLowerCase());
+      for (const k of Object.keys(node)) visit(node[k]);
+    };
+    visit(plan);
+    return [...rels];
+  }
+
+  async runQuery(sql: string, rowLimit?: number): Promise<QueryResult> {
+    const { wrapped, cap } = this.buildWrapped(sql, rowLimit);
     const started = Date.now();
     let res;
     try {

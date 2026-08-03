@@ -4,6 +4,7 @@ import { McpReadonlyDbService } from './mcp-readonly-db.service';
 import { McpServerFactory } from './mcp-server.factory';
 import { McpHttpService } from './mcp-http.service';
 import { AtlasAuthService } from './atlas-auth.service';
+import { McpAuthzService } from './mcp-authz.service';
 
 /**
  * MCP server: read-only DB access over Streamable HTTP for Atlas (Hayo's AI platform).
@@ -13,7 +14,7 @@ import { AtlasAuthService } from './atlas-auth.service';
  */
 @Module({
   imports: [AuditModule],
-  providers: [AtlasAuthService, McpReadonlyDbService, McpServerFactory, McpHttpService],
+  providers: [AtlasAuthService, McpAuthzService, McpReadonlyDbService, McpServerFactory, McpHttpService],
   exports: [McpHttpService],
 })
 export class McpModule {}
