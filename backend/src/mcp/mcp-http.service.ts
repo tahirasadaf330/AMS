@@ -3,7 +3,7 @@ import { Router, json, type Request, type Response } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { McpReadonlyDbService } from './mcp-readonly-db.service';
 import { McpServerFactory } from './mcp-server.factory';
-import { AtlasAuthService, denyHttpStatus, type AtlasIdentity } from './atlas-auth.service';
+import { AtlasAuthService, type AtlasIdentity } from './atlas-auth.service';
 import { AuditService } from '../audit/audit.service';
 import { buildAudit, DENY_MESSAGE } from './mcp-audit';
 
@@ -14,10 +14,12 @@ import { buildAudit, DENY_MESSAGE } from './mcp-audit';
  * JSON responses (no SSE).
  *
  * Atlas is the only consumer; it presents an RS256 JWT. A `tools/call` is authenticated HERE,
- * before the MCP transport runs, so a failure is refused with **HTTP 401** (bad/expired/replayed
- * token) or **403** (valid token, no usable AMS account) and a JSON-RPC error body carrying the
- * audit block — never a redirect or HTML (Atlas is server-to-server and cannot follow a login).
- * `initialize` and `tools/list` are unauthenticated discovery.
+ * before the MCP transport runs. A denial is returned as a normal JSON-RPC **200 result**
+ * (`isError:false`) whose `structuredContent` carries the audit block — NOT an HTTP 401/403.
+ * Atlas's langchain-mcp-adapters client raises on transport-level errors before parsing a tool
+ * result, so an error body loses the audit (and turns a routine "no access" answer into an
+ * outage); a refusal is a successful tool execution with a negative result. It is still never a
+ * redirect or HTML. `initialize` and `tools/list` are unauthenticated discovery.
  */
 @Injectable()
 export class McpHttpService {
@@ -89,25 +91,29 @@ export class McpHttpService {
           detail: { tool: toolCall.name, deny_reason: auth.denyReason, correlation_id: auth.correlationId },
           ipAddress: ip,
         });
-        const status = denyHttpStatus(auth.denyReason);
         const auditBlock = buildAudit({
           tool: toolCall.name,
           outcome: 'denied',
           denyReason: auth.denyReason,
           subject: auth.subject,
           correlationId: auth.correlationId,
-          operationKind: 'auth',
+          operationKind: toolCall.name === 'query' ? 'read' : 'metadata',
           statement: null,
           relationsTouched: [],
           rowCount: null,
           startedAtMs: started,
         });
-        if (status === 401) res.setHeader('WWW-Authenticate', 'Bearer');
-        // JSON-RPC error body (never a redirect/HTML); the audit block rides in error.data.
-        res.status(status).json({
+        // Deliver the denial as a normal JSON-RPC tool RESULT (HTTP 200, isError:false) with the
+        // audit in structuredContent — the only channel Atlas's client reads. Bypasses the MCP
+        // transport (no tool runs), but the envelope is shape-identical to a transport result.
+        res.status(200).json({
           jsonrpc: '2.0',
           id: toolCall.id,
-          error: { code: -32001, message: DENY_MESSAGE, data: { deny_reason: auth.denyReason, audit: auditBlock } },
+          result: {
+            content: [{ type: 'text', text: DENY_MESSAGE }],
+            structuredContent: { data: null, audit: auditBlock },
+            isError: false,
+          },
         });
         return;
       }

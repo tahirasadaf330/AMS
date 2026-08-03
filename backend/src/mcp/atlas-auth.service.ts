@@ -37,12 +37,6 @@ export interface AtlasIdentity {
   subject: AtlasSubject;
 }
 
-/** HTTP status for a denial: authentication failures → 401; a valid token whose user has no
- *  usable AMS account → 403 (authenticated but not authorized). */
-export function denyHttpStatus(reason: string): number {
-  return reason === 'no_account' || reason === 'ambiguous_account' || reason === 'no_permission' ? 403 : 401;
-}
-
 const NO_SUBJECT: AtlasSubject = { oid: null, email: null, matchedBy: null, localUserId: null };
 
 @Injectable()
