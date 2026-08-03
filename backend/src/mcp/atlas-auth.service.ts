@@ -104,6 +104,19 @@ export class AtlasAuthService {
     const email = String(payload.email ?? '').trim().toLowerCase();
     const jti = typeof payload.jti === 'string' ? payload.jti : undefined;
 
+    // A signed-but-unusable token (missing subject claims) can't be mapped to a user. Reject it
+    // BEFORE touching the replay cache — a malformed token must never consume/poison a jti (else an
+    // attacker could pre-send garbage carrying a victim's jti to block the victim's real token).
+    if (!oid || !email) {
+      this.logger.warn('Atlas token missing oid/email claim');
+      return {
+        ok: false,
+        denyReason: 'bad_token',
+        correlationId,
+        subject: { oid: oid || null, email: email || null, matchedBy: null, localUserId: null },
+      };
+    }
+
     // Single-use: reject a token whose jti we've already accepted within its lifetime.
     if (jti) {
       this.evictExpiredJti();
@@ -113,22 +126,11 @@ export class AtlasAuthService {
           ok: false,
           denyReason: 'token_replayed',
           correlationId,
-          subject: { oid: oid || null, email: email || null, matchedBy: null, localUserId: null },
+          subject: { oid, email, matchedBy: null, localUserId: null },
         };
       }
       const exp = typeof payload.exp === 'number' ? payload.exp : Math.floor(Date.now() / 1000) + 300;
       this.seenJti.set(jti, exp);
-    }
-
-    // A signed-but-unusable token (missing subject claims) can't be mapped to a user.
-    if (!oid || !email) {
-      this.logger.warn('Atlas token missing oid/email claim');
-      return {
-        ok: false,
-        denyReason: 'bad_token',
-        correlationId,
-        subject: { oid: oid || null, email: email || null, matchedBy: null, localUserId: null },
-      };
     }
 
     return this.matchUser(oid, email, correlationId);

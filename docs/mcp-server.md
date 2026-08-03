@@ -1,15 +1,40 @@
 # AMS MCP Server (read-only DB access)
 
-Exposes the AMS Postgres database **read-only** to selected users through the Model Context
-Protocol, so Atlas agents and users' AI clients (Claude Code/Desktop) can query AMS data.
+Exposes the AMS Postgres database **read-only** through the Model Context Protocol, so **Atlas**
+(Hayo's AI platform) can answer users' questions about AMS data on their behalf.
 
 - **Endpoint:** `POST https://ams.voipsystem.org/mcp` (Streamable HTTP, stateless JSON).
-- **Auth:** per-user API key, `Authorization: Bearer ams_mcp_…`, generated in **Admin → Users**.
+- **Auth:** Atlas signs a short-lived **RS256 JWT** per call (carrying the user's Entra `oid`/`email`)
+  and sends it as `Authorization: Bearer <jwt>`. AMS verifies it against **Atlas's JWKS** — there are
+  no per-user API keys (the old `ams_mcp_…` keys were retired 2026-08-03).
 - **Security boundary is Postgres, not app code:** the server connects as the `ams_readonly`
   role (SELECT only; password hashes, session tokens, and stored credentials are revoked and
   unreadable even via crafted SQL). Sensitive tables are re-exposed as `*_safe` views.
-- Lives inside `ams-backend` (port 3001); no separate process. Mounted at `/mcp` *before* Nest
-  middleware so JSON-RPC payloads aren't mangled.
+- Lives inside `ams-backend` (port 3001); no separate process. Mounted at `/mcp` as a raw Express
+  router *before* Nest middleware, so JSON-RPC payloads aren't mangled **and no Nest guard / SSO
+  redirect can ever touch it** (see "SSO must not front /mcp" below).
+
+## How a call is authenticated
+Auth runs **inside each tool handler**, not at the HTTP layer — so a denial is returned as a normal
+JSON-RPC **200 result carrying an audit block**, never a JSON-RPC error or an HTTP redirect (Atlas's
+client raises on errors before it can read the audit). `initialize` and `tools/list` are
+unauthenticated discovery. Per `tools/call` (`atlas-auth.service.ts`):
+
+1. **Verify the JWT** against Atlas's JWKS: RS256 pinned (rejects `alg:none` / HS256 confusion),
+   exact `iss` + `aud`, `exp`/`nbf` within `ATLAS_TOKEN_LEEWAY_S`, key selected by `kid`
+   (JWKS refetched once on an unknown kid). Bad signature / wrong iss/aud / expired / not-yet-valid
+   are all refused.
+2. **Require an identity** (`oid` + `email`) — checked *before* the replay cache, so a malformed
+   token can never poison a `jti`.
+3. **Single-use `jti`** — an in-memory cache refuses a replayed token within its lifetime.
+4. **Match to an AMS user**, reusing the SSO rule: by `users.oid`, else by `email`, then backfill
+   the `oid` write-once (never overwriting a different one). **Any active AMS account is allowed** —
+   the read-only PG role, not app logic, bounds what it can read. No account / inactive → denied.
+
+Every `tools/call` returns `structuredContent.{ data, audit }` where `audit` is the Atlas audit
+block (schema v1: `outcome` ok|denied|error, `deny_reason`, `subject.{oid,email,matched_by}`,
+`correlation_id`, `operation`, `relations_touched`, `row_count`, `duration_ms`, …). Denials carry
+the same block with `outcome:"denied"`. A DB `audit_log` row (`mcp:*`) is also written AMS-side.
 
 ## Tools
 - `list_tables` — readable tables/views (sensitive tables are simply absent).
@@ -18,7 +43,34 @@ Protocol, so Atlas agents and users' AI clients (Claude Code/Desktop) can query 
   rejected; results capped (default 500, max 2000) and time-limited (8s).
 - `list_datasets` — dataset registry (name → stage table).
 
-## One-time server setup (prod)
+## Atlas token config
+Three values come from Atlas; `/mcp` is disabled (503) until all are set (and the read-only DB role
+too). `ATLAS_TOKEN_LEEWAY_S` is the exp/nbf clock-skew allowance (default 60).
+
+| Env | dev kit | staging (LIVE) | prod |
+|---|---|---|---|
+| `ATLAS_JWKS_URL` | local `dev-jwks.json` | `https://atlas.hayo.net/staging/mcp/jwks` | `https://atlas.hayo.net/api/mcp/jwks` *(not yet published)* |
+| `ATLAS_ISS` | `https://atlas.hayo.net` | `https://atlas.hayo.net` | `https://atlas.hayo.net` |
+| `MCP_AUD` | `ams-mcp-dev` | `ams-mcp-staging` | `ams-mcp-prod` |
+
+Moving between environments is **config only** — no code change. Always fetch the JWKS over HTTPS
+(over plain http an interceptor could substitute their own key and forge tokens you'd accept).
+
+**Conformance:** verified 2026-08-03 against Atlas's real dev kit (`atlas-mcp-devkit.tgz`) — 12/12:
+`valid_1`/`valid_2` → ok; `expired`/`not_yet_valid` → token_expired; `wrong_audience`/`wrong_issuer`/
+`bad_signature`/`alg_none`/`alg_hs256_confusion`/`tampered_payload`/`missing_oid` → bad_token;
+`replayed_jti` → token_replayed. Live staging JWKS confirmed reachable + parseable over HTTPS.
+
+## SSO must NOT front /mcp
+The MCP route is server-to-server: Atlas is not a browser and cannot follow a Microsoft login. If
+the interactive Entra SSO / redirect layer ever intercepts `/mcp`, Atlas receives a 302 → HTML login
+page → JSON parse failure, and every call fails. AMS avoids this structurally: `/mcp` is a raw
+Express router mounted first in `main.ts` (no `setGlobalPrefix`, no `APP_GUARD`, no SSO middleware),
+and nginx reverse-proxies it with no `auth_request`. On failure it returns 200-deny / 503 / 405 —
+**never a 302 or HTML.** When changing the front door, keep `/mcp` exempt from any interactive-auth
+layer; the Atlas JWT is the (stronger, per-request) authentication for this route.
+
+## One-time server setup (prod) — DB boundary (unchanged)
 
 Run in this order (the migration needs the role to already exist; nginx gives TLS):
 
@@ -36,12 +88,18 @@ cover future stage tables.
 sudo -u postgres psql -d AMS -f /var/www/AMS/backend/src/database/migrations/010_mcp_readonly_grants.sql
 ```
 
-**3. Add env** to `/var/www/AMS/backend/.env` (reuses `AMS_PG_HOST/PORT/DB`):
+**3. Add env** to `/var/www/AMS/backend/.env` (reuses `AMS_PG_HOST/PORT/DB`), plus the Atlas token
+config from the table above:
 ```
 AMS_PG_RO_USER=ams_readonly
 AMS_PG_RO_PASSWORD=<the role password from step 1>
+ATLAS_JWKS_URL=https://atlas.hayo.net/staging/mcp/jwks   # or the prod URL when published
+ATLAS_ISS=https://atlas.hayo.net
+MCP_AUD=ams-mcp-staging                                  # or ams-mcp-prod
+ATLAS_TOKEN_LEEWAY_S=60
 ```
-If unset, `/mcp` returns 503 and the rest of the backend is unaffected.
+If the DB role or any `ATLAS_*` value is unset, `/mcp` returns 503 and the rest of the backend is
+unaffected.
 
 **4. nginx** — add a location so the endpoint gets TLS via the existing cert (keys must never
 travel plaintext), then `nginx -t && systemctl reload nginx`:
@@ -54,21 +112,25 @@ location /mcp {
     proxy_read_timeout 60s;
     proxy_buffering off;
     client_max_body_size 1m;
+    # Optional defence-in-depth (NOT the security boundary — the JWT is): allow Atlas only.
+    # allow 10.10.9.45; deny all;
 }
 ```
 
 **5. Deploy** the code: `bash /var/www/AMS/deploy/deploy.sh`.
 
-## Granting a user access
-Admin → Users → the **key icon** (violet) on a user's row → **Generate key**. The plaintext key
-is shown **once** — copy it and give it to the user. Regenerate invalidates the old key; Revoke
-kills it immediately. Deactivating the user also kills their key instantly.
+**6. Register with Atlas:** give them the endpoint URL, the `aud` for that environment, and the tool
+names/descriptions so they can register AMS as an MCP.
+
+## Access
+There is nothing to grant per user: any **active** AMS account is reachable, matched by the Entra
+`oid`/`email` in Atlas's token (the same identity SSO populates). Deactivating a user denies them at
+the next call. The read-only PG role is what bounds what any of them can read.
 
 ## Client configuration
-- **Claude Code:** `claude mcp add --transport http ams https://ams.voipsystem.org/mcp --header "Authorization: Bearer ams_mcp_…"`
-- **Atlas / Anthropic API `mcp_servers`:** `{ "type": "url", "url": "https://ams.voipsystem.org/mcp", "name": "ams", "authorization_token": "ams_mcp_…" }`
-- **claude.ai web connectors** expect OAuth, not static bearer headers — use a header-capable
-  client (Claude Code/Desktop, or the Atlas API) instead.
+Atlas is the sole consumer and calls the endpoint server-to-server with its signed JWT — nothing to
+configure per user. (Header-key clients like `claude mcp add --header "Authorization: Bearer …"` no
+longer apply, since AMS only accepts Atlas-signed JWTs, not static keys.)
 
 ## Security notes / maintenance
 - **Adding a new sensitive table?** `ALTER DEFAULT PRIVILEGES` auto-grants SELECT on every new
@@ -78,5 +140,7 @@ kills it immediately. Deactivating the user also kills their key instantly.
   `data_sources`, `settings`, `notification_log`, `audit_log`, `user_mcp_keys`) + the
   `users_safe` / `data_sources_safe` / `notification_log_safe` views. Keep view column lists in
   sync with the entities when columns change.
-- Every tool call is audited (`mcp:*` in Admin → Audit Log) with the user, SQL, row count, and IP.
-- Keys are stored as SHA-256 hashes; the plaintext exists only at generation time.
+- Every tool call is audited (`mcp:*` in Admin → Audit Log) with the user, SQL, row count, and IP,
+  in addition to the audit block returned to Atlas.
+- The `user_mcp_keys` table is **orphaned** (the per-user key path was removed); a later migration
+  can drop it.
