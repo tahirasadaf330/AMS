@@ -30,6 +30,7 @@
     "cookie-parser": "^1.4.6",
     "cron": "3.2.1",
     "exceljs": "^4.4.0",
+    "jose": "^6.2.7",
     "mssql": "^12.5.2",
     "nodemailer": "^6.10.1",
     "openid-client": "^5.7.1",
