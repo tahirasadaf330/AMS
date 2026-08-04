@@ -1,64 +1,36 @@
 #!/bin/bash
-# AMS - Deploy on Debian server
-# Run as root: bash /var/www/AMS/deploy/deploy.sh
-
+# AMS - Deploy on Debian server (DOCKER). Run as root: bash /var/www/AMS/deploy/deploy.sh
+#
+# The app now runs in Docker: containers ams-backend (:3001) + ams-frontend (:3000), replacing
+# PM2. Postgres stays a HOST service; the containers reach it on 127.0.0.1 via host networking,
+# and nginx proxies to :3000/:3001 unchanged. Node/Python builds happen INSIDE the images
+# (backend/Dockerfile bakes the Python venv from backend/requirements.txt; frontend/Dockerfile
+# reads NEXT_PUBLIC_* from frontend/.env.local). First-time migration: see deploy/DOCKER-MIGRATION.md.
 set -e
 
 APP_DIR="/var/www/AMS"
-export NVM_DIR="/root/.nvm"
-source "$NVM_DIR/nvm.sh"
-nvm use 20.19.2
+cd "$APP_DIR"
 
 echo "==> Pulling latest code..."
-cd "$APP_DIR"
+git checkout -- frontend/next-env.d.ts 2>/dev/null || true
 git pull origin main
 
-echo "==> Ensuring Python 3 is installed..."
-apt-get update -qq
-apt-get install -y python3 python3-venv python3-dev
+echo "==> Running DB migrations (host Postgres — NOT baked into the image)..."
+for m in 001_initial_schema 002_data_sources 003_conditions_python 009_user_oid; do
+  PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost \
+    -f "$APP_DIR/backend/src/database/migrations/${m}.sql"
+done
+# NOTE: migration 010 (MCP ams_readonly grants) is superuser-only + one-time — NOT run here
+# (docs/mcp-server.md). Add any NEW migration to the loop above; migrations do not ship in the image.
 
-echo "==> Setting up Python virtual environment..."
-python3 -m venv /opt/ams-venv
-/opt/ams-venv/bin/pip install --upgrade pip
-/opt/ams-venv/bin/pip install numpy pandas scipy matplotlib requests psycopg2-binary sqlalchemy openpyxl python-dateutil pytz
+echo "==> Building images..."
+docker compose build
 
-echo "==> Running DB migrations..."
-PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR/backend/src/database/migrations/001_initial_schema.sql"
-PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR/backend/src/database/migrations/002_data_sources.sql"
-PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR/backend/src/database/migrations/003_conditions_python.sql"
-PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost -f "$APP_DIR/backend/src/database/migrations/009_user_oid.sql"
-# NOTE: migration 010 (MCP ams_readonly role grants) is intentionally NOT run here — it needs
-# a SUPERUSER (ALTER ROLE + ALTER DEFAULT PRIVILEGES FOR ROLE) and only runs once. See
-# docs/mcp-server.md:  sudo -u postgres psql -d AMS -f .../010_mcp_readonly_grants.sql
+echo "==> (Re)starting containers..."
+docker compose up -d
 
-echo "==> Installing backend dependencies..."
-cd "$APP_DIR/backend"
-npm install
+echo "==> Pruning old dangling images..."
+docker image prune -f >/dev/null 2>&1 || true
 
-echo "==> Building backend..."
-npm run build
-
-echo "==> Pruning backend dev dependencies..."
-npm prune --omit=dev
-
-echo "==> Installing frontend dependencies..."
-cd "$APP_DIR/frontend"
-npm install
-
-echo "==> Building frontend..."
-npm run build
-
-echo "==> Pruning frontend dev dependencies..."
-npm prune --omit=dev
-
-echo "==> Stopping services..."
-pm2 stop ams-backend
-pm2 stop ams-frontend
-
-echo "==> Starting services..."
-pm2 start ams-backend
-pm2 start ams-frontend
-pm2 save
-
-echo "==> Done! Services restarted."
-pm2 status
+echo "==> Done! Containers up."
+docker compose ps
