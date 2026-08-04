@@ -20,6 +20,7 @@ import {
   BarChart2,
   FileBarChart,
   Upload,
+  ScrollText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
@@ -83,6 +84,7 @@ export function NavSidebar() {
     { label: 'Datasets', href: '/admin/datasets', icon: Database, minRole: 'admin' },
     { label: 'Settings', href: '/admin/settings', icon: Settings, minRole: 'admin' },
     { label: 'Google MO Import', href: '/admin/google-mo-imports', icon: Upload, minRole: 'admin' },
+    { label: 'Audit Log', href: '/admin/audit-log', icon: ScrollText, minRole: 'admin' },
   ];
   const canAccessMinRole = (minRole?: string) =>
     !minRole || canAccess(minRole === 'editor' ? 'create_condition' : minRole === 'full_rights' ? 'manage_schedule' : minRole);

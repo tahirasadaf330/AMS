@@ -575,7 +575,7 @@ function AuditLogTab() {
     }
   };
 
-  const logs: AuditLogEntry[] = data?.logs ?? [];
+  const logs: AuditLogEntry[] = data?.data ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / 50);
 
@@ -629,20 +629,19 @@ function AuditLogTab() {
                 <tr key={entry.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20">
                   <td className="px-3 py-2 text-gray-500 dark:text-gray-400 font-mono whitespace-nowrap">{formatDatetimeFull(entry.created_at)}</td>
                   <td className="px-3 py-2">
-                    <p className="text-gray-800 dark:text-gray-200">{entry.user_name}</p>
-                    <p className="text-gray-500">{entry.user_email}</p>
+                    <p className="text-gray-800 dark:text-gray-200">{entry.user?.name ?? 'system'}</p>
+                    <p className="text-gray-500">{entry.user?.email ?? ''}</p>
                   </td>
                   <td className="px-3 py-2">
                     <span className="bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded font-mono">{entry.action}</span>
                   </td>
                   <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
-                    {entry.resource}
-                    {entry.resource_id && <span className="text-gray-500 ml-1">#{entry.resource_id.slice(0, 8)}</span>}
+                    {entry.resource ?? '—'}
                   </td>
                   <td className="px-3 py-2 text-gray-500 font-mono max-w-[200px] truncate" title={entry.detail ? JSON.stringify(entry.detail) : ''}>
                     {entry.detail ? truncate(JSON.stringify(entry.detail), 60) : '—'}
                   </td>
-                  <td className="px-3 py-2 text-gray-500 dark:text-gray-400 font-mono">{entry.ip}</td>
+                  <td className="px-3 py-2 text-gray-500 dark:text-gray-400 font-mono">{entry.ip_address ?? '—'}</td>
                 </tr>
               ))}
             </tbody>

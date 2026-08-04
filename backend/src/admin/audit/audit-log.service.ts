@@ -30,9 +30,12 @@ export class AuditLogService {
       const limit = Math.min(query.limit || 50, 200);
       const skip = (page - 1) * limit;
 
+      // leftJoin + addSelect (NOT leftJoinAndSelect) so only safe user fields are serialized —
+      // joining the full entity would leak password_hash into the API response.
       const qb = this.auditRepo
         .createQueryBuilder('al')
-        .leftJoinAndSelect('al.user', 'user')
+        .leftJoin('al.user', 'user')
+        .addSelect(['user.id', 'user.email', 'user.name'])
         .orderBy('al.created_at', 'DESC')
         .skip(skip)
         .take(limit);
@@ -62,7 +65,8 @@ export class AuditLogService {
     try {
       const qb = this.auditRepo
         .createQueryBuilder('al')
-        .leftJoinAndSelect('al.user', 'user')
+        .leftJoin('al.user', 'user')
+        .addSelect(['user.id', 'user.email', 'user.name'])
         .orderBy('al.created_at', 'DESC');
 
       if (query.user) {

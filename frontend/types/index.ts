@@ -292,14 +292,13 @@ export interface SystemSettings {
 
 export interface AuditLogEntry {
   id: string;
-  user_id: string;
-  user_name: string;
-  user_email: string;
+  user_id: string | null;
+  /** Safe subset of the acting user (null for system/anonymous entries). */
+  user?: { id: string; email: string; name: string } | null;
   action: string;
-  resource: string;
-  resource_id?: string;
-  detail?: Record<string, unknown>;
-  ip: string;
+  resource: string | null;
+  detail?: Record<string, unknown> | null;
+  ip_address?: string | null;
   created_at: string;
 }
 
@@ -313,10 +312,8 @@ export interface AuditLogFilters {
 }
 
 export interface AuditLogResponse {
-  logs: AuditLogEntry[];
+  data: AuditLogEntry[];
   total: number;
-  page: number;
-  limit: number;
 }
 
 // ── WebSocket Events ─────────────────────────────────────────

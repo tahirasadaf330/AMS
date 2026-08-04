@@ -374,10 +374,13 @@ export const auditLogApi = {
   list: (filters: AuditLogFilters) =>
     api.get<AuditLogResponse>('/admin/audit-log', { params: filters }),
 
-  export: async (): Promise<Blob> => {
+  export: async (filters: Omit<AuditLogFilters, 'page' | 'limit'> = {}): Promise<Blob> => {
     const token = _getToken();
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(filters)) if (v) params.set(k, String(v));
+    const qs = params.toString();
     const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/admin/audit-log/export`,
+      `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/admin/audit-log/export${qs ? `?${qs}` : ''}`,
       {
         headers: { Authorization: `Bearer ${token ?? ''}` },
       }
