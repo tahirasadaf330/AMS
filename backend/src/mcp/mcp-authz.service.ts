@@ -6,11 +6,14 @@ import { AccessResolverService } from '../common/access/access-resolver.service'
 /**
  * Resolves an AMS user's MCP data scope: their role + the physical stage tables they may read.
  *
- * Mirrors the app's own grant model (auth.service.ts `buildAccessArrays`): `admin` sees every active
- * dataset; everyone else (viewer/editor, and any unrecognised role → lowest tier, never
- * admin) sees only datasets granted to them individually (`user_dataset_access`) or via their group
- * (`group_dataset_access`), filtered to `is_active`. Dataset→table is resolved at runtime from
- * `datasets.stage_table_name` (never inferred from names — some tables lack the `stage_` prefix).
+ * Delegates the "which datasets" decision to the central AccessResolverService (the single source of
+ * truth also used by auth/login, the report-access guard, dashboard, export, datasets and
+ * notifications), then maps the resolved dataset ids to their physical stage tables. So the MCP scope
+ * is IDENTICAL to what the user sees in the AMS app: `admin` → every active dataset; otherwise the
+ * union of their individual grants (`user_dataset_access`), their roles' grants (`user_roles` →
+ * `user_groups` → `group_dataset_access`), and every active dataset in any Editor-level section they
+ * hold. Dataset→table is resolved at runtime from `datasets.stage_table_name` (never inferred from
+ * names — some tables lack the `stage_` prefix).
  *
  * Resolved per request and cached ≤60s per user, so a grant/revocation through the admin UI takes
  * effect promptly.
