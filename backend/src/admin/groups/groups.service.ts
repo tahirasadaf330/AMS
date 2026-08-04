@@ -195,13 +195,42 @@ export class AdminGroupsService implements OnModuleInit {
   async setMembers(groupId: string, userIds: string[]): Promise<void> {
     const [existing] = await this.dataSource.query(`SELECT id FROM user_groups WHERE id = $1`, [groupId]);
     if (!existing) throw new NotFoundException(`Group ${groupId} not found`);
+
+    // Membership for a Role lives in the user_roles join (multi-role). Gather everyone whose
+    // membership in THIS role is about to change so we can recompute their permission afterwards.
+    const before = await this.dataSource.query<{ id: string }[]>(
+      `SELECT user_id AS id FROM user_roles WHERE role_id = $1
+       UNION SELECT id FROM users WHERE group_id = $1`,
+      [groupId],
+    );
+    const affected = new Set<string>([...before.map((r) => r.id), ...userIds]);
+
+    // Replace this role's membership set, and clear any legacy single-group pointer to it.
+    await this.dataSource.query(`DELETE FROM user_roles WHERE role_id = $1`, [groupId]);
     await this.dataSource.query(`UPDATE users SET group_id = NULL WHERE group_id = $1`, [groupId]);
-    if (userIds.length > 0) {
+    for (const uid of userIds) {
       await this.dataSource.query(
-        `UPDATE users SET group_id = $1 WHERE id = ANY($2::uuid[])`,
-        [groupId, userIds],
+        `INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [uid, groupId],
       );
     }
+
+    // Permission is derived from roles: editor if the user holds any Editor-level role, else viewer.
+    // Admins and the protected system account are never changed.
+    if (affected.size > 0) {
+      await this.dataSource.query(
+        `UPDATE users u SET role = CASE
+            WHEN EXISTS (
+              SELECT 1 FROM user_roles ur JOIN user_groups g ON g.id = ur.role_id
+               WHERE ur.user_id = u.id AND g.level = 'editor'
+            ) THEN 'editor'
+            ELSE 'viewer'
+          END
+         WHERE u.id = ANY($1::uuid[]) AND u.role <> 'admin' AND u.is_protected IS NOT TRUE`,
+        [[...affected]],
+      );
+    }
+
     this.access.invalidate();
   }
 

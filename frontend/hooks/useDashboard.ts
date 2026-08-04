@@ -122,11 +122,11 @@ export function useCreateGroup() {
       adminGroupsApi.create(data).then((r) => r.data as AdminGroup),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['admin', 'groups'] });
-      addToast({ title: 'Group created', variant: 'success' });
+      addToast({ title: 'Role created', variant: 'success' });
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      addToast({ title: msg ?? 'Failed to create group', variant: 'destructive' });
+      addToast({ title: msg ?? 'Failed to create role', variant: 'destructive' });
     },
   });
 }
@@ -143,11 +143,11 @@ export function useUpdateGroup() {
         old ? old.map((g) => g.id === updatedGroup.id ? updatedGroup : g) : [updatedGroup],
       );
       void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-      addToast({ title: 'Group updated', variant: 'success' });
+      addToast({ title: 'Role updated', variant: 'success' });
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      addToast({ title: msg ?? 'Failed to update group', variant: 'destructive' });
+      addToast({ title: msg ?? 'Failed to update role', variant: 'destructive' });
     },
   });
 }
@@ -160,9 +160,9 @@ export function useDeleteGroup() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['admin', 'groups'] });
       void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-      addToast({ title: 'Group deleted', variant: 'success' });
+      addToast({ title: 'Role deleted', variant: 'success' });
     },
-    onError: () => addToast({ title: 'Failed to delete group', variant: 'destructive' }),
+    onError: () => addToast({ title: 'Failed to delete role', variant: 'destructive' }),
   });
 }
 

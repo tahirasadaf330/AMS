@@ -141,8 +141,8 @@ export default function AdminUsersPage() {
     let rows = users ?? [];
     const q = search.trim().toLowerCase();
     if (q) rows = rows.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
-    if (groupFilter === '__none') rows = rows.filter((u) => !u.group_id);
-    else if (groupFilter) rows = rows.filter((u) => u.group_id === groupFilter);
+    if (groupFilter === '__none') rows = rows.filter((u) => !(u.role_ids?.length) && !u.group_id);
+    else if (groupFilter) rows = rows.filter((u) => (u.role_ids ?? []).includes(groupFilter) || u.group_id === groupFilter);
     return [...rows].sort((a, b) => {
       let av: string | number = '', bv: string | number = '';
       switch (sortCol) {
@@ -204,7 +204,12 @@ export default function AdminUsersPage() {
   const openEditGroup = (g: AdminGroup) => {
     setEditingGroup(g);
     setGroupForm({ name: g.name, description: g.description ?? '', dataset_access: g.dataset_access, report_access: g.report_access });
-    setGroupMembers((users ?? []).filter((u) => u.group_id === g.id).map((u) => u.id));
+    // Members come from the user_roles join (role_ids), plus any legacy single-group pointer.
+    setGroupMembers(
+      (users ?? [])
+        .filter((u) => (u.role_ids ?? []).includes(g.id) || u.group_id === g.id)
+        .map((u) => u.id),
+    );
     setMemberSearch('');
   };
 
@@ -220,8 +225,9 @@ export default function AdminUsersPage() {
       }),
       setMembersMut.mutateAsync({ id: editingGroup.id, userIds: groupMembers }),
     ]);
-    // Refetch groups so member count is up-to-date after setMembers completes
+    // Refetch groups (member counts) and users (role badges + derived permission) after setMembers
     void queryClient.invalidateQueries({ queryKey: ['admin', 'groups'] });
+    void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
     setEditingGroup(null);
   };
 
@@ -305,6 +311,7 @@ export default function AdminUsersPage() {
   const roleOptions = (groups ?? []).filter(
     (g) => g.level && (isAdmin || (g.level === 'viewer' && !!g.section && mySections.includes(g.section))),
   );
+  const roleNameById = new Map((groups ?? []).map((g) => [g.id, g.name] as const));
   // Individual grant lists — Editors can only grant what they themselves can access.
   const grantableDatasets = isAdmin
     ? (datasets ?? [])
@@ -326,13 +333,13 @@ export default function AdminUsersPage() {
     <div className="space-y-5">
       <PageHeader
         title="User Management"
-        description="Manage users and permission groups"
+        description="Manage users, permissions and roles"
         actions={
           <div className="flex items-center gap-2">
             {isAdmin && (
               <Button variant="secondary" size="sm" onClick={() => setShowCreateGroup(true)}>
                 <Plus className="h-4 w-4" />
-                New Group
+                New Role
               </Button>
             )}
             <Button size="sm" onClick={() => { setEditingUser(null); setUserForm(defaultUserForm); setShowUserForm(true); }}>
@@ -364,8 +371,8 @@ export default function AdminUsersPage() {
               <Input placeholder="Search name or email…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-sm" />
             </div>
             <Select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} className="h-8 text-sm w-44">
-              <option value="">All Groups</option>
-              <option value="__none">No Group</option>
+              <option value="">All Roles</option>
+              <option value="__none">No Role</option>
               {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             </Select>
             <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">{displayed.length} of {users?.length ?? 0} users</span>
@@ -379,7 +386,7 @@ export default function AdminUsersPage() {
                     <SortTh col="name"       label="Name"       {...sortProps} />
                     <SortTh col="email"      label="Email"      {...sortProps} />
                     <SortTh col="role"       label="Permission" {...sortProps} />
-                    <SortTh col="group"      label="Group"      {...sortProps} />
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Roles</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Access</th>
                     <SortTh col="status"     label="Status"     {...sortProps} />
                     <SortTh col="last_login" label="Last Login" {...sortProps} />
@@ -395,9 +402,15 @@ export default function AdminUsersPage() {
                       <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{user.email}</td>
                       <td className="px-4 py-3"><Badge variant={ROLE_BADGE[user.role] ?? 'default'}>{user.role}</Badge></td>
                       <td className="px-4 py-3">
-                        {user.group_name
-                          ? <Badge variant="amber">{user.group_name}</Badge>
-                          : <span className="text-gray-400 dark:text-gray-600 text-xs">—</span>}
+                        <div className="flex flex-wrap gap-1">
+                          {(user.role_ids ?? []).map((rid) => (
+                            <Badge key={rid} variant="blue">{roleNameById.get(rid) ?? 'role'}</Badge>
+                          ))}
+                          {user.group_name && <Badge variant="amber">{user.group_name}</Badge>}
+                          {!(user.role_ids ?? []).length && !user.group_name && (
+                            <span className="text-gray-400 dark:text-gray-600 text-xs">—</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
                         {user.role === 'admin'
@@ -454,7 +467,7 @@ export default function AdminUsersPage() {
           {groupsLoading ? <SkeletonTable rows={3} cols={6} /> : groups.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400 dark:text-gray-500">
               <Users className="h-10 w-10 opacity-30" />
-              <p className="text-sm">No groups yet. Click <span className="font-medium text-gray-600 dark:text-gray-300">New Group</span> to create one.</p>
+              <p className="text-sm">No roles yet. Click <span className="font-medium text-gray-600 dark:text-gray-300">New Role</span> to create one.</p>
             </div>
           ) : (
             <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
@@ -481,7 +494,7 @@ export default function AdminUsersPage() {
                             <span className="text-xs text-gray-500 capitalize">{g.level}</span>
                           </span>
                         ) : (
-                          <span className="text-xs text-gray-400">Group</span>
+                          <span className="text-xs text-gray-400">Custom</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs max-w-[240px] truncate">{g.description ?? <span className="text-gray-300 dark:text-gray-600">—</span>}</td>
@@ -510,13 +523,13 @@ export default function AdminUsersPage() {
 
       {/* ══ DIALOGS ══════════════════════════════════════════════ */}
 
-      {/* Create group */}
+      {/* Create role */}
       <Dialog open={showCreateGroup} onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); }} className="max-w-sm">
-        <DialogHeader title="Create Group" onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); }} />
+        <DialogHeader title="Create Role" onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); }} />
         <DialogBody>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label required>Group Name</Label>
+              <Label required>Role Name</Label>
               <Input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="e.g. Finance Team" autoFocus />
             </div>
             <div className="space-y-1.5">
@@ -536,14 +549,14 @@ export default function AdminUsersPage() {
               setActiveTab('groups');
             }}
           >
-            Create Group
+            Create Role
           </Button>
         </DialogFooter>
       </Dialog>
 
-      {/* Edit group — name/description + permissions + members */}
+      {/* Edit role — name/description + access + members */}
       <Dialog open={!!editingGroup} onClose={() => setEditingGroup(null)} className="max-w-2xl">
-        <DialogHeader title={`Edit Group: ${editingGroup?.name ?? ''}`} onClose={() => setEditingGroup(null)} />
+        <DialogHeader title={`Edit Role: ${editingGroup?.name ?? ''}`} onClose={() => setEditingGroup(null)} />
         <DialogBody>
           <div className="space-y-5">
 
@@ -642,19 +655,19 @@ export default function AdminUsersPage() {
         <DialogFooter>
           <Button variant="ghost" onClick={() => setEditingGroup(null)}>Cancel</Button>
           <Button isLoading={updateGroup.isPending || setMembersMut.isPending} disabled={!groupForm.name.trim()} onClick={() => void saveEditGroup()}>
-            Save Group
+            Save Role
           </Button>
         </DialogFooter>
       </Dialog>
 
       {/* Delete group */}
       <Dialog open={!!deleteGroupTarget} onClose={() => setDeleteGroupTarget(null)} className="max-w-sm">
-        <DialogHeader title="Delete Group" onClose={() => setDeleteGroupTarget(null)} />
+        <DialogHeader title="Delete Role" onClose={() => setDeleteGroupTarget(null)} />
         <DialogBody>
           <p className="text-sm text-gray-600 dark:text-gray-300">
             Delete <span className="font-medium text-gray-800 dark:text-gray-100">{deleteGroupTarget?.name}</span>?
             {(deleteGroupTarget?.user_count ?? 0) > 0 && (
-              <> <span className="text-amber-600 dark:text-amber-400">{deleteGroupTarget?.user_count} member(s) will lose this group's access.</span></>
+              <> <span className="text-amber-600 dark:text-amber-400">{deleteGroupTarget?.user_count} member(s) will lose this role's access.</span></>
             )}
           </p>
           <div className="flex justify-end gap-3 mt-4">
@@ -786,7 +799,7 @@ export default function AdminUsersPage() {
             {userForm.role !== 'admin' && (
               <div>
                 <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-                  Individual Access <span className="font-normal normal-case text-gray-400">(adds on top of group)</span>
+                  Individual Access <span className="font-normal normal-case text-gray-400">(adds on top of role access)</span>
                 </p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -882,7 +895,7 @@ export default function AdminUsersPage() {
           {accessUser && (
             <>
               <p className="text-xs text-gray-500 dark:text-gray-400 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded p-2.5">
-                These are <span className="font-medium">individual grants</span> — they stack on top of any group permissions. No group required.
+                These are <span className="font-medium">individual grants</span> — they stack on top of any role access. No role required.
               </p>
               <div>
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Datasets ({accessForm.dataset_access.length})</h3>
@@ -930,7 +943,14 @@ export default function AdminUsersPage() {
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div><p className="text-xs text-gray-400 mb-0.5">Permission</p><Badge variant={ROLE_BADGE[drawerUser.role] ?? 'default'}>{drawerUser.role}</Badge></div>
                 <div><p className="text-xs text-gray-400 mb-0.5">Status</p><StatusBadge status={drawerUser.is_active ? 'active' : 'inactive'} /></div>
-                {drawerUser.group_name && <div><p className="text-xs text-gray-400 mb-0.5">Group</p><Badge variant="amber">{drawerUser.group_name}</Badge></div>}
+                {((drawerUser.role_ids ?? []).length > 0 || drawerUser.group_name) && (
+                  <div><p className="text-xs text-gray-400 mb-0.5">Roles</p>
+                    <div className="flex flex-wrap gap-1">
+                      {(drawerUser.role_ids ?? []).map((rid) => <Badge key={rid} variant="blue">{roleNameById.get(rid) ?? 'role'}</Badge>)}
+                      {drawerUser.group_name && <Badge variant="amber">{drawerUser.group_name}</Badge>}
+                    </div>
+                  </div>
+                )}
                 <div><p className="text-xs text-gray-400 mb-0.5">Created</p><p className="text-gray-700 dark:text-gray-300">{formatDatetime(drawerUser.created_at)}</p></div>
                 <div><p className="text-xs text-gray-400 mb-0.5">Last Login</p><p className="text-gray-700 dark:text-gray-300">{drawerUser.last_login ? formatDatetime(drawerUser.last_login) : '—'}</p></div>
               </div>
