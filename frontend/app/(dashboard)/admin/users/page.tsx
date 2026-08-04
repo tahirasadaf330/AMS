@@ -107,7 +107,6 @@ export default function AdminUsersPage() {
   const isAdmin = useAuthStore((s) => s.canAccess('admin'));
   const canManageUsers = useAuthStore((s) => s.canAccess('create_condition')); // editor+
   const currentUser = useAuthStore((s) => s.user);
-  const mySections = currentUser?.editor_sections ?? [];
   const { data: users, isLoading: usersLoading } = useAdminUsers();
   const { data: reports = [] } = useAvailableReports();
   const { data: datasets } = useDatasets();
@@ -313,15 +312,25 @@ export default function AdminUsersPage() {
   if (!canManageUsers) return <div className="flex items-center justify-center h-64 text-gray-500 text-sm">You do not have access to user management.</div>;
 
   const sortProps = { sortCol, sortDir, onSort: handleSort };
+  // The requester's editor sections, derived from FRESH server data (their own row in the users
+  // list → role_ids → the roles' sections) rather than the persisted login session, which can
+  // predate role changes. Falls back to the session claim while the lists load.
+  const selfRow = (users ?? []).find((u) => u.id === currentUser?.id);
+  const mySections: string[] = selfRow
+    ? Array.from(new Set(
+        (selfRow.role_ids ?? [])
+          .map((rid) => (groups ?? []).find((g) => g.id === rid))
+          .filter((g) => g?.level === 'editor' && g?.section)
+          .map((g) => g!.section as string),
+      ))
+    : (currentUser?.editor_sections ?? []);
+
   // Seeded Roles (groups carrying a section+level) offered in the user dialog's multi-select.
-  // Admins see all four; a delegated Editor sees only Viewer roles — narrowed to their own
-  // section(s) when known. Sessions from before `editor_sections` existed have it undefined;
-  // fall back to all Viewer roles then (the server enforces the section scope regardless).
+  // Admins see all four; a delegated Editor sees ONLY Viewer roles of their own section(s).
   const roleOptions = (groups ?? []).filter((g) => {
     if (!g.level) return false;
     if (isAdmin) return true;
-    if (g.level !== 'viewer') return false;
-    return mySections.length === 0 || (!!g.section && mySections.includes(g.section));
+    return g.level === 'viewer' && !!g.section && mySections.includes(g.section);
   });
   const roleNameById = new Map((groups ?? []).map((g) => [g.id, g.name] as const));
   // Individual grant lists — Editors can only grant what they themselves can access.
