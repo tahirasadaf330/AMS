@@ -16,7 +16,7 @@ git checkout -- frontend/next-env.d.ts 2>/dev/null || true
 git pull origin main
 
 echo "==> Running DB migrations (host Postgres — NOT baked into the image)..."
-for m in 001_initial_schema 002_data_sources 003_conditions_python 009_user_oid 011_sections; do
+for m in 001_initial_schema 002_data_sources 003_conditions_python 009_user_oid 011_sections 013_condition_section; do
   PGPASSWORD='Ams@Hayo#2024!Pg9' psql -U ams_user -d AMS -h localhost \
     -f "$APP_DIR/backend/src/database/migrations/${m}.sql"
 done

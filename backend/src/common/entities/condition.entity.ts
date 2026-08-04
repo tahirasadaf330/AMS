@@ -48,6 +48,12 @@ export class Condition {
   @Column({ name: 'dataset_id', type: 'uuid', nullable: true })
   datasetId: string | null;
 
+  // Business section (sms | voice). For dataset alerts visibility derives from the dataset's
+  // section at query time; this stored value is what scopes PYTHON alerts (no dataset link).
+  // Seeded alerts set it explicitly; user-created python alerts inherit the creator's section.
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  section: string | null;
+
   @ManyToOne(() => Dataset, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'dataset_id' })
   dataset: Dataset | null;

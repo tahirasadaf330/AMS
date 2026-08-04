@@ -226,6 +226,7 @@ export class AmWeeklyVolumeAlertService implements OnModuleInit {
           channels: { email: { enabled: true, recipients: cfg.to, cc: cfg.cc } },
           isActive: true,
           createdBy: null,
+          section: 'sms',
         }),
       );
       this.logger.log(`Seeded "${name}"`);

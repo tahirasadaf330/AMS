@@ -260,6 +260,7 @@ export class ZamaniAlertsService implements OnModuleInit {
           channels: { email: { enabled: true, recipients: TO, cc: CC } },
           isActive: true,
           createdBy: null,
+          section: 'sms',
         }),
       );
       this.logger.log(`Seeded "${a.name}"`);

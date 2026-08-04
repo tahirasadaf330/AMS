@@ -332,6 +332,7 @@ export class ZamaniDailyAlertService implements OnModuleInit {
             channels: { email: { enabled: true, recipients: TO, cc: CC } },
             isActive: true,
             createdBy: null,
+            section: 'sms',
           }),
         );
         this.logger.log(`Seeded "${ALERT_NAME}"`);

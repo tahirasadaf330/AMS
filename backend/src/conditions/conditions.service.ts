@@ -15,6 +15,7 @@ import { stageConditionReadSql } from './stage-read.util';
 import { ConditionSchedulerService } from './condition-scheduler.service';
 import { PythonExecutorService } from './python-executor.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AccessResolverService } from '../common/access/access-resolver.service';
 
 export interface CreateConditionDto {
   name: string;
@@ -52,6 +53,7 @@ export class ConditionsService {
     private conditionScheduler: ConditionSchedulerService,
     private pythonExecutor: PythonExecutorService,
     private notificationsService: NotificationsService,
+    private access: AccessResolverService,
   ) {}
 
   async findAll(userId: string, userRole: UserRole): Promise<Condition[]> {
@@ -61,16 +63,26 @@ export class ConditionsService {
         .leftJoinAndSelect('c.dataset', 'dataset')
         .leftJoinAndSelect('c.createdByUser', 'creator');
 
-      // Only admins see all conditions; everyone else sees only conditions for their accessible datasets + Python conditions
+      // Admins see everything. Everyone else sees alerts by SECTION, resolved centrally:
+      //  - dataset alerts whose dataset they can access (role-derived: an SMS editor gets
+      //    every SMS dataset's alerts, never voice ones), and
+      //  - python alerts (no dataset link) whose stored section matches one of their sections,
+      //  - plus anything they created themselves.
       if (userRole !== 'admin') {
-        const accessibleDatasets = await this.accessRepo.find({ where: { userId } });
-        const datasetIds = accessibleDatasets.map((a) => a.datasetId);
-        if (datasetIds.length === 0) {
-          // Only show Python-type conditions (no dataset access at all)
-          qb.where("c.type = 'python'");
-        } else {
-          qb.where("c.dataset_id IN (:...datasetIds) OR c.type = 'python'", { datasetIds });
+        const acc = await this.access.resolve(userId);
+        const datasetIds = [...acc.datasetIds];
+        const sections = [...acc.editorSections];
+        const parts: string[] = ['c.created_by = :userId'];
+        const params: Record<string, unknown> = { userId };
+        if (datasetIds.length) {
+          parts.push('c.dataset_id IN (:...datasetIds)');
+          params.datasetIds = datasetIds;
         }
+        if (sections.length) {
+          parts.push("(c.type = 'python' AND c.section IN (:...sections))");
+          params.sections = sections;
+        }
+        qb.where(`(${parts.join(' OR ')})`, params);
       }
 
       return await qb.getMany();
@@ -91,11 +103,33 @@ export class ConditionsService {
 
   async create(dto: CreateConditionDto, userId: string, userRole: UserRole): Promise<Condition> {
     try {
+      const datasetId = dto.dataset_id ?? dto.datasetId ?? null;
+
+      // Non-admins may only create alerts on datasets they can access (their section).
+      if (userRole !== 'admin' && datasetId) {
+        const acc = await this.access.resolve(userId);
+        if (!acc.datasetIds.has(datasetId)) {
+          throw new ForbiddenException('You do not have access to this dataset');
+        }
+      }
+
+      // Stamp the alert's section: dataset alerts inherit the dataset's; python alerts get the
+      // creator's editor section (when unambiguous) so section colleagues can see them.
+      let section: string | null = null;
+      if (datasetId) {
+        const ds = await this.datasetRepo.findOne({ where: { id: datasetId }, select: ['id', 'section'] });
+        section = ds?.section ?? null;
+      } else if (userRole !== 'admin') {
+        const acc = await this.access.resolve(userId);
+        if (acc.editorSections.size === 1) section = [...acc.editorSections][0];
+      }
+
       const condition = this.conditionRepo.create({
         name: dto.name,
         type: dto.type ?? 'dataset',
         pythonScript: dto.python_script ?? dto.pythonScript ?? null,
-        datasetId: dto.dataset_id ?? dto.datasetId ?? null,
+        datasetId,
+        section,
         logic: dto.logic || 'AND',
         conditionRows: dto.condition_rows ?? dto.conditionRows ?? [],
         channels: dto.channels || {},
@@ -125,6 +159,22 @@ export class ConditionsService {
 
     try {
       const newDatasetId = dto.dataset_id ?? dto.datasetId ?? condition.datasetId;
+
+      // Non-admins may only point an alert at datasets they can access (their section).
+      if (userRole !== 'admin' && newDatasetId && newDatasetId !== condition.datasetId) {
+        const acc = await this.access.resolve(userId);
+        if (!acc.datasetIds.has(newDatasetId)) {
+          throw new ForbiddenException('You do not have access to this dataset');
+        }
+      }
+
+      // Keep the section in sync when the dataset changes.
+      let newSection = condition.section;
+      if (newDatasetId && newDatasetId !== condition.datasetId) {
+        const ds = await this.datasetRepo.findOne({ where: { id: newDatasetId }, select: ['id', 'section'] });
+        newSection = ds?.section ?? newSection;
+      }
+
       const newConditionRows = dto.condition_rows ?? dto.conditionRows ?? condition.conditionRows;
       const newIsActive = dto.is_active ?? dto.isActive ?? condition.isActive;
       const newTriggerCron = 'trigger_cron' in dto ? dto.trigger_cron
@@ -139,6 +189,7 @@ export class ConditionsService {
         type: dto.type ?? condition.type,
         pythonScript: newPythonScript,
         datasetId: newDatasetId,
+        section: newSection,
         logic: dto.logic ?? condition.logic,
         conditionRows: newConditionRows,
         channels: dto.channels ?? condition.channels,

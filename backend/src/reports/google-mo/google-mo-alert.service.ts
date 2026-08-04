@@ -393,6 +393,7 @@ export class GoogleMoAlertService implements OnModuleInit {
             channels: { email: { enabled: true, recipients: DEFAULT_RECIPIENTS, cc: DEFAULT_CC } },
             isActive: true,
             createdBy: null,
+            section: 'sms',
           }),
         );
         this.logger.log(`Seeded "${ALERT_NAME}" condition`);
