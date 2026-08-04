@@ -289,12 +289,19 @@ export default function AdminUsersPage() {
   const handleUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingUser) {
-      await updateUserMut.mutateAsync({
-        id: editingUser.id,
-        data: { name: userForm.name, role: userForm.role, dataset_access: userForm.dataset_access, report_access: userForm.report_access, role_ids: userForm.role_ids, groupId: userForm.group_id || null },
-      });
+      // Editors manage access via roles only — omit the individual-grant fields entirely so
+      // the target user's existing grants are never touched (and never rejected server-side).
+      const data: Record<string, unknown> = { name: userForm.name, role: userForm.role, role_ids: userForm.role_ids };
+      if (isAdmin) {
+        data.dataset_access = userForm.dataset_access;
+        data.report_access = userForm.report_access;
+        data.groupId = userForm.group_id || null;
+      }
+      await updateUserMut.mutateAsync({ id: editingUser.id, data });
     } else {
-      await createUserMut.mutateAsync(userForm);
+      await createUserMut.mutateAsync(
+        isAdmin ? userForm : { ...userForm, dataset_access: [], report_access: [] },
+      );
     }
   };
 
@@ -307,10 +314,15 @@ export default function AdminUsersPage() {
 
   const sortProps = { sortCol, sortDir, onSort: handleSort };
   // Seeded Roles (groups carrying a section+level) offered in the user dialog's multi-select.
-  // Admins see all four; a delegated Editor sees only Viewer roles in their own section(s).
-  const roleOptions = (groups ?? []).filter(
-    (g) => g.level && (isAdmin || (g.level === 'viewer' && !!g.section && mySections.includes(g.section))),
-  );
+  // Admins see all four; a delegated Editor sees only Viewer roles — narrowed to their own
+  // section(s) when known. Sessions from before `editor_sections` existed have it undefined;
+  // fall back to all Viewer roles then (the server enforces the section scope regardless).
+  const roleOptions = (groups ?? []).filter((g) => {
+    if (!g.level) return false;
+    if (isAdmin) return true;
+    if (g.level !== 'viewer') return false;
+    return mySections.length === 0 || (!!g.section && mySections.includes(g.section));
+  });
   const roleNameById = new Map((groups ?? []).map((g) => [g.id, g.name] as const));
   // Individual grant lists — Editors can only grant what they themselves can access.
   const grantableDatasets = isAdmin
@@ -800,7 +812,7 @@ export default function AdminUsersPage() {
                 )}
               </div>
             )}
-            {userForm.role !== 'admin' && (
+            {isAdmin && userForm.role !== 'admin' && (
               <div>
                 <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
                   Individual Access <span className="font-normal normal-case text-gray-400">(adds on top of role access)</span>
