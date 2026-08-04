@@ -28,6 +28,8 @@ export interface User {
   /** Resolved access counts (role-derived ∪ individual) — what the user can actually reach. */
   effective_dataset_count?: number;
   effective_report_count?: number;
+  /** Who created this user — editors may delete only viewer users they created. */
+  created_by?: string | null;
 }
 
 export interface AdminGroup {

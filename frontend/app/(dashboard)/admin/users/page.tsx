@@ -459,7 +459,7 @@ export default function AdminUsersPage() {
                               {isAdmin && user.is_active && (
                                 <Button variant="ghost" size="icon-sm" onClick={() => setDeactivateTarget(user)} title="Deactivate"><UserX className="h-3.5 w-3.5 text-red-400" /></Button>
                               )}
-                              {isAdmin && (
+                              {(isAdmin || (user.role === 'viewer' && user.created_by === currentUser?.id)) && (
                                 <Button variant="ghost" size="icon-sm" onClick={() => { setDeleteUserTarget(user); setDeleteUserConfirm(''); }} title="Delete permanently"><Trash2 className="h-3.5 w-3.5 text-rose-600" /></Button>
                               )}
                             </>

@@ -79,6 +79,7 @@ export class AdminUsersController {
   }
 
   @Delete(':id')
+  @Roles('editor') // editors may delete ONLY viewer-level users they created (enforced in service)
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteUser(
     @Param('id') id: string,

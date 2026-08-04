@@ -468,6 +468,14 @@ export class AdminUsersService implements OnModuleInit {
       throw new ForbiddenException('Cannot delete the system admin account');
     }
 
+    // Editors (non-admins) may delete only Viewer-level users THEY created.
+    const requester = await this.access.resolve(requestingUserId);
+    if (!requester.isAdmin) {
+      if (user.createdBy !== requestingUserId || user.role !== 'viewer') {
+        throw new ForbiddenException('Editors can only delete viewer users they created');
+      }
+    }
+
     // Null out FK columns that have no ON DELETE CASCADE/SET NULL
     await Promise.all([
       this.dataSource.query(`UPDATE audit_log          SET user_id    = NULL WHERE user_id    = $1`, [id]),
