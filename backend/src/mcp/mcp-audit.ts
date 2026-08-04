@@ -145,3 +145,23 @@ export function toolResult(text: string, data: unknown, audit: AuditBlock): McpT
 }
 
 export const DENY_MESSAGE = 'Access denied: no account provisioned, or it is inactive.';
+
+// Distinct, non-enumerating caller messages per deny reason. Account-existence reasons
+// (no_account / ambiguous_account / inactive) deliberately share ONE identical message (spec §3.6:
+// never reveal which account check failed). Token-level reasons are safe to distinguish, and doing
+// so avoids mis-diagnosis — e.g. a replayed jti previously read as "no account provisioned".
+const DENY_MESSAGES: Record<string, string> = {
+  bad_token: 'Access denied: the request token is missing or could not be verified.',
+  token_expired: 'Access denied: the request token has expired.',
+  token_replayed: 'Access denied: this request token has already been used — Atlas tokens are single-use.',
+  no_account: DENY_MESSAGE,
+  ambiguous_account: DENY_MESSAGE,
+  no_permission: 'Access denied: you do not have access to that data.',
+  not_allowed_operation: 'Access denied: that operation is not permitted.',
+  rate_limited: 'Rate limit exceeded — please retry shortly.',
+};
+
+/** Caller-facing message for a deny reason (falls back to the generic account message). */
+export function denyMessage(reason?: string | null): string {
+  return (reason != null && DENY_MESSAGES[reason]) || DENY_MESSAGE;
+}

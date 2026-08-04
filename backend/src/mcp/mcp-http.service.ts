@@ -5,7 +5,7 @@ import { McpReadonlyDbService } from './mcp-readonly-db.service';
 import { McpServerFactory } from './mcp-server.factory';
 import { AtlasAuthService, type AtlasIdentity } from './atlas-auth.service';
 import { AuditService } from '../audit/audit.service';
-import { buildAudit, DENY_MESSAGE } from './mcp-audit';
+import { buildAudit, denyMessage } from './mcp-audit';
 
 /**
  * Express router for the MCP endpoint, mounted at /mcp in main.ts BEFORE any Nest
@@ -110,7 +110,7 @@ export class McpHttpService {
           jsonrpc: '2.0',
           id: toolCall.id,
           result: {
-            content: [{ type: 'text', text: DENY_MESSAGE }],
+            content: [{ type: 'text', text: denyMessage(auth.denyReason) }],
             structuredContent: { data: null, audit: auditBlock },
             isError: false,
           },

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { createRemoteJWKSet, jwtVerify, decodeJwt, type JWTPayload } from 'jose';
+import { createRemoteJWKSet, jwtVerify, decodeJwt, type JWTPayload, type JWTVerifyGetKey } from 'jose';
 import type { DenyReason, MatchedBy } from './mcp-audit';
 
 /**
@@ -43,14 +43,14 @@ const NO_SUBJECT: AtlasSubject = { oid: null, email: null, matchedBy: null, loca
 export class AtlasAuthService {
   private readonly logger = new Logger(AtlasAuthService.name);
 
-  private readonly jwksUrl: string;
+  private readonly jwksUrls: string[];
   private readonly issuer: string;
-  private readonly audience: string;
+  private readonly audiences: string[];
   private readonly leewaySeconds: number;
   private readonly jwksTimeoutMs: number;
   private readonly configured: boolean;
 
-  private jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+  private keyGetter: JWTVerifyGetKey | null = null;
   // jti → token exp (epoch seconds). Single-use enforcement; entries evict once past exp+leeway.
   private readonly seenJti = new Map<string, number>();
 
@@ -58,16 +58,22 @@ export class AtlasAuthService {
     private readonly config: ConfigService,
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {
-    this.jwksUrl = this.config.get<string>('ATLAS_JWKS_URL', '').trim();
+    // Comma-separated lists so ONE endpoint can trust multiple Atlas environments at once (e.g. the
+    // prod + staging keypairs, each with its own audience) — needed to cut production over without
+    // breaking staging. Environments use distinct JWKS keypairs, so we verify against whichever key
+    // set holds the token's `kid`, and accept the token's `aud` if it is any of the configured ones.
+    this.jwksUrls = this.splitList(this.config.get<string>('ATLAS_JWKS_URL', ''));
     this.issuer = this.config.get<string>('ATLAS_ISS', '').trim();
-    this.audience = this.config.get<string>('MCP_AUD', '').trim();
+    this.audiences = this.splitList(this.config.get<string>('MCP_AUD', ''));
     this.leewaySeconds = Number(this.config.get<string>('ATLAS_TOKEN_LEEWAY_S', '60')) || 60;
     // JWKS fetch timeout. Default 15s (prod DNS/TLS to atlas.hayo.net can take ~5s; 5s aborted it →
     // ERR_JWKS_TIMEOUT → bad_token). Only the first verify after startup pays the fetch (keys cache).
     this.jwksTimeoutMs = Number(this.config.get<string>('ATLAS_JWKS_TIMEOUT_MS', '15000')) || 15000;
-    this.configured = !!this.jwksUrl && !!this.issuer && !!this.audience;
+    this.configured = this.jwksUrls.length > 0 && !!this.issuer && this.audiences.length > 0;
     if (!this.configured) {
       this.logger.warn('ATLAS_JWKS_URL/ATLAS_ISS/MCP_AUD not all set — Atlas MCP auth disabled (/mcp → 503).');
+    } else {
+      this.logger.log(`Atlas MCP auth: ${this.jwksUrls.length} key set(s), audience(s) [${this.audiences.join(', ')}], iss ${this.issuer}`);
     }
   }
 
@@ -75,16 +81,38 @@ export class AtlasAuthService {
     return this.configured;
   }
 
-  private getJwks(): ReturnType<typeof createRemoteJWKSet> {
-    if (!this.jwks) {
-      // Caches keys, selects by `kid`, and refetches once (cooldown-gated) on an unknown kid.
-      this.jwks = createRemoteJWKSet(new URL(this.jwksUrl), {
-        timeoutDuration: this.jwksTimeoutMs,
-        cooldownDuration: 30000,
-        cacheMaxAge: 10 * 60 * 1000,
-      });
+  private splitList(v: string): string[] {
+    return (v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  /** Combined JWKS resolver over every configured key set. Each set caches keys, selects by `kid`,
+   *  and refetches once (cooldown-gated) on an unknown kid. With more than one set we try each and
+   *  use whichever holds the token's kid — so prod- and staging-signed tokens both verify here. */
+  private getKeyGetter(): JWTVerifyGetKey {
+    if (!this.keyGetter) {
+      const sets = this.jwksUrls.map((u) =>
+        createRemoteJWKSet(new URL(u), {
+          timeoutDuration: this.jwksTimeoutMs,
+          cooldownDuration: 30000,
+          cacheMaxAge: 10 * 60 * 1000,
+        }),
+      );
+      this.keyGetter =
+        sets.length === 1
+          ? sets[0]
+          : async (header, token) => {
+              let lastErr: unknown;
+              for (const s of sets) {
+                try {
+                  return await s(header, token);
+                } catch (e) {
+                  lastErr = e; // this set lacks the token's kid — try the next
+                }
+              }
+              throw lastErr ?? new Error('no configured JWKS key set matched the token');
+            };
     }
-    return this.jwks;
+    return this.keyGetter;
   }
 
   /** Bearer token from the Authorization header (Atlas sends `Authorization: Bearer <jwt>`). */
@@ -100,10 +128,10 @@ export class AtlasAuthService {
 
     let payload: JWTPayload;
     try {
-      const verified = await jwtVerify(rawToken, this.getJwks(), {
+      const verified = await jwtVerify(rawToken, this.getKeyGetter(), {
         algorithms: ['RS256'], // rejects `none`/HS*; the JWKS is RSA-public-key only
         issuer: this.issuer,
-        audience: this.audience,
+        audience: this.audiences, // accept any configured audience (e.g. prod and/or staging)
         clockTolerance: this.leewaySeconds,
       });
       payload = verified.payload;
