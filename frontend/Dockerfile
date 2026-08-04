@@ -1,6 +1,8 @@
 # AMS frontend — Next.js (:3000). Multi-stage using Next standalone output.
-# NEXT_PUBLIC_API_URL is a BUILD-TIME var (inlined into the client bundle), so it is a
-# build ARG — set per environment via docker-compose (compose .env).
+# NEXT_PUBLIC_* are BUILD-TIME vars (inlined into the client bundle). We build from the VM's
+# frontend/.env.local (copied via COPY . .), so ALL of them — NEXT_PUBLIC_API_URL,
+# NEXT_PUBLIC_WS_URL, NEXT_PUBLIC_SSO_ENABLED — bake in automatically, exactly like `next build`
+# under PM2. They are public values (already shipped in the client JS); no secrets are in .env.local.
 
 # ---- builder ----
 FROM node:20-bookworm-slim AS builder
@@ -8,8 +10,6 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build
 
 # ---- runtime ----

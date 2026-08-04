@@ -1,0 +1,30 @@
+# AMS backend Python venv (/opt/ams-venv) — pinned to reproduce the production venv EXACTLY
+# (captured from prod `pip freeze` 2026-08-04). The backend runs alert condition scripts with
+# these. Keep in sync if admins install packages via Admin → Settings → Python packages.
+certifi==2026.5.20
+charset-normalizer==3.4.7
+contourpy==1.3.3
+cycler==0.12.1
+dotenv==0.9.9
+et_xmlfile==2.0.0
+fonttools==4.63.0
+greenlet==3.5.1
+idna==3.18
+kiwisolver==1.5.0
+matplotlib==3.11.0
+numpy==2.4.6
+openpyxl==3.1.5
+packaging==26.2
+pandas==3.0.3
+pillow==12.2.0
+psycopg2-binary==2.9.12
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+pytz==2026.2
+requests==2.34.2
+scipy==1.17.1
+six==1.17.0
+SQLAlchemy==2.0.50
+typing_extensions==4.15.0
+urllib3==2.7.0

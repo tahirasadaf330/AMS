@@ -17,15 +17,15 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # Python venv at /opt/ams-venv — the backend runs condition scripts via
-# getPythonCmd() -> /opt/ams-venv/bin/python3 (python-executor.service.ts). Same package
-# set as deploy/deploy.sh so behaviour matches the PM2 host exactly.
+# getPythonCmd() -> /opt/ams-venv/bin/python3 (python-executor.service.ts). requirements.txt is
+# pinned to reproduce the production venv EXACTLY (incl. admin-installed packages like dotenv).
+COPY requirements.txt /tmp/requirements.txt
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
  && python3 -m venv /opt/ams-venv \
  && /opt/ams-venv/bin/pip install --no-cache-dir --upgrade pip \
- && /opt/ams-venv/bin/pip install --no-cache-dir \
-      numpy pandas scipy matplotlib requests psycopg2-binary sqlalchemy openpyxl python-dateutil pytz \
- && rm -rf /var/lib/apt/lists/*
+ && /opt/ams-venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt \
+ && rm -rf /var/lib/apt/lists/* /tmp/requirements.txt
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules

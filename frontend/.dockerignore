@@ -1,9 +1,10 @@
 node_modules
 .next
-.env
-.env.*
-*.log
 .git
 .gitignore
 Dockerfile
 .dockerignore
+*.log
+# NOTE: .env.local is intentionally NOT ignored — `next build` reads NEXT_PUBLIC_* from it.
+# (These are public build-time values, inlined into the client bundle; no secrets live here.)
+.env.production

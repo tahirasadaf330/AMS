@@ -35,16 +35,17 @@ git checkout -- frontend/next-env.d.ts 2>/dev/null   # avoid a dirty-tree pull c
 git pull origin main                                 # brings the Dockerfiles + compose (bc91fe4+)
 ```
 
-## 3. Compose env (per-VM; NEXT_PUBLIC_API_URL is baked at BUILD time)
+## 3. Config — nothing to template
+- `backend/.env` (all secrets/config: ATLAS_*, ENTRA_*, GRAPH_*, AMS_PG_RO_*, DEALS_*, …) is
+  **mounted read-only** into the backend container — nothing to copy.
+- `frontend/.env.local` (NEXT_PUBLIC_API_URL / WS_URL / SSO_ENABLED) is **baked into the frontend
+  image at build** (Next reads it during `next build`). Just confirm it exists:
 ```bash
-cd /var/www/AMS
-# reuse the value already in frontend/.env.local (prod = https://ams.voipsystem.org/api)
-echo "NEXT_PUBLIC_API_URL=$(grep -m1 '^NEXT_PUBLIC_API_URL=' frontend/.env.local | cut -d= -f2-)" > .env
-cat .env    # sanity-check the URL
+cat /var/www/AMS/frontend/.env.local          # NEXT_PUBLIC_* values (public, build-time)
 ```
-> `docker compose` auto-reads `./.env` for `${NEXT_PUBLIC_API_URL}` substitution. `backend/.env`
-> (all secrets/config: ATLAS_*, ENTRA_*, GRAPH_*, AMS_PG_RO_*, DEALS_*, …) is mounted read-only into
-> the backend container — nothing to copy.
+- The backend Python venv is pinned via `backend/requirements.txt` to reproduce the host venv exactly
+  (incl. admin-installed packages). If the host venv has extras, refresh it before building:
+  `/opt/ams-venv/bin/pip freeze > backend/requirements.txt` and re-commit.
 
 ## 4. Build (≈5–10 min; Python scientific stack + two Node builds)
 ```bash
