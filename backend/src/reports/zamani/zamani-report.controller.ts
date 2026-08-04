@@ -2,13 +2,18 @@ import { Controller, Get, Post, Body, Query, UseGuards, ParseIntPipe, DefaultVal
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ReportAccessGuard } from '../../common/guards/report-access.guard';
 import { ReportAccess } from '../../common/decorators/report-access.decorator';
+import { CurrentUser, JwtUser } from '../../common/decorators/current-user.decorator';
+import { AuditService } from '../../audit/audit.service';
 import { ZamaniReportService } from './zamani-report.service';
 
 @Controller('reports/zamani')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
 @ReportAccess('zamani', 'Zamani Traffic', 'sms')
 export class ZamaniReportController {
-  constructor(private readonly zamaniService: ZamaniReportService) {}
+  constructor(
+    private readonly zamaniService: ZamaniReportService,
+    private readonly auditService: AuditService,
+  ) {}
 
   @Get('filters')
   getFilters() {
@@ -74,8 +79,18 @@ export class ZamaniReportController {
   }
 
   @Post('targets')
-  upsertTarget(@Body() dto: { year: number; month: number; messages_target: number; revenue_target: number }) {
-    return this.zamaniService.upsertTarget(dto);
+  async upsertTarget(
+    @Body() dto: { year: number; month: number; messages_target: number; revenue_target: number },
+    @CurrentUser() user: JwtUser,
+  ) {
+    const result = await this.zamaniService.upsertTarget(dto);
+    this.auditService.log({
+      userId: user.sub,
+      action: 'zamani:target_upsert',
+      resource: `${dto.year}-${dto.month}`,
+      detail: dto as unknown as Record<string, unknown>,
+    });
+    return result;
   }
 
   @Get('investment-recovery')
@@ -86,9 +101,17 @@ export class ZamaniReportController {
   }
 
   @Post('investment-recovery/run')
-  runWeeklyTracking(
+  async runWeeklyTracking(
     @Query('trailingDays', new DefaultValuePipe(7), ParseIntPipe) trailingDays: number,
+    @CurrentUser() user: JwtUser,
   ) {
-    return this.zamaniService.runWeeklyTracking(trailingDays);
+    const result = await this.zamaniService.runWeeklyTracking(trailingDays);
+    this.auditService.log({
+      userId: user.sub,
+      action: 'zamani:investment_recovery_run',
+      resource: null,
+      detail: { trailingDays },
+    });
+    return result;
   }
 }

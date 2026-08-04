@@ -81,8 +81,17 @@ export class SchedulesController {
 
   @Post(':datasetId/cancel')
   @HttpCode(HttpStatus.OK)
-  async cancel(@Param('datasetId') datasetId: string) {
+  async cancel(
+    @Param('datasetId') datasetId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
     const cancelled = this.schedulerService.cancelRefresh(datasetId);
+    this.auditService.log({
+      userId: user.sub,
+      action: 'schedule:cancel',
+      resource: datasetId,
+      detail: { cancelled },
+    });
     return { message: cancelled ? 'Refresh cancelled' : 'No active refresh', datasetId };
   }
 

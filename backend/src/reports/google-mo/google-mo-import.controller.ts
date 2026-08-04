@@ -14,6 +14,8 @@ import { memoryStorage } from "multer";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
+import { CurrentUser, JwtUser } from "../../common/decorators/current-user.decorator";
+import { AuditService } from "../../audit/audit.service";
 import { GoogleMoService } from "./google-mo.service";
 import {
   SharePointSyncService,
@@ -27,18 +29,29 @@ export class GoogleMoImportController {
   constructor(
     private readonly service: GoogleMoService,
     private readonly sharePoint: SharePointSyncService,
+    private readonly auditService: AuditService,
   ) {}
 
   @Post("import/costs")
   @UseInterceptors(FileInterceptor("file", { storage: memoryStorage() }))
-  async importCosts(@UploadedFile() file: Express.Multer.File) {
+  async importCosts(
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: JwtUser,
+  ) {
     if (!file) throw new BadRequestException("No file uploaded");
     try {
-      return await this.service.importCosts(
+      const result = await this.service.importCosts(
         file.buffer,
         file.mimetype,
         file.originalname,
       );
+      this.auditService.log({
+        userId: user.sub,
+        action: "google_mo:import_costs",
+        resource: file.originalname,
+        detail: result as unknown as Record<string, unknown>,
+      });
+      return result;
     } catch (err: any) {
       throw new InternalServerErrorException(
         err?.message ?? "Import failed",
@@ -48,14 +61,24 @@ export class GoogleMoImportController {
 
   @Post("import/estimates")
   @UseInterceptors(FileInterceptor("file", { storage: memoryStorage() }))
-  async importEstimates(@UploadedFile() file: Express.Multer.File) {
+  async importEstimates(
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: JwtUser,
+  ) {
     if (!file) throw new BadRequestException("No file uploaded");
     try {
-      return await this.service.importEstimates(
+      const result = await this.service.importEstimates(
         file.buffer,
         file.mimetype,
         file.originalname,
       );
+      this.auditService.log({
+        userId: user.sub,
+        action: "google_mo:import_estimates",
+        resource: file.originalname,
+        detail: result as unknown as Record<string, unknown>,
+      });
+      return result;
     } catch (err: any) {
       throw new InternalServerErrorException(
         err?.message ?? "Import failed",
@@ -71,14 +94,24 @@ export class GoogleMoImportController {
 
   /** On-demand pull of a single source ("costs" | "estimates") from SharePoint. */
   @Post("import/sharepoint/:target")
-  async syncSharePoint(@Param("target") target: string) {
+  async syncSharePoint(
+    @Param("target") target: string,
+    @CurrentUser() user: JwtUser,
+  ) {
     if (target !== "costs" && target !== "estimates") {
       throw new BadRequestException(
         'Invalid target — use "costs" or "estimates"',
       );
     }
     try {
-      return await this.sharePoint.sync(target as SpTarget);
+      const result = await this.sharePoint.sync(target as SpTarget);
+      this.auditService.log({
+        userId: user.sub,
+        action: "google_mo:sharepoint_sync",
+        resource: target,
+        detail: result as unknown as Record<string, unknown>,
+      });
+      return result;
     } catch (err: any) {
       throw new InternalServerErrorException(
         err?.message ?? "SharePoint sync failed",

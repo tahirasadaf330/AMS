@@ -75,14 +75,34 @@ export class SettingsController {
 
   @Post('python-packages/install')
   @HttpCode(HttpStatus.OK)
-  installPythonPackage(@Body('packageSpec') packageSpec: string) {
-    return this.settingsService.installPythonPackage(packageSpec ?? '');
+  async installPythonPackage(
+    @Body('packageSpec') packageSpec: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const result = await this.settingsService.installPythonPackage(packageSpec ?? '');
+    this.auditService.log({
+      userId: user.sub,
+      action: 'admin:python_package_install',
+      resource: packageSpec ?? '',
+      detail: {},
+    });
+    return result;
   }
 
   @Post('python-packages/uninstall')
   @HttpCode(HttpStatus.OK)
-  uninstallPythonPackage(@Body('name') name: string) {
-    return this.settingsService.uninstallPythonPackage(name ?? '');
+  async uninstallPythonPackage(
+    @Body('name') name: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const result = await this.settingsService.uninstallPythonPackage(name ?? '');
+    this.auditService.log({
+      userId: user.sub,
+      action: 'admin:python_package_uninstall',
+      resource: name ?? '',
+      detail: {},
+    });
+    return result;
   }
 
   @Post('rotate-key')
