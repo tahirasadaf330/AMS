@@ -70,8 +70,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
   if (!mounted || !user) return null;
 
-  const roleLabel =
-    user.role === 'full_rights' ? 'Full Rights' : user.role.charAt(0).toUpperCase() + user.role.slice(1);
+  const roleLabel = user.role.charAt(0).toUpperCase() + user.role.slice(1);
 
   return (
     <div className="flex min-h-screen bg-white dark:bg-gray-900">

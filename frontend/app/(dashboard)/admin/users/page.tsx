@@ -354,7 +354,7 @@ export default function AdminUsersPage() {
                   <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
                     <SortTh col="name"       label="Name"       {...sortProps} />
                     <SortTh col="email"      label="Email"      {...sortProps} />
-                    <SortTh col="role"       label="Role"       {...sortProps} />
+                    <SortTh col="role"       label="Permission" {...sortProps} />
                     <SortTh col="group"      label="Group"      {...sortProps} />
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Access</th>
                     <SortTh col="status"     label="Status"     {...sortProps} />
@@ -369,7 +369,7 @@ export default function AdminUsersPage() {
                     <tr key={user.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20 cursor-pointer" onClick={() => { setDrawerUser(user); void loadSessions(user.id); }}>
                       <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{user.name}</td>
                       <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{user.email}</td>
-                      <td className="px-4 py-3"><Badge variant={ROLE_BADGE[user.role] ?? 'default'}>{user.role === 'full_rights' ? 'Full Rights' : user.role}</Badge></td>
+                      <td className="px-4 py-3"><Badge variant={ROLE_BADGE[user.role] ?? 'default'}>{user.role}</Badge></td>
                       <td className="px-4 py-3">
                         {user.group_name
                           ? <Badge variant="amber">{user.group_name}</Badge>
@@ -687,7 +687,7 @@ export default function AdminUsersPage() {
             )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Role</Label>
+                <Label>Permission</Label>
                 {editingUser?.is_protected ? (
                   <div className="flex items-center gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-500">
                     <Lock className="h-3.5 w-3.5 flex-shrink-0" />Protected admin
@@ -696,7 +696,6 @@ export default function AdminUsersPage() {
                   <Select value={userForm.role} onChange={(e) => setUserForm((p) => ({ ...p, role: e.target.value }))}>
                     <option value="viewer">Viewer</option>
                     <option value="editor">Editor</option>
-                    <option value="full_rights">Full Rights</option>
                     <option value="admin">Admin</option>
                   </Select>
                 )}
@@ -853,7 +852,7 @@ export default function AdminUsersPage() {
           {drawerUser && (
             <>
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><p className="text-xs text-gray-400 mb-0.5">Role</p><Badge variant={ROLE_BADGE[drawerUser.role] ?? 'default'}>{drawerUser.role === 'full_rights' ? 'Full Rights' : drawerUser.role}</Badge></div>
+                <div><p className="text-xs text-gray-400 mb-0.5">Permission</p><Badge variant={ROLE_BADGE[drawerUser.role] ?? 'default'}>{drawerUser.role}</Badge></div>
                 <div><p className="text-xs text-gray-400 mb-0.5">Status</p><StatusBadge status={drawerUser.is_active ? 'active' : 'inactive'} /></div>
                 {drawerUser.group_name && <div><p className="text-xs text-gray-400 mb-0.5">Group</p><Badge variant="amber">{drawerUser.group_name}</Badge></div>}
                 <div><p className="text-xs text-gray-400 mb-0.5">Created</p><p className="text-gray-700 dark:text-gray-300">{formatDatetime(drawerUser.created_at)}</p></div>

@@ -36,8 +36,7 @@ export function isTokenExpired(token: string): boolean {
 const ROLE_HIERARCHY: Record<UserRole, number> = {
   viewer: 1,
   editor: 2,
-  full_rights: 3,
-  admin: 4,
+  admin: 3,
 };
 
 /**
@@ -55,10 +54,10 @@ const PERMISSION_ROLE_MAP: Record<string, UserRole> = {
   create_condition: 'editor',
   edit_condition: 'editor',
   delete_condition: 'editor',
-  manage_schedule: 'full_rights',
-  trigger_refresh: 'full_rights',
-  retry_notification: 'full_rights',
-  configure_notifications: 'full_rights',
+  manage_schedule: 'editor',
+  trigger_refresh: 'editor',
+  retry_notification: 'editor',
+  configure_notifications: 'editor',
   admin: 'admin',
   manage_users: 'admin',
   manage_datasets: 'admin',

@@ -6,8 +6,7 @@ import { UserRole } from '../entities/user.entity';
 const ROLE_HIERARCHY: Record<UserRole, number> = {
   viewer: 1,
   editor: 2,
-  full_rights: 3,
-  admin: 4,
+  admin: 3,
 };
 
 @Injectable()

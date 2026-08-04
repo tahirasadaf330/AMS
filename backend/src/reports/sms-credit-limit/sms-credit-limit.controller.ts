@@ -6,7 +6,7 @@ import { SmsCreditLimitService } from './sms-credit-limit.service';
 
 @Controller('reports/sms-credit-limit')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('sms-credit-limit', 'SMS Credit Limit')
+@ReportAccess('sms-credit-limit', 'SMS Credit Limit', 'sms')
 export class SmsCreditLimitController {
   constructor(private readonly service: SmsCreditLimitService) {}
 

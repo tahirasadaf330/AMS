@@ -23,6 +23,11 @@ export class Dataset {
   @Column({ name: 'source_db', type: 'varchar', length: 64, default: 'jerasoft' })
   sourceDb: string;
 
+  // Business section (sms | voice) — groups datasets and is what an Editor-role auto-grants.
+  // Null until classified (migration 011). See report-access.decorator Section.
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  section: string | null;
+
   @Column({ name: 'sql_query', type: 'text' })
   sqlQuery: string;
 

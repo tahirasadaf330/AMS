@@ -6,7 +6,7 @@ import { ZamaniSenderIdService } from './zamani-senderid.service';
 
 @Controller('reports/zamani-sender-id')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('zamani-sender-id', 'Zamani Sender ID')
+@ReportAccess('zamani-sender-id', 'Zamani Sender ID', 'sms')
 export class ZamaniSenderIdController {
   constructor(private readonly service: ZamaniSenderIdService) {}
 

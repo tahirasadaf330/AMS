@@ -35,24 +35,25 @@ interface NavItem {
   children?: NavItem[];
 }
 
-// Report links for the sidebar, kept alphabetical (A→Z) by label. Each is gated
-// by hasReportAccess(slug); adding a report here is the only place to register it
-// in the nav.
-const REPORT_LINKS: { slug: string; href: string; label: string }[] = [
-  { slug: 'apple-traffic', href: '/reports/apple-traffic', label: 'Apple Traffic' },
-  { slug: 'deals-automation', href: '/reports/deals-automation', label: 'Deals Automation' },
-  { slug: 'google_mo', href: '/reports/google-mo-traffic', label: 'Google MO Traffic' },
-  { slug: 'mt-edr', href: '/reports/mt-edr-monitoring', label: 'MT EDR Monitoring' },
-  { slug: 'prepayment-cl', href: '/reports/prepayment-cl', label: 'Pre-Payment Limit' },
-  { slug: 'sms-credit-limit', href: '/reports/sms-credit-limit', label: 'SMS Credit Limit' },
-  { slug: 'sms-report', href: '/reports/sms-report', label: 'SMS Report' },
-  { slug: 'src-dst-number-monitoring', href: '/reports/src-dst-number-monitoring', label: 'SRC/DST Number Monitoring' },
-  { slug: 'vcs-balance', href: '/reports/vcs-balance', label: 'Voice Credit Limit' },
-  { slug: 'voice-live-traffic', href: '/reports/voice-live-traffic', label: 'Voice Live Traffic' },
-  { slug: 'negative-margin', href: '/reports/negative-margin', label: 'Voice Negative Margin' },
-  { slug: 'zamani', href: '/reports/zamani-traffic', label: 'Zamani Traffic' },
-  { slug: 'zamani-sender-id', href: '/reports/zamani-sender-id', label: 'Zamani Sender ID' },
-].sort((a, b) => a.label.localeCompare(b.label));
+// Report links for the sidebar, split into SMS / Voice sections and kept alphabetical
+// (A→Z) by label within each section. Each is gated by hasReportAccess(slug); adding a
+// report here (with its section) is the only place to register it in the nav.
+type ReportLink = { slug: string; href: string; label: string; section: 'sms' | 'voice' };
+const REPORT_LINKS: ReportLink[] = ([
+  { slug: 'apple-traffic', href: '/reports/apple-traffic', label: 'Apple Traffic', section: 'sms' },
+  { slug: 'deals-automation', href: '/reports/deals-automation', label: 'Deals Automation', section: 'voice' },
+  { slug: 'google_mo', href: '/reports/google-mo-traffic', label: 'Google MO Traffic', section: 'sms' },
+  { slug: 'mt-edr', href: '/reports/mt-edr-monitoring', label: 'MT EDR Monitoring', section: 'sms' },
+  { slug: 'prepayment-cl', href: '/reports/prepayment-cl', label: 'Pre-Payment Limit', section: 'voice' },
+  { slug: 'sms-credit-limit', href: '/reports/sms-credit-limit', label: 'SMS Credit Limit', section: 'sms' },
+  { slug: 'sms-report', href: '/reports/sms-report', label: 'SMS Report', section: 'sms' },
+  { slug: 'src-dst-number-monitoring', href: '/reports/src-dst-number-monitoring', label: 'SRC/DST Number Monitoring', section: 'voice' },
+  { slug: 'vcs-balance', href: '/reports/vcs-balance', label: 'Voice Credit Limit', section: 'voice' },
+  { slug: 'voice-live-traffic', href: '/reports/voice-live-traffic', label: 'Voice Live Traffic', section: 'voice' },
+  { slug: 'negative-margin', href: '/reports/negative-margin', label: 'Voice Negative Margin', section: 'voice' },
+  { slug: 'zamani', href: '/reports/zamani-traffic', label: 'Zamani Traffic', section: 'sms' },
+  { slug: 'zamani-sender-id', href: '/reports/zamani-sender-id', label: 'Zamani Sender ID', section: 'sms' },
+] as ReportLink[]).sort((a, b) => a.label.localeCompare(b.label));
 
 export function NavSidebar() {
   const pathname = usePathname();
@@ -65,10 +66,12 @@ export function NavSidebar() {
   const [adminOpen, setAdminOpen] = React.useState(false);
   const [reportsOpen, setReportsOpen] = React.useState(true);
 
+  const accessibleReports = REPORT_LINKS.filter((r) => hasReportAccess(r.slug));
+
   const navItems: NavItem[] = [
     { label: 'Overview', href: '/', icon: LayoutDashboard },
     { label: 'Alerts', href: '/conditions', icon: GitBranch, minRole: 'editor' },
-    { label: 'Schedules', href: '/schedules', icon: Clock, minRole: 'full_rights' },
+    { label: 'Schedules', href: '/schedules', icon: Clock, minRole: 'editor' },
     { label: 'Notifications', href: '/notifications', icon: Bell },
   ];
 
@@ -221,6 +224,7 @@ export function NavSidebar() {
         </div>
 
         {/* Reports section */}
+        {accessibleReports.length > 0 && (
         <div>
           <button
             onClick={() => setReportsOpen((v) => !v)}
@@ -235,26 +239,40 @@ export function NavSidebar() {
           </button>
 
           {reportsOpen && (
-            <div className="space-y-0.5 mt-1">
-              {REPORT_LINKS.filter((r) => hasReportAccess(r.slug)).map((r) => (
-                <Link
-                  key={r.href}
-                  href={r.href}
-                  className={cn(
-                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-2',
-                    'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
-                    isActive(r.href)
-                      ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
-                      : 'text-gray-500 dark:text-gray-400'
-                  )}
-                >
-                  <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>{r.label}</span>
-                </Link>
-              ))}
+            <div className="space-y-1 mt-1">
+              {(['sms', 'voice'] as const).map((section) => {
+                const items = accessibleReports.filter((r) => r.section === section);
+                if (items.length === 0) return null;
+                return (
+                  <div key={section}>
+                    <p className="px-3 py-1 text-[10px] font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wider ml-2">
+                      {section === 'sms' ? 'SMS' : 'Voice'}
+                    </p>
+                    <div className="space-y-0.5">
+                      {items.map((r) => (
+                        <Link
+                          key={r.href}
+                          href={r.href}
+                          className={cn(
+                            'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ml-4',
+                            'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100',
+                            isActive(r.href)
+                              ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
+                              : 'text-gray-500 dark:text-gray-400'
+                          )}
+                        >
+                          <FileBarChart className="h-3.5 w-3.5 flex-shrink-0" />
+                          <span>{r.label}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
+        )}
 
         {/* Admin section */}
         {canAccess('admin') && (

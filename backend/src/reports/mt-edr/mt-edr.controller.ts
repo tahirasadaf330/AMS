@@ -6,7 +6,7 @@ import { MtEdrService } from './mt-edr.service';
 
 @Controller('reports/mt-edr')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('mt-edr', 'MT EDR Monitoring')
+@ReportAccess('mt-edr', 'MT EDR Monitoring', 'sms')
 export class MtEdrController {
   constructor(private readonly service: MtEdrService) {}
 

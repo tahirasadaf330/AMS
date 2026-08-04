@@ -6,7 +6,7 @@ import { GoogleMoService } from './google-mo.service';
 
 @Controller('reports/google-mo')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('google_mo', 'Google MO Traffic')
+@ReportAccess('google_mo', 'Google MO Traffic', 'sms')
 export class GoogleMoController {
   constructor(private readonly service: GoogleMoService) {}
 

@@ -6,7 +6,7 @@ import { AppleTrafficService } from './apple-traffic.service';
 
 @Controller('reports/apple-traffic')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('apple-traffic', 'Apple Traffic')
+@ReportAccess('apple-traffic', 'Apple Traffic', 'sms')
 export class AppleTrafficController {
   constructor(private readonly service: AppleTrafficService) {}
 

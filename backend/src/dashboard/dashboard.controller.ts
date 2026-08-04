@@ -75,7 +75,7 @@ export class DashboardController {
   }
 
   @Post(':datasetId/refresh')
-  @Roles('full_rights')
+  @Roles('editor')
   async triggerRefresh(
     @Param('datasetId') datasetId: string,
     @CurrentUser() user: JwtUser,

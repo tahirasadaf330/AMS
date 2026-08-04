@@ -6,7 +6,7 @@ import { SrcDstNumberMonitoringService } from './src-dst-number-monitoring.servi
 
 @Controller('reports/src-dst-number-monitoring')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('src-dst-number-monitoring', 'SRC/DST Number Monitoring')
+@ReportAccess('src-dst-number-monitoring', 'SRC/DST Number Monitoring', 'voice')
 export class SrcDstNumberMonitoringController {
   constructor(private readonly service: SrcDstNumberMonitoringService) {}
 

@@ -21,7 +21,7 @@ import { AuditService } from '../audit/audit.service';
 
 @Controller('schedules')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('full_rights')
+@Roles('editor')
 export class SchedulesController {
   constructor(
     private schedulerService: SchedulerService,

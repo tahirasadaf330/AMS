@@ -3,11 +3,14 @@ import { DiscoveryService, Reflector } from '@nestjs/core';
 import {
   REPORT_SLUG_KEY,
   REPORT_NAME_KEY,
+  REPORT_SECTION_KEY,
+  type Section,
 } from '../../common/decorators/report-access.decorator';
 
 export interface ReportInfo {
   slug: string;
   name: string;
+  section: Section | null;
 }
 
 /**
@@ -24,18 +27,16 @@ export class ReportsRegistryService {
   ) {}
 
   list(): ReportInfo[] {
-    const bySlug = new Map<string, string>();
+    const bySlug = new Map<string, ReportInfo>();
     for (const wrapper of this.discovery.getControllers()) {
       const metatype = wrapper.metatype;
       if (!metatype) continue;
       const slug = this.reflector.get<string>(REPORT_SLUG_KEY, metatype);
       if (!slug || bySlug.has(slug)) continue;
-      const name =
-        this.reflector.get<string>(REPORT_NAME_KEY, metatype) ?? slug;
-      bySlug.set(slug, name);
+      const name = this.reflector.get<string>(REPORT_NAME_KEY, metatype) ?? slug;
+      const section = this.reflector.get<Section | null>(REPORT_SECTION_KEY, metatype) ?? null;
+      bySlug.set(slug, { slug, name, section });
     }
-    return [...bySlug.entries()]
-      .map(([slug, name]) => ({ slug, name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return [...bySlug.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 }

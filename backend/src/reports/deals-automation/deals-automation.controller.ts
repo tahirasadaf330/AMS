@@ -6,7 +6,7 @@ import { DealsAutomationService } from './deals-automation.service';
 
 @Controller('reports/deals-automation')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('deals-automation', 'Deals Automation')
+@ReportAccess('deals-automation', 'Deals Automation', 'voice')
 export class DealsAutomationController {
   constructor(private readonly service: DealsAutomationService) {}
 

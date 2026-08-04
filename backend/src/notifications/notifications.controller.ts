@@ -51,7 +51,7 @@ export class NotificationsController {
   }
 
   @Post(':id/retry')
-  @Roles('full_rights')
+  @Roles('editor')
   async retry(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,

@@ -3,7 +3,8 @@
 // ============================================================
 
 // ── Auth ────────────────────────────────────────────────────
-export type UserRole = 'admin' | 'full_rights' | 'editor' | 'viewer';
+// Permission (user-facing label): Viewer < Editor < Admin. Legacy 'full_rights' folded into 'editor'.
+export type UserRole = 'admin' | 'editor' | 'viewer';
 
 export interface User {
   id: string;

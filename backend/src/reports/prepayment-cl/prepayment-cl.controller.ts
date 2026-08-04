@@ -6,7 +6,7 @@ import { PrepaymentClService } from './prepayment-cl.service';
 
 @Controller('reports/prepayment-cl')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('prepayment-cl', 'Pre-Payment Limit')
+@ReportAccess('prepayment-cl', 'Pre-Payment Limit', 'voice')
 export class PrepaymentClController {
   constructor(private readonly service: PrepaymentClService) {}
 

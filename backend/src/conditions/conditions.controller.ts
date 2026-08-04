@@ -159,7 +159,7 @@ export class ConditionsController {
   }
 
   @Post(':id/test-notify')
-  @Roles('full_rights')
+  @Roles('editor')
   @HttpCode(HttpStatus.OK)
   async testNotify(
     @Param('id') id: string,

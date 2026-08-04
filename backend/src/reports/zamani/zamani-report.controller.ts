@@ -6,7 +6,7 @@ import { ZamaniReportService } from './zamani-report.service';
 
 @Controller('reports/zamani')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('zamani', 'Zamani Traffic')
+@ReportAccess('zamani', 'Zamani Traffic', 'sms')
 export class ZamaniReportController {
   constructor(private readonly zamaniService: ZamaniReportService) {}
 

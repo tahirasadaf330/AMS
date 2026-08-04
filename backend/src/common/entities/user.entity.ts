@@ -8,7 +8,9 @@ import {
   OneToMany,
 } from 'typeorm';
 
-export type UserRole = 'admin' | 'full_rights' | 'editor' | 'viewer';
+// Permissions (user-facing label): Viewer < Editor < Admin. Legacy 'full_rights' folded
+// into 'editor' (migration 011). Permission is assigned directly for admin; derived from roles otherwise.
+export type UserRole = 'admin' | 'editor' | 'viewer';
 
 @Entity('users')
 export class User {

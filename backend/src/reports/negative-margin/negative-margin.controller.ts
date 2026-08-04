@@ -6,7 +6,7 @@ import { NegativeMarginService } from './negative-margin.service';
 
 @Controller('reports/negative-margin')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('negative-margin', 'Voice Negative Margin')
+@ReportAccess('negative-margin', 'Voice Negative Margin', 'voice')
 export class NegativeMarginController {
   constructor(private readonly service: NegativeMarginService) {}
 
