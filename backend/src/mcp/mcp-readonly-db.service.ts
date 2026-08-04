@@ -60,6 +60,12 @@ export class McpReadonlyDbService implements OnModuleDestroy {
         database: this.config.get<string>('AMS_PG_DB', 'AMS'),
         user: this.config.get<string>('AMS_PG_RO_USER'),
         password: this.config.get<string>('AMS_PG_RO_PASSWORD'),
+        // Pin the MCP reader session to UTC so model-written `current_date`/`now()` resolve in UTC.
+        // The AMS Postgres server defaults to US/Eastern and the ams_readonly role sets no TimeZone,
+        // so without this a relative-date query ("today", "last 7 days") is a day behind for the first
+        // hours of each UTC day. Kept in code (not just ALTER ROLE) so it survives a role/image rebuild
+        // and is visible in review. `-c` passes a libpq per-session option; only the MCP reader pool.
+        options: '-c timezone=UTC',
         max: 5,
         statement_timeout: 8000,
         query_timeout: 10000,
