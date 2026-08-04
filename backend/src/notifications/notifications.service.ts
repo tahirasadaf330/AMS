@@ -7,6 +7,7 @@ import { Condition, ConditionChannels } from '../common/entities/condition.entit
 import { GraphEmailService } from './graph-email.service';
 import { TeamsWebhookService } from './teams-webhook.service';
 import { EventsGateway } from '../websocket/events.gateway';
+import { AccessResolverService } from '../common/access/access-resolver.service';
 
 export interface ColumnMeta {
   key: string;
@@ -44,6 +45,7 @@ export class NotificationsService {
     private graphEmailService: GraphEmailService,
     private teamsWebhookService: TeamsWebhookService,
     @Optional() private eventsGateway: EventsGateway,
+    private access: AccessResolverService,
   ) {}
 
   /**
@@ -294,7 +296,7 @@ export class NotificationsService {
     }
   }
 
-  private applyFilters(qb: SelectQueryBuilder<NotificationLog>, query: NotificationQuery): void {
+  private async applyFilters(qb: SelectQueryBuilder<NotificationLog>, query: NotificationQuery): Promise<void> {
     if (query.from) qb.andWhere('nl.triggeredAt >= :from', { from: query.from });
     if (query.to) {
       const toValue = /^\d{4}-\d{2}-\d{2}$/.test(query.to)
@@ -307,11 +309,15 @@ export class NotificationsService {
     if (query.dataset) qb.andWhere('nl.datasetId = :dataset', { dataset: query.dataset });
     if (query.condition) qb.andWhere('nl.conditionId = :condition', { condition: query.condition });
     if (query.userId && query.userRole !== 'admin') {
-      // Script-channel logs have no datasetId — always visible. Dataset logs filtered by access.
-      qb.andWhere(
-        `(nl.channel = 'script' OR nl.datasetId IN (SELECT dataset_id FROM user_dataset_access WHERE user_id = :userId))`,
-        { userId: query.userId },
-      );
+      // Script-channel logs have no datasetId — always visible. Dataset logs filtered by the
+      // central resolver (individual + role/group + editor-section access).
+      const acc = await this.access.resolve(query.userId);
+      const ids = [...acc.datasetIds];
+      if (ids.length) {
+        qb.andWhere(`(nl.channel = 'script' OR nl.datasetId IN (:...dsIds))`, { dsIds: ids });
+      } else {
+        qb.andWhere(`nl.channel = 'script'`);
+      }
     }
   }
 
@@ -348,7 +354,7 @@ export class NotificationsService {
       .orderBy('nl.triggeredAt', 'DESC')
       .skip(skip)
       .take(limit);
-    this.applyFilters(mainQb, query);
+    await this.applyFilters(mainQb, query);
 
     const summaryQb = this.notifLogRepo
       .createQueryBuilder('nl')
@@ -357,7 +363,7 @@ export class NotificationsService {
       .addSelect('COUNT(*)', 'cnt')
       .groupBy('nl.channel')
       .addGroupBy('nl.status');
-    this.applyFilters(summaryQb, query);
+    await this.applyFilters(summaryQb, query);
 
     const [rawLogs, total] = await mainQb.getManyAndCount();
     const summaryRows: Array<{ channel: string; status: string; cnt: string }> =

@@ -7,6 +7,7 @@ import * as ExcelJS from 'exceljs';
 import { Dataset } from '../common/entities/dataset.entity';
 import { UserDatasetAccess } from '../common/entities/user-dataset-access.entity';
 import { UserRole } from '../common/entities/user.entity';
+import { AccessResolverService } from '../common/access/access-resolver.service';
 
 interface ExportQueryParts {
   columnKeys: string[] | null; // null means use t.*
@@ -26,6 +27,7 @@ export class ExportService {
     private accessRepo: Repository<UserDatasetAccess>,
     @InjectDataSource()
     private dataSource: DataSource,
+    private access: AccessResolverService,
   ) {}
 
   async exportCsv(
@@ -313,8 +315,8 @@ export class ExportService {
   private async checkAccess(datasetId: string, userId: string, userRole: UserRole): Promise<void> {
     if (userRole === 'admin') return; // Admin sees all datasets
 
-    const access = await this.accessRepo.findOne({ where: { userId, datasetId } });
-    if (!access) {
+    const acc = await this.access.resolve(userId);
+    if (!acc.datasetIds.has(datasetId)) {
       throw new ForbiddenException('You do not have access to this dataset');
     }
   }

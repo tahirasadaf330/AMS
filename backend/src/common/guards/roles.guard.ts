@@ -3,9 +3,13 @@ import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { UserRole } from '../entities/user.entity';
 
-const ROLE_HIERARCHY: Record<UserRole, number> = {
+// Keyed by string (not UserRole) so a legacy 'full_rights' claim in an already-issued JWT still
+// resolves — otherwise active sessions from before the Viewer/Editor/Admin collapse would drop to
+// level 0 and lose access until their next refresh. 'full_rights' maps to editor.
+const ROLE_HIERARCHY: Record<string, number> = {
   viewer: 1,
   editor: 2,
+  full_rights: 2,
   admin: 3,
 };
 

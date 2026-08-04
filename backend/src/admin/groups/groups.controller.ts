@@ -23,7 +23,9 @@ import { AdminGroupsService } from './groups.service';
 export class AdminGroupsController {
   constructor(private readonly groupsService: AdminGroupsService) {}
 
+  // Editors need the role list for the user dialog's Roles multi-select. Mutations stay admin-only.
   @Get()
+  @Roles('editor')
   findAll() {
     return this.groupsService.findAll();
   }

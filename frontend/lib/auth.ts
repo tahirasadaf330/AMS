@@ -33,9 +33,12 @@ export function isTokenExpired(token: string): boolean {
 }
 
 // ── Role hierarchy ────────────────────────────────────────────
-const ROLE_HIERARCHY: Record<UserRole, number> = {
+// String-keyed so a legacy 'full_rights' value persisted in an older auth store still resolves
+// (maps to editor) until the user re-logs in.
+const ROLE_HIERARCHY: Record<string, number> = {
   viewer: 1,
   editor: 2,
+  full_rights: 2,
   admin: 3,
 };
 

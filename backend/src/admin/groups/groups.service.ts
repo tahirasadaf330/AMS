@@ -7,11 +7,14 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { AccessResolverService } from '../../common/access/access-resolver.service';
 
 export interface AdminGroup {
   id: string;
   name: string;
   description: string | null;
+  section: string | null;
+  level: string | null;
   created_at: Date;
   user_count: number;
   dataset_access: string[];
@@ -22,7 +25,10 @@ export interface AdminGroup {
 export class AdminGroupsService implements OnModuleInit {
   private readonly logger = new Logger(AdminGroupsService.name);
 
-  constructor(@InjectDataSource() private dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private dataSource: DataSource,
+    private access: AccessResolverService,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     try {
@@ -68,15 +74,18 @@ export class AdminGroupsService implements OnModuleInit {
       id: string;
       name: string;
       description: string | null;
+      section: string | null;
+      level: string | null;
       created_at: Date;
       user_count: string;
     }>>(
-      `SELECT g.id, g.name, g.description, g.created_at,
-              COUNT(u.id)::text AS user_count
+      `SELECT g.id, g.name, g.description, g.section, g.level, g.created_at,
+              (SELECT COUNT(*) FROM user_roles ur WHERE ur.role_id = g.id)
+              + COUNT(u.id)::int AS user_count
        FROM user_groups g
        LEFT JOIN users u ON u.group_id = g.id
        GROUP BY g.id
-       ORDER BY g.name ASC`,
+       ORDER BY g.section NULLS LAST, g.level, g.name ASC`,
     );
 
     if (groups.length === 0) return [];
@@ -110,6 +119,8 @@ export class AdminGroupsService implements OnModuleInit {
       id: g.id,
       name: g.name,
       description: g.description,
+      section: g.section,
+      level: g.level,
       created_at: g.created_at,
       user_count: Number(g.user_count),
       dataset_access: datasetMap.get(g.id) ?? [],
@@ -174,6 +185,7 @@ export class AdminGroupsService implements OnModuleInit {
       }
     }
 
+    this.access.invalidate(); // group grants changed — clear all cached scopes
     const all = await this.findAll();
     const updated = all.find((g) => g.id === id);
     if (!updated) throw new NotFoundException(`Group ${id} not found`);
@@ -190,11 +202,13 @@ export class AdminGroupsService implements OnModuleInit {
         [groupId, userIds],
       );
     }
+    this.access.invalidate();
   }
 
   async delete(id: string): Promise<void> {
     const [existing] = await this.dataSource.query(`SELECT id FROM user_groups WHERE id = $1`, [id]);
     if (!existing) throw new NotFoundException(`Group ${id} not found`);
     await this.dataSource.query(`DELETE FROM user_groups WHERE id = $1`, [id]);
+    this.access.invalidate();
   }
 }

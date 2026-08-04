@@ -243,6 +243,7 @@ export const adminUsersApi = {
     role: string;
     dataset_access: string[];
     report_access?: string[];
+    role_ids?: string[];
     send_welcome_email?: boolean;
   }) =>
     // temp_password is generated server-side and returned exactly once

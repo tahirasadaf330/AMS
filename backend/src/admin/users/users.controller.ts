@@ -28,12 +28,16 @@ export class AdminUsersController {
     private auditService: AuditService,
   ) {}
 
+  // Editors may list/create/manage users too, but the service scopes them to Viewer-level users
+  // within their own section(s). Destructive ops below stay admin-only (class @Roles('admin')).
   @Get()
+  @Roles('editor')
   findAll() {
     return this.usersService.findAll();
   }
 
   @Post()
+  @Roles('editor')
   async create(
     @Body() dto: CreateUserDto,
     @CurrentUser() user: JwtUser,
@@ -52,6 +56,7 @@ export class AdminUsersController {
   }
 
   @Put(':id')
+  @Roles('editor')
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,

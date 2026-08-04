@@ -7,5 +7,6 @@ import { ReportsRegistryController } from './reports-registry.controller';
   imports: [DiscoveryModule],
   controllers: [ReportsRegistryController],
   providers: [ReportsRegistryService],
+  exports: [ReportsRegistryService],
 })
 export class ReportsRegistryModule {}

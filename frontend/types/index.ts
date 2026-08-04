@@ -21,12 +21,19 @@ export interface User {
   updated_at: string;
   group_id?: string | null;
   group_name?: string | null;
+  /** Role (user_groups) ids the user holds — permission is derived from these. */
+  role_ids?: string[];
+  /** Sections (sms/voice) where this user holds an Editor role. */
+  editor_sections?: string[];
 }
 
 export interface AdminGroup {
   id: string;
   name: string;
   description: string | null;
+  /** Section (sms|voice) and level (viewer|editor) mark a group as one of the seeded Roles. */
+  section?: string | null;
+  level?: string | null;
   created_at: string;
   user_count: number;
   dataset_access: string[];

@@ -17,6 +17,7 @@ import { PasswordHistory } from '../../common/entities/password-history.entity';
 import { UserDatasetAccess } from '../../common/entities/user-dataset-access.entity';
 import { UserReportAccess } from '../../common/entities/user-report-access.entity';
 import { GraphEmailService } from '../../notifications/graph-email.service';
+import { AccessResolverService } from '../../common/access/access-resolver.service';
 
 const BCRYPT_ROUNDS = 12;
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{10,}$/;
@@ -49,6 +50,8 @@ export interface CreateUserDto {
   datasetAccess?: string[];
   reportAccess?: string[];
   groupId?: string | null;
+  /** Role ids (user_groups with section+level) the user holds. Permission is derived from these. */
+  roleIds?: string[];
 }
 
 export interface UpdateUserDto {
@@ -60,6 +63,7 @@ export interface UpdateUserDto {
   datasetAccess?: string[];
   reportAccess?: string[];
   groupId?: string | null;
+  roleIds?: string[];
 }
 
 @Injectable()
@@ -80,7 +84,66 @@ export class AdminUsersService implements OnModuleInit {
     @InjectDataSource()
     private dataSource: DataSource,
     private graphEmailService: GraphEmailService,
+    private access: AccessResolverService,
   ) {}
+
+  /** Effective permission from the selected roles: 'editor' if any Editor-level role, else 'viewer'.
+   *  Admin is set explicitly (never derived). Used so the stored user.role matches the resolver. */
+  private async deriveRole(roleIds: string[]): Promise<UserRole> {
+    if (!roleIds.length) return 'viewer';
+    const rows = await this.dataSource.query<Array<{ level: string | null }>>(
+      `SELECT level FROM user_groups WHERE id = ANY($1::uuid[])`,
+      [roleIds],
+    );
+    return rows.some((r) => r.level === 'editor') ? 'editor' : 'viewer';
+  }
+
+  /** Replace a user's role memberships (user_roles join). */
+  private async syncUserRoles(userId: string, roleIds: string[], grantedBy: string): Promise<void> {
+    await this.dataSource.query(`DELETE FROM user_roles WHERE user_id = $1`, [userId]);
+    for (const roleId of roleIds) {
+      await this.dataSource.query(
+        `INSERT INTO user_roles (user_id, role_id, granted_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [userId, roleId, grantedBy],
+      );
+    }
+  }
+
+  /**
+   * Phase 3 delegation: an Editor (non-admin) may create/manage only Viewer-level users, and only
+   * assign roles / individual reports+datasets that fall inside a section where THEY hold an Editor
+   * role. Admins are unrestricted. Everything the editor may grant is, by construction, a subset of
+   * their own resolved access — so we validate against that. Throws ForbiddenException on any breach.
+   */
+  private async assertRequesterScope(
+    requesterId: string,
+    grants: { role?: UserRole; roleIds?: string[]; datasetAccess?: string[]; reportAccess?: string[] },
+  ): Promise<void> {
+    const requester = await this.access.resolve(requesterId);
+    if (requester.isAdmin) return; // admins: no scoping
+
+    if (grants.role === 'admin' || grants.role === 'editor') {
+      throw new ForbiddenException('Editors can only create or manage Viewer-level users');
+    }
+    if (grants.roleIds?.length) {
+      const rows = await this.dataSource.query<Array<{ id: string; section: string | null; level: string | null }>>(
+        `SELECT id, section, level FROM user_groups WHERE id = ANY($1::uuid[])`,
+        [grants.roleIds],
+      );
+      if (rows.length !== new Set(grants.roleIds).size) throw new ForbiddenException('Unknown role');
+      for (const r of rows) {
+        if (r.level !== 'viewer' || !r.section || !requester.editorSections.has(r.section as 'sms' | 'voice')) {
+          throw new ForbiddenException('Editors can only assign Viewer roles within their own section');
+        }
+      }
+    }
+    for (const id of grants.datasetAccess ?? []) {
+      if (!requester.datasetIds.has(id)) throw new ForbiddenException('Dataset is outside your section');
+    }
+    for (const slug of grants.reportAccess ?? []) {
+      if (!requester.reportSlugs.has(slug)) throw new ForbiddenException('Report is outside your section');
+    }
+  }
 
   async onModuleInit(): Promise<void> {
     try {
@@ -117,10 +180,10 @@ export class AdminUsersService implements OnModuleInit {
     }
   }
 
-  async findAll(): Promise<(Omit<User, 'passwordHash'> & { dataset_access: string[]; report_access: string[]; group_name: string | null })[]> {
+  async findAll(): Promise<(Omit<User, 'passwordHash'> & { dataset_access: string[]; report_access: string[]; role_ids: string[]; group_name: string | null })[]> {
     try {
       const users = await this.userRepo.find({ order: { createdAt: 'DESC' } });
-      const [accesses, reportAccesses, groups] = await Promise.all([
+      const [accesses, reportAccesses, groups, roleLinks] = await Promise.all([
         this.dataSource.query<{ user_id: string; dataset_id: string }[]>(
           `SELECT user_id, dataset_id FROM user_dataset_access`,
         ),
@@ -129,6 +192,9 @@ export class AdminUsersService implements OnModuleInit {
         ),
         this.dataSource.query<{ id: string; name: string }[]>(
           `SELECT id, name FROM user_groups`,
+        ),
+        this.dataSource.query<{ user_id: string; role_id: string }[]>(
+          `SELECT user_id, role_id FROM user_roles`,
         ),
       ]);
 
@@ -149,10 +215,18 @@ export class AdminUsersService implements OnModuleInit {
       const groupNameMap = new Map<string, string>();
       for (const g of groups) groupNameMap.set(g.id, g.name);
 
+      const roleMap = new Map<string, string[]>();
+      for (const r of roleLinks) {
+        const list = roleMap.get(r.user_id) ?? [];
+        list.push(r.role_id);
+        roleMap.set(r.user_id, list);
+      }
+
       return users.map(({ passwordHash, ...u }) => ({
         ...(u as Omit<User, 'passwordHash'>),
         dataset_access: accessMap.get(u.id) ?? [],
         report_access:  reportMap.get(u.id)  ?? [],
+        role_ids:       roleMap.get(u.id)    ?? [],
         group_name:     u.groupId ? (groupNameMap.get(u.groupId) ?? null) : null,
       }));
     } catch (err) {
@@ -161,15 +235,18 @@ export class AdminUsersService implements OnModuleInit {
     }
   }
 
-  async findOne(id: string): Promise<Omit<User, 'passwordHash'> & { dataset_access: string[]; report_access: string[] }> {
+  async findOne(id: string): Promise<Omit<User, 'passwordHash'> & { dataset_access: string[]; report_access: string[]; role_ids: string[] }> {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`User ${id} not found`);
-    const [accesses, reportAccesses] = await Promise.all([
+    const [accesses, reportAccesses, roleLinks] = await Promise.all([
       this.dataSource.query<{ dataset_id: string }[]>(
         `SELECT dataset_id FROM user_dataset_access WHERE user_id = $1`, [id],
       ),
       this.dataSource.query<{ report_slug: string }[]>(
         `SELECT report_slug FROM user_report_access WHERE user_id = $1`, [id],
+      ),
+      this.dataSource.query<{ role_id: string }[]>(
+        `SELECT role_id FROM user_roles WHERE user_id = $1`, [id],
       ),
     ]);
     const { passwordHash, ...u } = user;
@@ -177,6 +254,7 @@ export class AdminUsersService implements OnModuleInit {
       ...(u as Omit<User, 'passwordHash'>),
       dataset_access: accesses.map((a) => a.dataset_id),
       report_access:  reportAccesses.map((r) => r.report_slug),
+      role_ids:       roleLinks.map((r) => r.role_id),
     };
   }
 
@@ -197,12 +275,25 @@ export class AdminUsersService implements OnModuleInit {
     }
 
     try {
+      // Accept both camelCase and snake_case (the inbound camelCase middleware is a no-op).
+      const raw0 = dto as unknown as Record<string, unknown>;
+      const roleIds       = (dto.roleIds       ?? raw0['role_ids'])       as string[] | undefined;
+      const datasetAccess = (dto.datasetAccess ?? raw0['dataset_access']) as string[] | undefined;
+      const reportAccess  = (dto.reportAccess  ?? raw0['report_access'])  as string[] | undefined;
+
+      // Phase 3: a non-admin (Editor) creator may only assign within their own section, Viewer-level.
+      await this.assertRequesterScope(createdBy, { role: dto.role, roleIds, datasetAccess, reportAccess });
+
+      // Permission is derived from the assigned roles (unless Admin is set explicitly).
+      const effectiveRole: UserRole =
+        dto.role === 'admin' ? 'admin' : roleIds !== undefined ? await this.deriveRole(roleIds) : dto.role;
+
       const passwordHash = await bcrypt.hash(tempPassword, BCRYPT_ROUNDS);
       const user = this.userRepo.create({
         email: dto.email.toLowerCase(),
         name: dto.name,
         passwordHash,
-        role: dto.role,
+        role: effectiveRole,
         isActive: true,
         mustChangePassword: true,
         failedLoginCount: 0,
@@ -216,12 +307,6 @@ export class AdminUsersService implements OnModuleInit {
       await this.passwordHistoryRepo.save(
         this.passwordHistoryRepo.create({ userId: saved.id, passwordHash }),
       );
-
-      // Accept both camelCase and snake_case (the inbound camelCase middleware is a
-      // no-op, so the frontend's snake_case keys arrive unconverted) — mirrors update().
-      const raw = dto as unknown as Record<string, unknown>;
-      const datasetAccess = (dto.datasetAccess ?? raw['dataset_access']) as string[] | undefined;
-      const reportAccess  = (dto.reportAccess  ?? raw['report_access'])  as string[] | undefined;
 
       // Grant dataset access
       if (datasetAccess?.length) {
@@ -242,6 +327,12 @@ export class AdminUsersService implements OnModuleInit {
           );
         }
       }
+
+      // Assign roles (user_roles join)
+      if (roleIds?.length) {
+        await this.syncUserRoles(saved.id, roleIds, createdBy);
+      }
+      this.access.invalidate(saved.id);
 
       // Send welcome email (fire and forget)
       this.sendWelcomeEmail(saved, tempPassword).catch((err) => {
@@ -268,16 +359,38 @@ export class AdminUsersService implements OnModuleInit {
       throw new ForbiddenException('Cannot change the role of the system admin account');
     }
 
+    // Phase 3: a non-admin (Editor) may not manage admins or other editors.
+    const requesterScope = await this.access.resolve(updatedBy);
+    if (!requesterScope.isAdmin && (user.role === 'admin' || user.role === 'editor')) {
+      throw new ForbiddenException('Editors can only manage Viewer-level users');
+    }
+
     if (dto.email && dto.email.toLowerCase() !== user.email) {
       const existing = await this.userRepo.findOne({ where: { email: dto.email.toLowerCase() } });
       if (existing) throw new ConflictException('Email already in use');
     }
 
     try {
+      // Accept both camelCase (bodyToCamel converted) and snake_case (raw body)
+      const raw = dto as Record<string, unknown>;
+      const datasetAccess = (dto.datasetAccess ?? raw['dataset_access']) as string[] | undefined;
+      const reportAccess  = (dto.reportAccess  ?? raw['report_access'])  as string[] | undefined;
+      const roleIds       = (dto.roleIds       ?? raw['role_ids'])       as string[] | undefined;
+
+      // A non-admin editor may only grant within their section, Viewer-level.
+      await this.assertRequesterScope(updatedBy, { role: dto.role, roleIds, datasetAccess, reportAccess });
+
+      // Permission is derived from the roles when they are provided (unless Admin is set
+      // explicitly, which is protected above for the system admin).
+      let effectiveRole: UserRole | undefined = dto.role;
+      if (roleIds !== undefined && dto.role !== 'admin' && !(user.isProtected && user.role === 'admin')) {
+        effectiveRole = await this.deriveRole(roleIds);
+      }
+
       const patch: Partial<User> = {
         name: dto.name ?? user.name,
         email: dto.email ? dto.email.toLowerCase() : user.email,
-        role: dto.role ?? user.role,
+        role: effectiveRole ?? user.role,
         isActive: dto.isActive ?? user.isActive,
         mustChangePassword: dto.mustChangePassword ?? user.mustChangePassword,
       };
@@ -286,11 +399,6 @@ export class AdminUsersService implements OnModuleInit {
         patch.groupId = (dto.groupId as string | null | undefined) ?? null;
       }
       await this.userRepo.update(id, patch);
-
-      // Accept both camelCase (bodyToCamel converted) and snake_case (raw body)
-      const raw = dto as Record<string, unknown>;
-      const datasetAccess = (dto.datasetAccess ?? raw['dataset_access']) as string[] | undefined;
-      const reportAccess  = (dto.reportAccess  ?? raw['report_access'])  as string[] | undefined;
 
       // Sync dataset access only when the field is explicitly provided
       if (datasetAccess !== undefined) {
@@ -317,6 +425,14 @@ export class AdminUsersService implements OnModuleInit {
           );
         }
       }
+
+      // Sync roles only when explicitly provided
+      if (roleIds !== undefined) {
+        await this.syncUserRoles(id, roleIds, updatedBy);
+      }
+
+      // Access changed — drop the resolver's cached scope so it takes effect immediately.
+      this.access.invalidate(id);
 
       return this.findOne(id);
     } catch (err) {

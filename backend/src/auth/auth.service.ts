@@ -19,6 +19,7 @@ import { UserReportAccess } from '../common/entities/user-report-access.entity';
 import { Dataset } from '../common/entities/dataset.entity';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { AccessResolverService, Permission } from '../common/access/access-resolver.service';
 
 const BCRYPT_ROUNDS = 12;
 const PASSWORD_HISTORY_COUNT = 5;
@@ -50,13 +51,14 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     @InjectDataSource() private dataSource: DataSource,
+    private accessResolver: AccessResolverService,
   ) {}
 
   async login(
     dto: LoginDto,
     ipAddress?: string,
     userAgent?: string,
-  ): Promise<{ token: string; refreshToken: string; must_change_password: boolean; user: Partial<User> & { dataset_access: string[]; report_access: string[] } }> {
+  ): Promise<{ token: string; refreshToken: string; must_change_password: boolean; user: Partial<User> & { dataset_access: string[]; report_access: string[]; editor_sections: string[] } }> {
     const user = await this.userRepo.findOne({ where: { email: dto.email.toLowerCase() } });
 
     if (!user || !user.isActive) {
@@ -86,7 +88,7 @@ export class AuthService {
     ipAddress?: string,
     userAgent?: string,
     opts?: { suppressMustChange?: boolean },
-  ): Promise<{ token: string; refreshToken: string; must_change_password: boolean; user: Partial<User> & { dataset_access: string[]; report_access: string[] } }> {
+  ): Promise<{ token: string; refreshToken: string; must_change_password: boolean; user: Partial<User> & { dataset_access: string[]; report_access: string[]; editor_sections: string[] } }> {
     const mustChange = opts?.suppressMustChange ? false : user.mustChangePassword;
 
     // SSO users are Microsoft-verified, so the temp-password-change requirement doesn't
@@ -119,10 +121,14 @@ export class AuthService {
       }),
     );
 
+    const { datasetAccessIds, reportAccessSlugs, permission, editorSections } = await this.buildAccessArrays(user);
+
     const payload = {
       sub: user.id,
       email: user.email,
-      role: user.role,
+      // Effective permission (may be lifted above the stored role by an Editor-level role) so
+      // RolesGuard/@Roles see what the user can actually do.
+      role: permission,
       jti,
       mustChangePassword: mustChange,
     };
@@ -148,8 +154,6 @@ export class AuthService {
       }),
     );
 
-    const { datasetAccessIds, reportAccessSlugs } = await this.buildAccessArrays(user);
-
     return {
       token: accessToken,
       refreshToken,
@@ -158,70 +162,48 @@ export class AuthService {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role,
+        role: permission,
         mustChangePassword: mustChange,
         dataset_access: datasetAccessIds,
         report_access: reportAccessSlugs,
+        editor_sections: editorSections,
       },
     };
   }
 
-  /** Dataset/report access arrays for the login payload — admins see everything active,
-   *  others get their explicit grants merged with their group's. */
-  private async buildAccessArrays(user: User): Promise<{ datasetAccessIds: string[]; reportAccessSlugs: string[] }> {
-    let datasetAccessIds: string[];
-    let reportAccessSlugs: string[];
-    if (user.role === 'admin') {
-      const allDatasets = await this.datasetRepo.find({ select: ['id'], where: { isActive: true } });
-      datasetAccessIds = allDatasets.map((d) => d.id);
-      reportAccessSlugs = ['zamani', 'vcs-balance'];
-    } else {
-      const [datasetAccess, reportAccess] = await Promise.all([
-        this.datasetAccessRepo.find({ where: { userId: user.id } }),
-        this.reportAccessRepo.find({ where: { userId: user.id } }),
-      ]);
-      let datasetIds = datasetAccess.map((a) => a.datasetId);
-      let reportSlugs = reportAccess.map((r) => r.reportSlug);
-
-      // Merge group permissions if user belongs to a group
-      if (user.groupId) {
-        const [groupDatasets, groupReports] = await Promise.all([
-          this.dataSource.query<{ dataset_id: string }[]>(
-            `SELECT dataset_id FROM group_dataset_access WHERE group_id = $1`,
-            [user.groupId],
-          ),
-          this.dataSource.query<{ report_slug: string }[]>(
-            `SELECT report_slug FROM group_report_access WHERE group_id = $1`,
-            [user.groupId],
-          ),
-        ]);
-        datasetIds = [...new Set([...datasetIds, ...groupDatasets.map((r) => r.dataset_id)])];
-        reportSlugs = [...new Set([...reportSlugs, ...groupReports.map((r) => r.report_slug)])];
-      }
-
-      datasetAccessIds = datasetIds;
-      reportAccessSlugs = reportSlugs;
-    }
-    return { datasetAccessIds, reportAccessSlugs };
+  /** Dataset/report access + effective permission for the session payload — resolved centrally
+   *  (admin → everything active; else individual ∪ role/group ∪ editor-section) so the login/me
+   *  payload, the JWT role claim, and every enforcement point agree. */
+  private async buildAccessArrays(
+    user: User,
+  ): Promise<{ datasetAccessIds: string[]; reportAccessSlugs: string[]; permission: Permission; editorSections: string[] }> {
+    const acc = await this.accessResolver.resolve(user.id);
+    return {
+      datasetAccessIds: [...acc.datasetIds],
+      reportAccessSlugs: [...acc.reportSlugs],
+      permission: acc.permission,
+      editorSections: [...acc.editorSections],
+    };
   }
 
   /** Current user + access arrays (same shape as login's `user`) — used by the SSO
    *  callback page to hydrate the frontend auth store, since the JWT alone doesn't
    *  carry dataset/report access. */
-  async me(userId: string): Promise<Partial<User> & { dataset_access: string[]; report_access: string[] }> {
+  async me(userId: string): Promise<Partial<User> & { dataset_access: string[]; report_access: string[]; editor_sections: string[] }> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user || !user.isActive) {
       throw new UnauthorizedException('User not found');
     }
-    const { datasetAccessIds, reportAccessSlugs } = await this.buildAccessArrays(user);
+    const { datasetAccessIds, reportAccessSlugs, permission, editorSections } = await this.buildAccessArrays(user);
     return {
       id: user.id,
       email: user.email,
       name: user.name,
-      role: user.role,
+      role: permission,
       mustChangePassword: user.mustChangePassword,
       dataset_access: datasetAccessIds,
       report_access: reportAccessSlugs,
+      editor_sections: editorSections,
     };
   }
 
@@ -269,10 +251,11 @@ export class AuthService {
       }),
     );
 
+    const { permission } = await this.buildAccessArrays(user);
     const tokenPayload = {
       sub: user.id,
       email: user.email,
-      role: user.role,
+      role: permission,
       jti: newJti,
       mustChangePassword: user.mustChangePassword,
     };

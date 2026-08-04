@@ -76,12 +76,17 @@ export function NavSidebar() {
   ];
 
   const adminItems: NavItem[] = [
-    { label: 'Users', href: '/admin/users', icon: Users, minRole: 'admin' },
+    // Users is visible to Editors too (they can create/manage Viewer users in their section);
+    // the rest stay admin-only.
+    { label: 'Users', href: '/admin/users', icon: Users, minRole: 'editor' },
     { label: 'Data Sources', href: '/admin/datasources', icon: ServerCog, minRole: 'admin' },
     { label: 'Datasets', href: '/admin/datasets', icon: Database, minRole: 'admin' },
     { label: 'Settings', href: '/admin/settings', icon: Settings, minRole: 'admin' },
     { label: 'Google MO Import', href: '/admin/google-mo-imports', icon: Upload, minRole: 'admin' },
   ];
+  const canAccessMinRole = (minRole?: string) =>
+    !minRole || canAccess(minRole === 'editor' ? 'create_condition' : minRole === 'full_rights' ? 'manage_schedule' : minRole);
+  const visibleAdminItems = adminItems.filter((i) => canAccessMinRole(i.minRole));
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -275,13 +280,13 @@ export function NavSidebar() {
         )}
 
         {/* Admin section */}
-        {canAccess('admin') && (
+        {visibleAdminItems.length > 0 && (
           <div>
             <button
               onClick={() => setAdminOpen((v) => !v)}
               className="flex items-center justify-between w-full px-3 py-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-300"
             >
-              <span>Admin</span>
+              <span>{canAccess('admin') ? 'Admin' : 'Management'}</span>
               {adminOpen ? (
                 <ChevronUp className="h-3 w-3" />
               ) : (
@@ -291,7 +296,7 @@ export function NavSidebar() {
 
             {adminOpen && (
               <div className="space-y-0.5 mt-1">
-                {adminItems.map((item) => (
+                {visibleAdminItems.map((item) => (
                   <Link
                     key={item.href}
                     href={item.href}

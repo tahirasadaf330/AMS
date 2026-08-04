@@ -6,7 +6,7 @@ import { ReportsRegistryService } from './reports-registry.service';
 
 @Controller('admin/reports')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin')
+@Roles('editor') // editors need the report list to grant Viewer users access within their section
 export class ReportsRegistryController {
   constructor(private readonly registry: ReportsRegistryService) {}
 

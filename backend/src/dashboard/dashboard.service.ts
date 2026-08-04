@@ -1,11 +1,12 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { Dataset } from '../common/entities/dataset.entity';
 import { UserDatasetAccess } from '../common/entities/user-dataset-access.entity';
 import { DatasetRefreshLog } from '../common/entities/dataset-refresh-log.entity';
 import { UserRole } from '../common/entities/user.entity';
+import { AccessResolverService } from '../common/access/access-resolver.service';
 
 export interface DataQuery {
   page?: number;
@@ -42,6 +43,7 @@ export class DashboardService {
     private refreshLogRepo: Repository<DatasetRefreshLog>,
     @InjectDataSource()
     private dataSource: DataSource,
+    private access: AccessResolverService,
   ) {}
 
   async getDatasets(userId: string, userRole: UserRole): Promise<(Dataset & { lastRefresh: Record<string, unknown> | null })[]> {
@@ -51,11 +53,11 @@ export class DashboardService {
       if (userRole === 'admin') {
         datasets = await this.datasetRepo.find({ where: { isActive: true }, order: { name: 'ASC' } });
       } else {
-        const access = await this.accessRepo.find({ where: { userId }, relations: ['dataset'] });
-        datasets = access
-          .filter((a) => a.dataset?.isActive)
-          .map((a) => a.dataset)
-          .filter((d): d is Dataset => d !== null && d !== undefined);
+        const acc = await this.access.resolve(userId);
+        const ids = [...acc.datasetIds];
+        datasets = ids.length
+          ? await this.datasetRepo.find({ where: { id: In(ids), isActive: true }, order: { name: 'ASC' } })
+          : [];
       }
 
       // Attach latest refresh log entry for each dataset
@@ -299,8 +301,8 @@ export class DashboardService {
   private async checkAccess(datasetId: string, userId: string, userRole: UserRole): Promise<void> {
     if (userRole === 'admin') return; // Admin sees all datasets
 
-    const access = await this.accessRepo.findOne({ where: { userId, datasetId } });
-    if (!access) {
+    const acc = await this.access.resolve(userId);
+    if (!acc.datasetIds.has(datasetId)) {
       throw new ForbiddenException('You do not have access to this dataset');
     }
   }

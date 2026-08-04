@@ -1,15 +1,13 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { REPORT_SLUG_KEY } from '../decorators/report-access.decorator';
+import { AccessResolverService } from '../access/access-resolver.service';
 
 @Injectable()
 export class ReportAccessGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
+    private readonly access: AccessResolverService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -23,12 +21,8 @@ export class ReportAccessGuard implements CanActivate {
     const user = request.user;
     if (!user) return false;
 
-    if (user.role === 'admin') return true;
-
-    const rows = await this.dataSource.query(
-      `SELECT 1 FROM user_report_access WHERE user_id = $1 AND report_slug = $2 LIMIT 1`,
-      [user.sub, slug],
-    );
-    return rows.length > 0;
+    // Central resolver: admin → all; else section-editor reports ∪ role/group grants ∪ individual.
+    const acc = await this.access.resolve(user.sub);
+    return acc.isAdmin || acc.reportSlugs.has(slug);
   }
 }

@@ -12,6 +12,7 @@ import { Dataset } from '../common/entities/dataset.entity';
 import { DatasetRefreshLog } from '../common/entities/dataset-refresh-log.entity';
 import { UserDatasetAccess } from '../common/entities/user-dataset-access.entity';
 import { DatasourceExecutorService } from '../datasources/datasource-executor.service';
+import { AccessResolverService } from '../common/access/access-resolver.service';
 
 // Properties use snake_case to match the JSON body the frontend sends
 export interface CreateDatasetDto {
@@ -55,6 +56,7 @@ export class DatasetsService {
     @InjectDataSource()
     private dataSource: DataSource,
     private datasourceExecutor: DatasourceExecutorService,
+    private access: AccessResolverService,
   ) {}
 
   async findAll(): Promise<Dataset[]> {
@@ -68,8 +70,8 @@ export class DatasetsService {
 
   async findAllForUser(userId: string, userRole: string): Promise<Dataset[]> {
     if (userRole === 'admin') return this.findAll();
-    const accesses = await this.accessRepo.find({ where: { userId } });
-    const ids = accesses.map((a) => a.datasetId);
+    const acc = await this.access.resolve(userId);
+    const ids = [...acc.datasetIds];
     if (ids.length === 0) return [];
     return this.datasetRepo
       .createQueryBuilder('d')

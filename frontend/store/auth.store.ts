@@ -11,6 +11,8 @@ interface AuthUser {
   role: UserRole;
   dataset_access: string[];
   report_access: string[];
+  /** Sections (sms/voice) where this user holds an Editor role — used to scope delegated user mgmt. */
+  editor_sections?: string[];
 }
 
 interface AuthStore {

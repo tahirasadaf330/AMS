@@ -98,12 +98,16 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 const defaultUserForm = {
   name: '', email: '', role: 'viewer',
   dataset_access: [] as string[], report_access: [] as string[],
+  role_ids: [] as string[],
   send_welcome_email: false, group_id: '',
 };
 
 // ────────────────────────────────────────────────────────────────
 export default function AdminUsersPage() {
   const isAdmin = useAuthStore((s) => s.canAccess('admin'));
+  const canManageUsers = useAuthStore((s) => s.canAccess('create_condition')); // editor+
+  const currentUser = useAuthStore((s) => s.user);
+  const mySections = currentUser?.editor_sections ?? [];
   const { data: users, isLoading: usersLoading } = useAdminUsers();
   const { data: reports = [] } = useAvailableReports();
   const { data: datasets } = useDatasets();
@@ -224,7 +228,7 @@ export default function AdminUsersPage() {
   // ── User mutations ────────────────────────────────────────────
   const createUserMut = useMutation({
     mutationFn: async (f: typeof defaultUserForm) =>
-      adminUsersApi.create({ name: f.name, email: f.email, role: f.role, dataset_access: f.dataset_access, report_access: f.report_access, send_welcome_email: f.send_welcome_email }),
+      adminUsersApi.create({ name: f.name, email: f.email, role: f.role, dataset_access: f.dataset_access, report_access: f.report_access, role_ids: f.role_ids, send_welcome_email: f.send_welcome_email }),
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       addToast({ title: 'User created', variant: 'success' });
@@ -281,7 +285,7 @@ export default function AdminUsersPage() {
     if (editingUser) {
       await updateUserMut.mutateAsync({
         id: editingUser.id,
-        data: { name: userForm.name, role: userForm.role, dataset_access: userForm.dataset_access, report_access: userForm.report_access, groupId: userForm.group_id || null },
+        data: { name: userForm.name, role: userForm.role, dataset_access: userForm.dataset_access, report_access: userForm.report_access, role_ids: userForm.role_ids, groupId: userForm.group_id || null },
       });
     } else {
       await createUserMut.mutateAsync(userForm);
@@ -290,12 +294,28 @@ export default function AdminUsersPage() {
 
   const openEditUser = (u: AdminUser) => {
     setEditingUser(u);
-    setUserForm({ name: u.name, email: u.email, role: u.role, dataset_access: u.dataset_access ?? [], report_access: u.report_access ?? [], send_welcome_email: false, group_id: u.group_id ?? '' });
+    setUserForm({ name: u.name, email: u.email, role: u.role, dataset_access: u.dataset_access ?? [], report_access: u.report_access ?? [], role_ids: u.role_ids ?? [], send_welcome_email: false, group_id: u.group_id ?? '' });
   };
 
-  if (!isAdmin) return <div className="flex items-center justify-center h-64 text-gray-500 text-sm">Admin access required.</div>;
+  if (!canManageUsers) return <div className="flex items-center justify-center h-64 text-gray-500 text-sm">You do not have access to user management.</div>;
 
   const sortProps = { sortCol, sortDir, onSort: handleSort };
+  // Seeded Roles (groups carrying a section+level) offered in the user dialog's multi-select.
+  // Admins see all four; a delegated Editor sees only Viewer roles in their own section(s).
+  const roleOptions = (groups ?? []).filter(
+    (g) => g.level && (isAdmin || (g.level === 'viewer' && !!g.section && mySections.includes(g.section))),
+  );
+  // Individual grant lists — Editors can only grant what they themselves can access.
+  const grantableDatasets = isAdmin
+    ? (datasets ?? [])
+    : (datasets ?? []).filter((d) => (currentUser?.dataset_access ?? []).includes(d.id));
+  const grantableReports = isAdmin
+    ? reports
+    : reports.filter((r) => (currentUser?.report_access ?? []).includes(r.id));
+  const derivedPermission =
+    userForm.role_ids.some((id) => roleOptions.find((g) => g.id === id)?.level === 'editor')
+      ? 'Editor'
+      : 'Viewer';
   const nonAdminUsers = (users ?? []).filter((u) => u.role !== 'admin');
   const filteredForMember = nonAdminUsers.filter((u) => {
     const q = memberSearch.trim().toLowerCase();
@@ -309,10 +329,12 @@ export default function AdminUsersPage() {
         description="Manage users and permission groups"
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setShowCreateGroup(true)}>
-              <Plus className="h-4 w-4" />
-              New Group
-            </Button>
+            {isAdmin && (
+              <Button variant="secondary" size="sm" onClick={() => setShowCreateGroup(true)}>
+                <Plus className="h-4 w-4" />
+                New Group
+              </Button>
+            )}
             <Button size="sm" onClick={() => { setEditingUser(null); setUserForm(defaultUserForm); setShowUserForm(true); }}>
               <Plus className="h-4 w-4" />
               New User
@@ -326,9 +348,11 @@ export default function AdminUsersPage() {
         <TabBtn active={activeTab === 'users'} onClick={() => setActiveTab('users')}>
           Users{users ? ` (${users.length})` : ''}
         </TabBtn>
-        <TabBtn active={activeTab === 'groups'} onClick={() => setActiveTab('groups')}>
-          Groups{groups.length > 0 ? ` (${groups.length})` : ''}
-        </TabBtn>
+        {isAdmin && (
+          <TabBtn active={activeTab === 'groups'} onClick={() => setActiveTab('groups')}>
+            Roles{groups.length > 0 ? ` (${groups.length})` : ''}
+          </TabBtn>
+        )}
       </div>
 
       {/* ── USERS TAB ─────────────────────────────────────────── */}
@@ -366,7 +390,7 @@ export default function AdminUsersPage() {
                   {pageRows.length === 0 ? (
                     <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">No users match your filter.</td></tr>
                   ) : pageRows.map((user) => (
-                    <tr key={user.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20 cursor-pointer" onClick={() => { setDrawerUser(user); void loadSessions(user.id); }}>
+                    <tr key={user.id} className={`border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20 ${isAdmin ? 'cursor-pointer' : ''}`} onClick={() => { if (!isAdmin) return; setDrawerUser(user); void loadSessions(user.id); }}>
                       <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{user.name}</td>
                       <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{user.email}</td>
                       <td className="px-4 py-3"><Badge variant={ROLE_BADGE[user.role] ?? 'default'}>{user.role}</Badge></td>
@@ -384,20 +408,22 @@ export default function AdminUsersPage() {
                       <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{user.last_login ? formatDatetime(user.last_login) : '—'}</td>
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1">
-                          {user.is_protected ? (
+                          {user.is_protected || (!isAdmin && (user.role === 'admin' || user.role === 'editor')) ? (
                             <span className="flex h-7 w-7 items-center justify-center"><Lock className="h-3.5 w-3.5 text-gray-400" /></span>
                           ) : (
                             <>
                               <Button variant="ghost" size="icon-sm" onClick={() => openEditUser(user)} title="Edit user"><Edit2 className="h-3.5 w-3.5 text-blue-400" /></Button>
-                              {user.role !== 'admin' && (
+                              {isAdmin && user.role !== 'admin' && (
                                 <Button variant="ghost" size="icon-sm" title="Individual access" onClick={() => { setAccessUser(user); setAccessForm({ dataset_access: user.dataset_access ?? [], report_access: user.report_access ?? [] }); }}>
                                   <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
                                 </Button>
                               )}
-                              {user.is_active && (
+                              {isAdmin && user.is_active && (
                                 <Button variant="ghost" size="icon-sm" onClick={() => setDeactivateTarget(user)} title="Deactivate"><UserX className="h-3.5 w-3.5 text-red-400" /></Button>
                               )}
-                              <Button variant="ghost" size="icon-sm" onClick={() => { setDeleteUserTarget(user); setDeleteUserConfirm(''); }} title="Delete permanently"><Trash2 className="h-3.5 w-3.5 text-rose-600" /></Button>
+                              {isAdmin && (
+                                <Button variant="ghost" size="icon-sm" onClick={() => { setDeleteUserTarget(user); setDeleteUserConfirm(''); }} title="Delete permanently"><Trash2 className="h-3.5 w-3.5 text-rose-600" /></Button>
+                              )}
                             </>
                           )}
                         </div>
@@ -436,6 +462,7 @@ export default function AdminUsersPage() {
                 <thead>
                   <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Members</th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Datasets</th>
@@ -447,6 +474,16 @@ export default function AdminUsersPage() {
                   {groups.map((g) => (
                     <tr key={g.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20">
                       <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{g.name}</td>
+                      <td className="px-4 py-3">
+                        {g.level ? (
+                          <span className="flex items-center gap-1.5">
+                            <Badge variant={g.section === 'sms' ? 'blue' : 'purple'}>{(g.section ?? '').toUpperCase()}</Badge>
+                            <span className="text-xs text-gray-500 capitalize">{g.level}</span>
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">Group</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs max-w-[240px] truncate">{g.description ?? <span className="text-gray-300 dark:text-gray-600">—</span>}</td>
                       <td className="px-4 py-3 text-center font-medium text-gray-700 dark:text-gray-300">{g.user_count}</td>
                       <td className="px-4 py-3 text-center text-gray-600 dark:text-gray-300">{g.dataset_access.length}</td>
@@ -685,29 +722,67 @@ export default function AdminUsersPage() {
                 </p>
               </div>
             )}
-            <div className="grid grid-cols-2 gap-3">
+            {editingUser?.is_protected ? (
               <div className="space-y-1.5">
                 <Label>Permission</Label>
-                {editingUser?.is_protected ? (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-500">
-                    <Lock className="h-3.5 w-3.5 flex-shrink-0" />Protected admin
+                <div className="flex items-center gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-500">
+                  <Lock className="h-3.5 w-3.5 flex-shrink-0" />Protected admin
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {isAdmin && (
+                  <div className="flex items-center justify-between rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2.5">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Administrator</p>
+                      <p className="text-xs text-gray-400">Full access to everything, incl. user management.</p>
+                    </div>
+                    <Toggle
+                      checked={userForm.role === 'admin'}
+                      onChange={(v) => setUserForm((p) => ({ ...p, role: v ? 'admin' : 'viewer', role_ids: v ? [] : p.role_ids }))}
+                      label=""
+                    />
                   </div>
-                ) : (
-                  <Select value={userForm.role} onChange={(e) => setUserForm((p) => ({ ...p, role: e.target.value }))}>
-                    <option value="viewer">Viewer</option>
-                    <option value="editor">Editor</option>
-                    <option value="admin">Admin</option>
-                  </Select>
+                )}
+                {userForm.role !== 'admin' && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label>Roles</Label>
+                      <Badge variant={derivedPermission === 'Editor' ? 'green' : 'gray'}>
+                        Permission: {derivedPermission}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-col gap-1.5 p-2 rounded border border-gray-200 dark:border-gray-700">
+                      {roleOptions.length === 0 && <p className="text-xs text-gray-400">No roles defined</p>}
+                      {roleOptions.map((g) => (
+                        <label key={g.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                          <input
+                            type="checkbox"
+                            checked={userForm.role_ids.includes(g.id)}
+                            onChange={() => setUserForm((p) => ({
+                              ...p,
+                              role_ids: p.role_ids.includes(g.id)
+                                ? p.role_ids.filter((x) => x !== g.id)
+                                : [...p.role_ids, g.id],
+                            }))}
+                            className="rounded border-gray-300 dark:border-gray-600 text-blue-600"
+                          />
+                          <span className="truncate">{g.name}</span>
+                          {g.section && (
+                            <Badge variant={g.section === 'sms' ? 'blue' : 'purple'}>{g.section.toUpperCase()}</Badge>
+                          )}
+                          {g.level && <span className="text-xs text-gray-400 capitalize">{g.level}</span>}
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-gray-400">
+                      An Editor role grants everything in its section (SMS/Voice) and lets the user create alerts.
+                      A Viewer role only sees the reports/datasets you grant below.
+                    </p>
+                  </div>
                 )}
               </div>
-              <div className="space-y-1.5">
-                <Label>Group</Label>
-                <Select value={userForm.group_id} onChange={(e) => setUserForm((p) => ({ ...p, group_id: e.target.value }))}>
-                  <option value="">No Group</option>
-                  {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                </Select>
-              </div>
-            </div>
+            )}
             {userForm.role !== 'admin' && (
               <div>
                 <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
@@ -717,8 +792,8 @@ export default function AdminUsersPage() {
                   <div>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">Datasets</p>
                     <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto p-2 rounded border border-gray-200 dark:border-gray-700">
-                      {(datasets ?? []).length === 0 && <p className="text-xs text-gray-400">No datasets</p>}
-                      {(datasets ?? []).map((d) => (
+                      {grantableDatasets.length === 0 && <p className="text-xs text-gray-400">No datasets</p>}
+                      {grantableDatasets.map((d) => (
                         <label key={d.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
                           <input type="checkbox" checked={userForm.dataset_access.includes(d.id)}
                             onChange={() => setUserForm((p) => ({ ...p, dataset_access: p.dataset_access.includes(d.id) ? p.dataset_access.filter((x) => x !== d.id) : [...p.dataset_access, d.id] }))}
@@ -731,7 +806,8 @@ export default function AdminUsersPage() {
                   <div>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">Reports</p>
                     <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto p-2 rounded border border-gray-200 dark:border-gray-700">
-                      {reports.map((r) => (
+                      {grantableReports.length === 0 && <p className="text-xs text-gray-400">No reports</p>}
+                      {grantableReports.map((r) => (
                         <label key={r.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
                           <input type="checkbox" checked={userForm.report_access.includes(r.id)}
                             onChange={() => setUserForm((p) => ({ ...p, report_access: p.report_access.includes(r.id) ? p.report_access.filter((x) => x !== r.id) : [...p.report_access, r.id] }))}
