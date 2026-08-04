@@ -9,6 +9,8 @@ import { CredentialsService } from '../../credentials/credentials.service';
 import * as crypto from 'crypto';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { access, writeFile } from 'fs/promises';
+import { resolve } from 'path';
 
 const execFileAsync = promisify(execFile);
 
@@ -224,6 +226,7 @@ export class SettingsService {
         ['-m', 'pip', 'install', packageSpec],
         { timeout: 120_000 },
       );
+      await this.syncRequirementsFile();
       return { success: true, output: (stdout + '\n' + stderr).trim() };
     } catch (err: any) {
       const output = ((err.stdout ?? '') + '\n' + (err.stderr ?? '')).trim() || String(err);
@@ -242,10 +245,44 @@ export class SettingsService {
         ['-m', 'pip', 'uninstall', '-y', name],
         { timeout: 60_000 },
       );
+      await this.syncRequirementsFile();
       return { success: true, output: (stdout + '\n' + stderr).trim() };
     } catch (err: any) {
       const output = ((err.stdout ?? '') + '\n' + (err.stderr ?? '')).trim() || String(err);
       return { success: false, output };
+    }
+  }
+
+  /**
+   * Persist the venv to `requirements.txt` after a runtime pip install/uninstall, so the change
+   * survives Docker image rebuilds (the Dockerfile bakes the venv from this file). It is bind-mounted
+   * from `backend/requirements.txt` in docker-compose, so writing it here updates the host file.
+   * Best-effort: if the file isn't present (e.g. a dev run without the mount) we log and skip rather
+   * than fail the install. The updated file still needs committing to reach other environments.
+   */
+  private async syncRequirementsFile(): Promise<void> {
+    const target = resolve(process.cwd(), 'requirements.txt');
+    try {
+      await access(target);
+    } catch {
+      this.logger.warn(
+        `requirements.txt not found at ${target} — this package change will be LOST on the next ` +
+          `image rebuild (bind-mount backend/requirements.txt into the container to persist it).`,
+      );
+      return;
+    }
+    try {
+      const { stdout } = await execFileAsync(this.getPythonCmd(), ['-m', 'pip', 'freeze'], {
+        timeout: 30_000,
+      });
+      const header =
+        '# AMS backend Python venv (/opt/ams-venv) — AUTO-UPDATED when packages change via\n' +
+        '# Admin -> Settings -> Python packages. Baked into the image (backend/Dockerfile).\n' +
+        '# Commit this file to persist the change across rebuilds and to other environments.\n';
+      await writeFile(target, header + stdout);
+      this.logger.log(`requirements.txt synced (${target}) — commit it to persist across rebuilds/VMs.`);
+    } catch (err) {
+      this.logger.error('Failed to sync requirements.txt after a package change', err as Error);
     }
   }
 
