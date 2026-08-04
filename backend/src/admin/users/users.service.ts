@@ -180,7 +180,7 @@ export class AdminUsersService implements OnModuleInit {
     }
   }
 
-  async findAll(): Promise<(Omit<User, 'passwordHash'> & { dataset_access: string[]; report_access: string[]; role_ids: string[]; group_name: string | null })[]> {
+  async findAll(): Promise<(Omit<User, 'passwordHash'> & { dataset_access: string[]; report_access: string[]; role_ids: string[]; group_name: string | null; effective_dataset_count: number; effective_report_count: number })[]> {
     try {
       const users = await this.userRepo.find({ order: { createdAt: 'DESC' } });
       const [accesses, reportAccesses, groups, roleLinks] = await Promise.all([
@@ -222,12 +222,28 @@ export class AdminUsersService implements OnModuleInit {
         roleMap.set(r.user_id, list);
       }
 
+      // Effective (resolved) access counts — role-derived ∪ individual — so the admin UI
+      // shows what each user can actually reach, not just their individual grants.
+      const resolved = await Promise.all(
+        users.map(async (u) => {
+          try {
+            const acc = await this.access.resolve(u.id);
+            return { id: u.id, datasets: acc.datasetIds.size, reports: acc.reportSlugs.size };
+          } catch {
+            return { id: u.id, datasets: 0, reports: 0 };
+          }
+        }),
+      );
+      const resolvedMap = new Map(resolved.map((r) => [r.id, r]));
+
       return users.map(({ passwordHash, ...u }) => ({
         ...(u as Omit<User, 'passwordHash'>),
         dataset_access: accessMap.get(u.id) ?? [],
         report_access:  reportMap.get(u.id)  ?? [],
         role_ids:       roleMap.get(u.id)    ?? [],
         group_name:     u.groupId ? (groupNameMap.get(u.groupId) ?? null) : null,
+        effective_dataset_count: resolvedMap.get(u.id)?.datasets ?? 0,
+        effective_report_count:  resolvedMap.get(u.id)?.reports  ?? 0,
       }));
     } catch (err) {
       this.logger.error('Error finding users', err);

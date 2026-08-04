@@ -412,10 +412,14 @@ export default function AdminUsersPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">
                         {user.role === 'admin'
                           ? <span className="text-purple-600 dark:text-purple-400">All</span>
-                          : <span>{(user.dataset_access ?? []).length}D · {(user.report_access ?? []).length}R</span>}
+                          : <span>
+                              {user.effective_dataset_count ?? (user.dataset_access ?? []).length} datasets
+                              {' · '}
+                              {user.effective_report_count ?? (user.report_access ?? []).length} reports
+                            </span>}
                       </td>
                       <td className="px-4 py-3"><StatusBadge status={user.is_active ? 'active' : 'inactive'} /></td>
                       <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{user.last_login ? formatDatetime(user.last_login) : '—'}</td>

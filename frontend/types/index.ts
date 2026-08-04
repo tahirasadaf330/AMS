@@ -25,6 +25,9 @@ export interface User {
   role_ids?: string[];
   /** Sections (sms/voice) where this user holds an Editor role. */
   editor_sections?: string[];
+  /** Resolved access counts (role-derived ∪ individual) — what the user can actually reach. */
+  effective_dataset_count?: number;
+  effective_report_count?: number;
 }
 
 export interface AdminGroup {
