@@ -43,6 +43,8 @@ const CSS = `
 .edr-tbtn{height:33px;padding:0 12px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--inks);font-size:.78rem;font-weight:500;cursor:pointer;white-space:nowrap;transition:border-color .12s}
 .edr-tbtn:hover{border-color:#94a3b8}
 .edr-tbtn.an{background:var(--danger-bg);border-color:var(--danger-bd);color:var(--danger);font-weight:700}
+.edr-tbtn.ac{background:rgba(37,99,235,.10);border-color:rgba(37,99,235,.45);color:#2563eb;font-weight:700}
+.edr-sep{width:1px;height:20px;background:var(--lns);margin:0 2px}
 .edr-clr{height:33px;padding:0 11px;border:1px dashed #94a3b8;border-radius:7px;background:transparent;color:var(--mu);font-size:.74rem;cursor:pointer}
 /* Table — fixed layout so it always fits the sheet (no horizontal scroll); long text truncates.
    Scrolls vertically within its own container (~20 rows tall) with the sticky header pinned, like MT EDR. */
@@ -63,24 +65,29 @@ const CSS = `
 /* Negative margin value shown in red text (no background).
    Scoped to .edr-tbl td.nm-red so it outranks the default .edr-tbl td color. */
 .edr-tbl td.nm-red{color:var(--danger);font-weight:700}
+/* Profit (abs): green when positive (profit), red when negative (loss) — like Jera */
+.edr-tbl td.prof-pos{color:var(--ok);font-weight:700}
+.edr-tbl td.prof-neg{color:var(--danger);font-weight:700}
 .edr-footer{margin-top:9px;font-size:.72rem;color:var(--mu);text-align:right}
 .sa{font-size:.56rem;margin-left:3px;opacity:.4}
 `;
 
 const fN    = (n: any) => n != null ? Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
 const fRate = (n: any) => n != null ? Number(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 }) : '—';
+const fProfit = (n: any) => n != null ? Number(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 }) : '—';
 
 type SortDir = 'asc' | 'desc' | null;
 
 // Column definitions — percentage widths sum to 100% so the table fits one sheet.
 const COLS: { key: string; label: string; left?: boolean; w: string }[] = [
-  { key: 'orig_account',       label: 'Orig Account',       left: true, w: '16%' },
-  { key: 'orig_dst_code_name', label: 'Orig Dst Code Name', left: true, w: '16%' },
-  { key: 'term_account',       label: 'Term Account',       left: true, w: '16%' },
-  { key: 'term_dst_code_name', label: 'Term Dst Code Name', left: true, w: '16%' },
-  { key: 'orig_rate',          label: 'Orig Rate',          w: '11%' },
-  { key: 'term_rate',          label: 'Term Rate',          w: '11%' },
-  { key: 'negative_margin',    label: 'Negative Margin',    w: '14%' },
+  { key: 'orig_account',       label: 'Orig Account',       left: true, w: '14%' },
+  { key: 'orig_dst_code_name', label: 'Orig Dst Code Name', left: true, w: '14%' },
+  { key: 'term_account',       label: 'Term Account',       left: true, w: '14%' },
+  { key: 'term_dst_code_name', label: 'Term Dst Code Name', left: true, w: '14%' },
+  { key: 'orig_rate',          label: 'Orig Rate',          w: '10%' },
+  { key: 'term_rate',          label: 'Term Rate',          w: '10%' },
+  { key: 'negative_margin',    label: 'Negative Margin',    w: '12%' },
+  { key: 'profit',             label: 'Profit (abs)',       w: '12%' },
 ];
 
 export default function NegativeMarginPage() {
@@ -90,7 +97,11 @@ export default function NegativeMarginPage() {
   const [error, setError]         = React.useState<string | null>(null);
   const [search, setSearch]       = React.useState('');
   const [filterNeg, setFilterNeg] = React.useState(false);
+  const [cats, setCats]           = React.useState<string[]>([]); // selected account-type categories
   const [sort, setSort]           = React.useState<{ key: string | null; dir: SortDir }>({ key: 'negative_margin', dir: 'asc' });
+
+  const toggleCat = (c: string) =>
+    setCats((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
 
   const onSort = React.useCallback((key: string) => {
     setSort((s) => ({
@@ -122,6 +133,7 @@ export default function NegativeMarginPage() {
         (r.term_dst_code_name ?? '').toLowerCase().includes(q));
     }
     if (filterNeg) f = f.filter((r: any) => (r.negative_margin ?? 0) < 0);
+    if (cats.length) f = f.filter((r: any) => cats.includes(r.account_type));
     if (!sort.key || !sort.dir) return f;
     const { key, dir } = sort;
     return [...f].sort((a, b) => {
@@ -132,7 +144,7 @@ export default function NegativeMarginPage() {
       const cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv));
       return dir === 'asc' ? cmp : -cmp;
     });
-  }, [data, search, filterNeg, sort]);
+  }, [data, search, filterNeg, cats, sort]);
 
   // Derive summary numbers directly from the rows we already have, so the cards
   // always match the table (independent of the backend `summary` payload shape).
@@ -148,7 +160,7 @@ export default function NegativeMarginPage() {
 
   const lastRefreshed: string | null = data?.lastRefreshed ?? null;
   const totalRows = stats.totalRows;
-  const hasFilter = search || filterNeg;
+  const hasFilter = search || filterNeg || cats.length > 0;
 
   const Th = ({ col }: { col: typeof COLS[number] }) => {
     const active = sort.key === col.key;
@@ -203,7 +215,11 @@ export default function NegativeMarginPage() {
           <div className="edr-filt">
             <input className="edr-inp" placeholder="Search account / destination…" value={search} onChange={e => setSearch(e.target.value)} />
             <button className={`edr-tbtn${filterNeg ? ' an' : ''}`} onClick={() => setFilterNeg(v => !v)}>Negative Margin</button>
-            {hasFilter && <button className="edr-clr" onClick={() => { setSearch(''); setFilterNeg(false); }}>Clear filters</button>}
+            <span className="edr-sep" />
+            {['NOC', 'TID-ORIG', 'TID-CN-CUST'].map((c) => (
+              <button key={c} className={`edr-tbtn${cats.includes(c) ? ' ac' : ''}`} onClick={() => toggleCat(c)}>{c}</button>
+            ))}
+            {hasFilter && <button className="edr-clr" onClick={() => { setSearch(''); setFilterNeg(false); setCats([]); }}>Clear filters</button>}
           </div>
 
           <div className="edr-tbl-wrap">
@@ -225,6 +241,7 @@ export default function NegativeMarginPage() {
                     <td className="mono rate-o">{fRate(r.orig_rate)}</td>
                     <td className="mono rate-t">{fRate(r.term_rate)}</td>
                     <td className="mono nm-red">{fRate(r.negative_margin)}</td>
+                    <td className={`mono ${(r.profit ?? 0) >= 0 ? 'prof-pos' : 'prof-neg'}`}>{fProfit(r.profit)}</td>
                   </tr>
                 ))}
               </tbody>
