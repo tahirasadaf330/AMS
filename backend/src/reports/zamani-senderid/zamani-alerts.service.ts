@@ -92,7 +92,7 @@ const ROUTING_BODY = String.raw`
     trows = [[esc(r[0]), esc(r[1]), esc((r[2] or "vendor") + " (" + str(r[3]) + ")"), fi(r[4])] for r in rows]
     inner = table(["Sender ID", "Customer", "Wrong Vendor", "Messages"], ["left", "left", "left", "right"], trows)
     intro = ("<b>" + fi(total) + "</b> Zamani-destined message(s) in the last 5 minutes were terminated to a vendor "
-             "OTHER than the active direct Zamani route. These should route directly to Zamani — please check the routing.")
+             "OTHER than the approved suppliers (Zamani_Niger / Innovatio) — please check the routing.")
     emit({"triggered": True, "subject": "[Zamani] Routing error — traffic sent to the wrong vendor",
           "html": wrap("Zamani Routing Error", intro, inner), "message": "misrouted " + fi(total)})
 `;

@@ -13,8 +13,12 @@ const DATASET_NAME = 'Zamani Sender ID';
 // named "Zamani_Niger"), so we key off the LIVE connection by name + ConnectionDeleted = 0 instead
 // of a hardcoded id. A hardcoded id silently turns every post-cutover legit message into a false
 // "mis-routed" alarm (exactly what happened when 564 → 671 flipped).
+// Approved suppliers for Zamani-destined traffic — anything else is flagged mis-routed.
+// Innovatio added 2026-08-05 (requested by Sarkari: alert only when supplier is neither).
+export const ZAMANI_APPROVED_VENDORS = ['Zamani_Niger', 'Innovatio'] as const;
 export const ZAMANI_VENDOR_NAME = 'Zamani_Niger';
 const ZAMANI_OPERATOR = 'Niger Orange (zamani)';
+const APPROVED_VENDORS_SQL = ZAMANI_APPROVED_VENDORS.map((v) => `'${v}'`).join(', ');
 
 // One row per MT message DESTINED to Zamani (any vendor — no vendor filter, unlike the daily
 // zamani_traffic report), for a rolling ~48h window. StageService runs this in rolling-overlap
@@ -69,7 +73,7 @@ SELECT
     CONCAT(am.FirstName, ' ', am.LastName)                             AS account_manager,
     mvc.Name                                                            AS vendor_connection,
     mt.MtVendorConnectionId                                             AS mt_vendor_connection_id,
-    CASE WHEN mvc.Name = '${ZAMANI_VENDOR_NAME}' AND mvc.ConnectionDeleted = 0 THEN 0 ELSE 1 END AS is_misrouted,
+    CASE WHEN mvc.Name IN (${APPROVED_VENDORS_SQL}) AND mvc.ConnectionDeleted = 0 THEN 0 ELSE 1 END AS is_misrouted,
     mmd.OperatorName                                                    AS operator,
     ds.DlrStatus                                                        AS dlr_status,
     CASE WHEN ds.DlrStatus = 'Delivered' THEN 1 ELSE 0 END             AS is_delivered
@@ -102,8 +106,8 @@ const SEED_COLUMNS = [
   { key: 'customer_connection',    label: 'Aggregator',      type: 'text',      description: 'Customer connection (aggregator) sending the traffic.' },
   { key: 'account_manager',        label: 'Account Manager', type: 'text',      description: "Customer's sales account manager (full name)." },
   { key: 'vendor_connection',      label: 'Vendor',          type: 'text',      description: 'Terminating vendor connection the message was routed to.' },
-  { key: 'mt_vendor_connection_id', label: 'Vendor ID',      type: 'numeric',   description: 'Terminating vendor connection id; the active "Zamani_Niger" connection is the correct route.' },
-  { key: 'is_misrouted',           label: 'Mis-routed',      type: 'numeric',   description: 'Flag 1/0: Zamani-destined but not routed to the active "Zamani_Niger" connection.' },
+  { key: 'mt_vendor_connection_id', label: 'Vendor ID',      type: 'numeric',   description: 'Terminating vendor connection id; active "Zamani_Niger" or "Innovatio" connections are the approved routes.' },
+  { key: 'is_misrouted',           label: 'Mis-routed',      type: 'numeric',   description: 'Flag 1/0: Zamani-destined but not routed to an approved supplier (Zamani_Niger / Innovatio).' },
   { key: 'operator',               label: 'Operator',        type: 'text',      description: 'Destination operator (Zamani).' },
   { key: 'dlr_status',             label: 'DLR Status',      type: 'text',      description: 'Delivery-receipt status of the message.' },
   { key: 'is_delivered',           label: 'Delivered',       type: 'numeric',   description: 'Flag 1/0: DLR status = Delivered. Volume is counted as messages (rows).' },
