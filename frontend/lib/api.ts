@@ -120,6 +120,9 @@ api.interceptors.response.use(
 
 // ── AUTH ──────────────────────────────────────────────────────
 export const authApi = {
+  // Which sign-in methods the login page should offer (runtime backend config, no rebuild).
+  loginMethods: () => api.get<{ password: boolean; sso: boolean }>('/auth/login-methods'),
+
   login: (email: string, password: string) =>
     api.post<AuthResponse>('/auth/login', { email, password }),
 

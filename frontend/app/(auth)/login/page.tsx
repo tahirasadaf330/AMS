@@ -23,6 +23,20 @@ export default function LoginPage() {
   const [error, setError] = React.useState('');
   const [isLoading, setIsLoading] = React.useState(false);
 
+  // Which sign-in methods to offer — runtime backend config (GET /auth/login-methods), so
+  // flipping PASSWORD_LOGIN_ENABLED on the backend changes this page without a rebuild.
+  // Default (and while loading): SSO only — no flash of the password form. On fetch error,
+  // fail OPEN to both methods: the backend still rejects disabled password logins with 403,
+  // and during a backend outage hiding the form wouldn't help anyway.
+  const [methods, setMethods] = React.useState<{ password: boolean; sso: boolean }>({ password: false, sso: true });
+  React.useEffect(() => {
+    let cancelled = false;
+    authApi.loginMethods()
+      .then(({ data }) => { if (!cancelled) setMethods(data); })
+      .catch(() => { if (!cancelled) setMethods({ password: true, sso: true }); });
+    return () => { cancelled = true; };
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -84,6 +98,7 @@ export default function LoginPage() {
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-8 shadow-2xl">
           <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-6 text-center">Sign in to your account</h1>
 
+          {methods.password && (
           <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
             {/* Error */}
             {error && (
@@ -154,20 +169,23 @@ export default function LoginPage() {
               Sign In
             </Button>
           </form>
+          )}
 
-          {/* Microsoft SSO (Phase 1: alongside password login). Hidden unless enabled —
-              NEXT_PUBLIC_SSO_ENABLED is inlined at build time. Plain navigation, not XHR:
-              the backend 302s the browser to Microsoft and back. */}
-          {process.env.NEXT_PUBLIC_SSO_ENABLED === 'true' && (
+          {/* Microsoft SSO — the primary (usually only) sign-in method. Driven by the runtime
+              /auth/login-methods config. Plain navigation, not XHR: the backend 302s the
+              browser to Microsoft and back. */}
+          {methods.sso && (
             <>
-              <div className="relative my-5">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-200 dark:border-gray-700" />
+              {methods.password && (
+                <div className="relative my-5">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-200 dark:border-gray-700" />
+                  </div>
+                  <div className="relative flex justify-center">
+                    <span className="bg-white dark:bg-gray-800 px-3 text-xs text-gray-400 dark:text-gray-500">or</span>
+                  </div>
                 </div>
-                <div className="relative flex justify-center">
-                  <span className="bg-white dark:bg-gray-800 px-3 text-xs text-gray-400 dark:text-gray-500">or</span>
-                </div>
-              </div>
+              )}
               <a
                 href={`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/auth/sso/login`}
                 className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700/40 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"

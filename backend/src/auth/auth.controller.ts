@@ -8,6 +8,7 @@ import {
   HttpCode,
   HttpStatus,
   Get,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -17,12 +18,29 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, JwtUser } from '../common/decorators/current-user.decorator';
 import { AuditService } from '../audit/audit.service';
 
+// SSO-only by default: password login stays fully implemented but is rejected unless
+// PASSWORD_LOGIN_ENABLED=true (break-glass for an Entra/SSO outage — flip the env and
+// restart the backend; deploy/toggle-password-login.sh does both in one command).
+function passwordLoginEnabled(): boolean {
+  return process.env.PASSWORD_LOGIN_ENABLED === 'true';
+}
+function ssoEnabled(): boolean {
+  return process.env.SSO_ENABLED !== 'false'; // same default-on convention as graph-email.service
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(
     private authService: AuthService,
     private auditService: AuditService,
   ) {}
+
+  /** Public runtime config for the login page: which sign-in methods to offer. The page reads
+   *  this on load, so toggling PASSWORD_LOGIN_ENABLED needs only a backend restart — no rebuild. */
+  @Get('login-methods')
+  loginMethods() {
+    return { password: passwordLoginEnabled(), sso: ssoEnabled() };
+  }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -33,6 +51,17 @@ export class AuthController {
   ) {
     const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.socket.remoteAddress || '';
     const userAgent = req.headers['user-agent'] || '';
+
+    if (!passwordLoginEnabled()) {
+      this.auditService.log({
+        userId: null,
+        action: 'auth:login_blocked',
+        resource: 'auth',
+        detail: { email: dto.email, reason: 'password_login_disabled' },
+        ipAddress,
+      });
+      throw new ForbiddenException('Password login is disabled — sign in with Microsoft.');
+    }
 
     const result = await this.authService.login(dto, ipAddress, userAgent);
 
