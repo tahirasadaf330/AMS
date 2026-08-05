@@ -39,6 +39,9 @@ const ROLE_BADGE: Record<string, BadgeProps['variant']> = {
 };
 const PAGE_SIZE = 20;
 
+// A role's section is a CSV — it may span both sections ('sms,voice').
+const sectionList = (section?: string | null): string[] => (section ?? '').split(',').filter(Boolean);
+
 // ── Local hooks ───────────────────────────────────────────────
 function useAdminUsers() {
   return useQuery({
@@ -193,18 +196,20 @@ export default function AdminUsersPage() {
   const [showCreateGroup, setShowCreateGroup] = React.useState(false);
   const [newGroupName, setNewGroupName]       = React.useState('');
   const [newGroupDesc, setNewGroupDesc]       = React.useState('');
-  const [newGroupSection, setNewGroupSection] = React.useState('');
-  const [newGroupLevel, setNewGroupLevel]     = React.useState('viewer');
+  const [newGroupSections, setNewGroupSections] = React.useState<string[]>([]);
+  const [newGroupLevel, setNewGroupLevel]       = React.useState('viewer');
+  const toggleNewGroupSection = (s: string) =>
+    setNewGroupSections((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]);
 
   const [editingGroup, setEditingGroup]   = React.useState<AdminGroup | null>(null);
-  const [groupForm, setGroupForm]         = React.useState({ name: '', description: '', dataset_access: [] as string[], report_access: [] as string[], section: '', level: '' });
+  const [groupForm, setGroupForm]         = React.useState({ name: '', description: '', dataset_access: [] as string[], report_access: [] as string[], sections: [] as string[], level: '' });
   const [groupMembers, setGroupMembers]   = React.useState<string[]>([]);
   const [memberSearch, setMemberSearch]   = React.useState('');
   const [deleteGroupTarget, setDeleteGroupTarget] = React.useState<AdminGroup | null>(null);
 
   const openEditGroup = (g: AdminGroup) => {
     setEditingGroup(g);
-    setGroupForm({ name: g.name, description: g.description ?? '', dataset_access: g.dataset_access, report_access: g.report_access, section: g.section ?? '', level: g.level ?? '' });
+    setGroupForm({ name: g.name, description: g.description ?? '', dataset_access: g.dataset_access, report_access: g.report_access, sections: sectionList(g.section), level: g.level ?? '' });
     // Members come from the user_roles join (role_ids), plus any legacy single-group pointer.
     setGroupMembers(
       (users ?? [])
@@ -227,8 +232,8 @@ export default function AdminUsersPage() {
           description: groupForm.description || undefined,
           dataset_access: groupForm.dataset_access,
           report_access: groupForm.report_access,
-          section: groupForm.section || null,
-          level: groupForm.section ? (groupForm.level || null) : null,
+          section: groupForm.sections.length ? groupForm.sections.join(',') : null,
+          level: groupForm.sections.length ? (groupForm.level || null) : null,
         },
       }),
       setMembersMut.mutateAsync({ id: editingGroup.id, userIds: groupMembers }),
@@ -329,8 +334,8 @@ export default function AdminUsersPage() {
     ? Array.from(new Set(
         (selfRow.role_ids ?? [])
           .map((rid) => (groups ?? []).find((g) => g.id === rid))
-          .filter((g) => g?.level === 'editor' && g?.section)
-          .map((g) => g!.section as string),
+          .filter((g) => g?.level === 'editor')
+          .flatMap((g) => sectionList(g!.section)),
       ))
     : (currentUser?.editor_sections ?? []);
 
@@ -339,7 +344,9 @@ export default function AdminUsersPage() {
   const roleOptions = (groups ?? []).filter((g) => {
     if (!g.level) return false;
     if (isAdmin) return true;
-    return g.level === 'viewer' && !!g.section && mySections.includes(g.section);
+    // Editors may assign a viewer role only when EVERY section it spans is one of theirs.
+    const secs = sectionList(g.section);
+    return g.level === 'viewer' && secs.length > 0 && secs.every((s) => mySections.includes(s));
   });
   const roleNameById = new Map((groups ?? []).map((g) => [g.id, g.name] as const));
   // Individual grant lists — Editors can only grant what they themselves can access.
@@ -524,7 +531,9 @@ export default function AdminUsersPage() {
                       <td className="px-4 py-3">
                         {g.level ? (
                           <span className="flex items-center gap-1.5">
-                            <Badge variant={g.section === 'sms' ? 'blue' : 'purple'}>{(g.section ?? '').toUpperCase()}</Badge>
+                            {sectionList(g.section).map((s) => (
+                              <Badge key={s} variant={s === 'sms' ? 'blue' : 'purple'}>{s.toUpperCase()}</Badge>
+                            ))}
                             <span className="text-xs text-gray-500 capitalize">{g.level}</span>
                           </span>
                         ) : (
@@ -558,8 +567,8 @@ export default function AdminUsersPage() {
       {/* ══ DIALOGS ══════════════════════════════════════════════ */}
 
       {/* Create role */}
-      <Dialog open={showCreateGroup} onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupSection(''); setNewGroupLevel('viewer'); }} className="max-w-sm">
-        <DialogHeader title="Create Role" onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupSection(''); setNewGroupLevel('viewer'); }} />
+      <Dialog open={showCreateGroup} onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupSections([]); setNewGroupLevel('viewer'); }} className="max-w-sm">
+        <DialogHeader title="Create Role" onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupSections([]); setNewGroupLevel('viewer'); }} />
         <DialogBody>
           <div className="space-y-3">
             <div className="space-y-1.5">
@@ -572,16 +581,20 @@ export default function AdminUsersPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Section</Label>
-                <Select value={newGroupSection} onChange={(e) => setNewGroupSection(e.target.value)}>
-                  <option value="">None (custom)</option>
-                  <option value="sms">SMS</option>
-                  <option value="voice">Voice</option>
-                </Select>
+                <Label>Sections</Label>
+                <div className="flex flex-col gap-1.5 px-3 py-2 rounded border border-gray-200 dark:border-gray-700">
+                  {(['sms', 'voice'] as const).map((s) => (
+                    <label key={s} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                      <input type="checkbox" checked={newGroupSections.includes(s)} onChange={() => toggleNewGroupSection(s)}
+                        className="rounded border-gray-300 dark:border-gray-600 text-blue-600" />
+                      {s === 'sms' ? 'SMS' : 'Voice'}
+                    </label>
+                  ))}
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label>Permission</Label>
-                <Select value={newGroupLevel} onChange={(e) => setNewGroupLevel(e.target.value)} disabled={!newGroupSection}>
+                <Select value={newGroupLevel} onChange={(e) => setNewGroupLevel(e.target.value)} disabled={newGroupSections.length === 0}>
                   <option value="viewer">Viewer</option>
                   <option value="editor">Editor</option>
                 </Select>
@@ -595,7 +608,7 @@ export default function AdminUsersPage() {
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupSection(''); setNewGroupLevel('viewer'); }}>Cancel</Button>
+          <Button variant="ghost" onClick={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupSections([]); setNewGroupLevel('viewer'); }}>Cancel</Button>
           <Button
             disabled={!newGroupName.trim()}
             isLoading={createGroup.isPending}
@@ -603,10 +616,10 @@ export default function AdminUsersPage() {
               const created = await createGroup.mutateAsync({
                 name: newGroupName.trim(),
                 description: newGroupDesc.trim() || undefined,
-                section: newGroupSection || null,
-                level: newGroupSection ? newGroupLevel : null,
+                section: newGroupSections.length ? newGroupSections.join(',') : null,
+                level: newGroupSections.length ? newGroupLevel : null,
               });
-              setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupSection(''); setNewGroupLevel('viewer');
+              setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupSections([]); setNewGroupLevel('viewer');
               setActiveTab('groups');
               // Go straight into Edit Role so the admin can assign dataset/report
               // permissions and members right away — a freshly created role has
@@ -637,43 +650,51 @@ export default function AdminUsersPage() {
               </div>
             </div>
 
-            {/* Role permission: section + level */}
+            {/* Role permission: sections + level */}
             <div>
               <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Role Permission</p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Section</Label>
-                  <Select
-                    value={groupForm.section}
-                    onChange={(e) => setGroupForm((p) => ({ ...p, section: e.target.value, level: e.target.value ? (p.level || 'viewer') : '' }))}
-                  >
-                    <option value="">None (custom)</option>
-                    <option value="sms">SMS</option>
-                    <option value="voice">Voice</option>
-                  </Select>
+                  <Label>Sections</Label>
+                  <div className="flex flex-col gap-1.5 px-3 py-2 rounded border border-gray-200 dark:border-gray-700">
+                    {(['sms', 'voice'] as const).map((s) => (
+                      <label key={s} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          checked={groupForm.sections.includes(s)}
+                          onChange={() => setGroupForm((p) => {
+                            const sections = p.sections.includes(s) ? p.sections.filter((x) => x !== s) : [...p.sections, s];
+                            return { ...p, sections, level: sections.length ? (p.level || 'viewer') : '' };
+                          })}
+                          className="rounded border-gray-300 dark:border-gray-600 text-blue-600"
+                        />
+                        {s === 'sms' ? 'SMS' : 'Voice'}
+                      </label>
+                    ))}
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Permission</Label>
                   <Select
                     value={groupForm.level}
                     onChange={(e) => setGroupForm((p) => ({ ...p, level: e.target.value }))}
-                    disabled={!groupForm.section}
+                    disabled={groupForm.sections.length === 0}
                   >
                     <option value="viewer">Viewer</option>
                     <option value="editor">Editor</option>
                   </Select>
                 </div>
               </div>
-              {groupForm.section && groupForm.level === 'editor' && (
+              {groupForm.sections.length > 0 && groupForm.level === 'editor' && (
                 <p className="text-[11px] text-amber-500 dark:text-amber-400 mt-1.5">
-                  Editor role: members automatically get ALL {groupForm.section.toUpperCase()} reports and datasets
-                  (including future ones) and can create alerts and viewer users — the checkboxes below are not needed.
+                  Editor role: members automatically get ALL {groupForm.sections.map((s) => s.toUpperCase()).join(' + ')} reports
+                  and datasets (including future ones) and can create alerts and viewer users — the checkboxes below are not needed.
                 </p>
               )}
             </div>
 
             {/* Access (what a Viewer/custom role grants) */}
-            {!(groupForm.section && groupForm.level === 'editor') && (
+            {!(groupForm.sections.length > 0 && groupForm.level === 'editor') && (
             <div>
               <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Access</p>
               <div className="grid grid-cols-2 gap-3">
@@ -883,9 +904,9 @@ export default function AdminUsersPage() {
                             className="rounded border-gray-300 dark:border-gray-600 text-blue-600"
                           />
                           <span className="truncate">{g.name}</span>
-                          {g.section && (
-                            <Badge variant={g.section === 'sms' ? 'blue' : 'purple'}>{g.section.toUpperCase()}</Badge>
-                          )}
+                          {sectionList(g.section).map((s) => (
+                            <Badge key={s} variant={s === 'sms' ? 'blue' : 'purple'}>{s.toUpperCase()}</Badge>
+                          ))}
                           {g.level && <span className="text-xs text-gray-400 capitalize">{g.level}</span>}
                         </label>
                       ))}

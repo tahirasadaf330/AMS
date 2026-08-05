@@ -42,7 +42,7 @@ export class AdminGroupsController {
 
   @Post()
   async create(
-    @Body() body: { name: string; description?: string; section?: string | null; level?: string | null },
+    @Body() body: { name: string; description?: string; section?: string | string[] | null; level?: string | null },
     @CurrentUser() user: JwtUser,
     @Req() req: Request,
   ) {
@@ -70,10 +70,11 @@ export class AdminGroupsController {
       report_access?: string[];
       datasetAccess?: string[];
       reportAccess?: string[];
-      // section='sms'|'voice', level='viewer'|'editor'; either may be null to clear.
-      // Only admins can reach this endpoint (class-level @Roles('admin')), so this is
-      // not reachable by a delegated Editor.
-      section?: string | null;
+      // section = one or more of 'sms'/'voice' (CSV or array — a role may span both);
+      // level = 'viewer'|'editor'; either may be null to clear. Only admins can reach
+      // this endpoint (class-level @Roles('admin')), so this is not reachable by a
+      // delegated Editor.
+      section?: string | string[] | null;
       level?: string | null;
     },
     @CurrentUser() user: JwtUser,

@@ -132,7 +132,14 @@ export class AdminUsersService implements OnModuleInit {
       );
       if (rows.length !== new Set(grants.roleIds).size) throw new ForbiddenException('Unknown role');
       for (const r of rows) {
-        if (r.level !== 'viewer' || !r.section || !requester.editorSections.has(r.section as 'sms' | 'voice')) {
+        // section is a CSV (a role may span both sections) — EVERY section of the role must be
+        // one where the requester holds an Editor role.
+        const roleSections = String(r.section ?? '').split(',').filter(Boolean);
+        if (
+          r.level !== 'viewer' ||
+          roleSections.length === 0 ||
+          roleSections.some((s) => !requester.editorSections.has(s as 'sms' | 'voice'))
+        ) {
           throw new ForbiddenException('Editors can only assign Viewer roles within their own section');
         }
       }

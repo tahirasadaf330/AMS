@@ -94,8 +94,10 @@ export class AccessResolverService {
     const membershipIds = memberships.map((m) => m.id);
     const editorSections = new Set<Section>();
     for (const m of memberships) {
-      if (m.level === 'editor' && (m.section === 'sms' || m.section === 'voice')) {
-        editorSections.add(m.section);
+      if (m.level !== 'editor' || !m.section) continue;
+      // section is a CSV — a role may span both sections ('sms,voice').
+      for (const s of String(m.section).split(',')) {
+        if (s === 'sms' || s === 'voice') editorSections.add(s);
       }
     }
 

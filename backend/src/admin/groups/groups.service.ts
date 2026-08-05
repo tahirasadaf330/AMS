@@ -13,6 +13,20 @@ import { AccessResolverService } from '../../common/access/access-resolver.servi
 const VALID_SECTIONS = ['sms', 'voice'] as const;
 const VALID_LEVELS = ['viewer', 'editor'] as const;
 
+/** Normalize a section input (CSV string or array) to a canonical sorted CSV ('sms', 'voice',
+ *  'sms,voice') or null. Throws on unknown sections. A role may span BOTH sections. */
+function normalizeSections(input?: string | string[] | null): string | null {
+  if (input === undefined || input === null || input === '') return null;
+  const parts = Array.isArray(input) ? input : String(input).split(',');
+  const clean = [...new Set(parts.map((s) => s.trim().toLowerCase()).filter(Boolean))];
+  for (const s of clean) {
+    if (!VALID_SECTIONS.includes(s as any)) {
+      throw new BadRequestException(`section must be one or more of: ${VALID_SECTIONS.join(', ')}`);
+    }
+  }
+  return clean.length ? clean.sort().join(',') : null;
+}
+
 export interface AdminGroup {
   id: string;
   name: string;
@@ -144,23 +158,21 @@ export class AdminGroupsService implements OnModuleInit {
     name: string,
     description: string | undefined,
     createdBy: string,
-    section?: string | null,
+    section?: string | string[] | null,
     level?: string | null,
   ): Promise<AdminGroup> {
-    if (section && !VALID_SECTIONS.includes(section as any)) {
-      throw new BadRequestException(`section must be one of: ${VALID_SECTIONS.join(', ')}`);
-    }
+    const normSection = normalizeSections(section);
     if (level && !VALID_LEVELS.includes(level as any)) {
       throw new BadRequestException(`level must be one of: ${VALID_LEVELS.join(', ')}`);
     }
-    if (level && !section) {
-      throw new BadRequestException('level requires a section — an Editor/Viewer role must belong to sms or voice');
+    if (level && !normSection) {
+      throw new BadRequestException('level requires a section — an Editor/Viewer role must belong to sms and/or voice');
     }
     try {
       const [row] = await this.dataSource.query<[{ id: string }]>(
         `INSERT INTO user_groups (name, description, created_by, section, level)
          VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-        [name.trim(), description?.trim() ?? null, createdBy, section || null, level || null],
+        [name.trim(), description?.trim() ?? null, createdBy, normSection, level || null],
       );
       this.access.invalidate();
       const all = await this.findAll();
@@ -178,7 +190,7 @@ export class AdminGroupsService implements OnModuleInit {
     datasetAccess: string[] | undefined,
     reportAccess: string[] | undefined,
     updatedBy: string,
-    section?: string | null,
+    section?: string | string[] | null,
     level?: string | null,
   ): Promise<AdminGroup> {
     const [existing] = await this.dataSource.query(`SELECT id FROM user_groups WHERE id = $1`, [id]);
@@ -201,18 +213,16 @@ export class AdminGroupsService implements OnModuleInit {
     // (only the individually-checked datasets/reports below). Both null = a plain custom role
     // with no section-wide privilege, same as a freshly created role today.
     if (section !== undefined || level !== undefined) {
-      if (section && !VALID_SECTIONS.includes(section as any)) {
-        throw new BadRequestException(`section must be one of: ${VALID_SECTIONS.join(', ')}`);
-      }
+      const normSection = normalizeSections(section);
       if (level && !VALID_LEVELS.includes(level as any)) {
         throw new BadRequestException(`level must be one of: ${VALID_LEVELS.join(', ')}`);
       }
-      if (level && !section) {
-        throw new BadRequestException('level requires a section — an Editor/Viewer role must belong to sms or voice');
+      if (level && !normSection) {
+        throw new BadRequestException('level requires a section — an Editor/Viewer role must belong to sms and/or voice');
       }
       await this.dataSource.query(
         `UPDATE user_groups SET section = $1, level = $2 WHERE id = $3`,
-        [section || null, level || null, id],
+        [normSection, level || null, id],
       );
 
       // A role's level can flip AFTER members already joined it — recompute their stored
