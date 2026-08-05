@@ -4,10 +4,14 @@ import {
   OnModuleInit,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AccessResolverService } from '../../common/access/access-resolver.service';
+
+const VALID_SECTIONS = ['sms', 'voice'] as const;
+const VALID_LEVELS = ['viewer', 'editor'] as const;
 
 export interface AdminGroup {
   id: string;
@@ -43,6 +47,14 @@ export class AdminGroupsService implements OnModuleInit {
       `);
       await this.dataSource.query(`
         ALTER TABLE users ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES user_groups(id) ON DELETE SET NULL
+      `);
+      // section/level normally arrive via migration 011_sections.sql, but guard here too so this
+      // service is self-sufficient on a fresh DB (matches the group_id guard above).
+      await this.dataSource.query(`
+        ALTER TABLE user_groups ADD COLUMN IF NOT EXISTS section VARCHAR(16)
+      `);
+      await this.dataSource.query(`
+        ALTER TABLE user_groups ADD COLUMN IF NOT EXISTS level VARCHAR(16)
       `);
       await this.dataSource.query(`
         CREATE TABLE IF NOT EXISTS group_dataset_access (
@@ -128,12 +140,29 @@ export class AdminGroupsService implements OnModuleInit {
     }));
   }
 
-  async create(name: string, description: string | undefined, createdBy: string): Promise<AdminGroup> {
+  async create(
+    name: string,
+    description: string | undefined,
+    createdBy: string,
+    section?: string | null,
+    level?: string | null,
+  ): Promise<AdminGroup> {
+    if (section && !VALID_SECTIONS.includes(section as any)) {
+      throw new BadRequestException(`section must be one of: ${VALID_SECTIONS.join(', ')}`);
+    }
+    if (level && !VALID_LEVELS.includes(level as any)) {
+      throw new BadRequestException(`level must be one of: ${VALID_LEVELS.join(', ')}`);
+    }
+    if (level && !section) {
+      throw new BadRequestException('level requires a section — an Editor/Viewer role must belong to sms or voice');
+    }
     try {
       const [row] = await this.dataSource.query<[{ id: string }]>(
-        `INSERT INTO user_groups (name, description, created_by) VALUES ($1, $2, $3) RETURNING id`,
-        [name.trim(), description?.trim() ?? null, createdBy],
+        `INSERT INTO user_groups (name, description, created_by, section, level)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [name.trim(), description?.trim() ?? null, createdBy, section || null, level || null],
       );
+      this.access.invalidate();
       const all = await this.findAll();
       return all.find((g) => g.id === row.id) as AdminGroup;
     } catch (err: any) {
@@ -149,6 +178,8 @@ export class AdminGroupsService implements OnModuleInit {
     datasetAccess: string[] | undefined,
     reportAccess: string[] | undefined,
     updatedBy: string,
+    section?: string | null,
+    level?: string | null,
   ): Promise<AdminGroup> {
     const [existing] = await this.dataSource.query(`SELECT id FROM user_groups WHERE id = $1`, [id]);
     if (!existing) throw new NotFoundException(`Group ${id} not found`);
@@ -162,6 +193,48 @@ export class AdminGroupsService implements OnModuleInit {
       } catch (err: any) {
         if (err?.code === '23505') throw new ConflictException('A group with this name already exists');
         throw err;
+      }
+    }
+
+    // section/level decide whether this role's members are treated as a section-wide Editor
+    // (auto-grants everything in that section — see AccessResolverService) or a scoped Viewer
+    // (only the individually-checked datasets/reports below). Both null = a plain custom role
+    // with no section-wide privilege, same as a freshly created role today.
+    if (section !== undefined || level !== undefined) {
+      if (section && !VALID_SECTIONS.includes(section as any)) {
+        throw new BadRequestException(`section must be one of: ${VALID_SECTIONS.join(', ')}`);
+      }
+      if (level && !VALID_LEVELS.includes(level as any)) {
+        throw new BadRequestException(`level must be one of: ${VALID_LEVELS.join(', ')}`);
+      }
+      if (level && !section) {
+        throw new BadRequestException('level requires a section — an Editor/Viewer role must belong to sms or voice');
+      }
+      await this.dataSource.query(
+        `UPDATE user_groups SET section = $1, level = $2 WHERE id = $3`,
+        [section || null, level || null, id],
+      );
+
+      // A role's level can flip AFTER members already joined it — recompute their stored
+      // permission immediately (same rule as setMembers()) rather than leaving it stale
+      // until the next membership change or login.
+      const members = await this.dataSource.query<{ id: string }[]>(
+        `SELECT user_id AS id FROM user_roles WHERE role_id = $1
+         UNION SELECT id FROM users WHERE group_id = $1`,
+        [id],
+      );
+      if (members.length > 0) {
+        await this.dataSource.query(
+          `UPDATE users u SET role = CASE
+              WHEN EXISTS (
+                SELECT 1 FROM user_roles ur JOIN user_groups g ON g.id = ur.role_id
+                 WHERE ur.user_id = u.id AND g.level = 'editor'
+              ) THEN 'editor'
+              ELSE 'viewer'
+            END
+           WHERE u.id = ANY($1::uuid[]) AND u.role <> 'admin' AND u.is_protected IS NOT TRUE`,
+          [members.map((m) => m.id)],
+        );
       }
     }
 

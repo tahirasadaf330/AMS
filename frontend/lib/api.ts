@@ -266,7 +266,7 @@ export const adminUsersApi = {
 export const adminGroupsApi = {
   list: () => api.get('/admin/groups'),
 
-  create: (data: { name: string; description?: string }) =>
+  create: (data: { name: string; description?: string; section?: string | null; level?: string | null }) =>
     api.post('/admin/groups', data),
 
   update: (id: string, data: {
@@ -274,6 +274,8 @@ export const adminGroupsApi = {
     description?: string;
     dataset_access?: string[];
     report_access?: string[];
+    section?: string | null;
+    level?: string | null;
   }) => api.patch(`/admin/groups/${id}`, data),
 
   setMembers: (id: string, userIds: string[]) =>

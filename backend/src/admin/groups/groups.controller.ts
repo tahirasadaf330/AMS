@@ -42,16 +42,16 @@ export class AdminGroupsController {
 
   @Post()
   async create(
-    @Body() body: { name: string; description?: string },
+    @Body() body: { name: string; description?: string; section?: string | null; level?: string | null },
     @CurrentUser() user: JwtUser,
     @Req() req: Request,
   ) {
-    const result = await this.groupsService.create(body.name, body.description, user.sub);
+    const result = await this.groupsService.create(body.name, body.description, user.sub, body.section, body.level);
     this.auditService.log({
       userId: user.sub,
       action: 'admin:role_create',
       resource: result.id,
-      detail: { name: result.name },
+      detail: { name: result.name, section: body.section, level: body.level },
       ipAddress: clientIp(req),
     });
     return result;
@@ -70,6 +70,11 @@ export class AdminGroupsController {
       report_access?: string[];
       datasetAccess?: string[];
       reportAccess?: string[];
+      // section='sms'|'voice', level='viewer'|'editor'; either may be null to clear.
+      // Only admins can reach this endpoint (class-level @Roles('admin')), so this is
+      // not reachable by a delegated Editor.
+      section?: string | null;
+      level?: string | null;
     },
     @CurrentUser() user: JwtUser,
     @Req() req: Request,
@@ -81,6 +86,8 @@ export class AdminGroupsController {
       body.dataset_access ?? body.datasetAccess,
       body.report_access ?? body.reportAccess,
       user.sub,
+      body.section,
+      body.level,
     );
     this.auditService.log({
       userId: user.sub,
@@ -90,6 +97,8 @@ export class AdminGroupsController {
         name: body.name,
         dataset_access: body.dataset_access ?? body.datasetAccess,
         report_access: body.report_access ?? body.reportAccess,
+        section: body.section,
+        level: body.level,
       },
       ipAddress: clientIp(req),
     });

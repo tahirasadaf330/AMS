@@ -193,16 +193,18 @@ export default function AdminUsersPage() {
   const [showCreateGroup, setShowCreateGroup] = React.useState(false);
   const [newGroupName, setNewGroupName]       = React.useState('');
   const [newGroupDesc, setNewGroupDesc]       = React.useState('');
+  const [newGroupSection, setNewGroupSection] = React.useState('');
+  const [newGroupLevel, setNewGroupLevel]     = React.useState('viewer');
 
   const [editingGroup, setEditingGroup]   = React.useState<AdminGroup | null>(null);
-  const [groupForm, setGroupForm]         = React.useState({ name: '', description: '', dataset_access: [] as string[], report_access: [] as string[] });
+  const [groupForm, setGroupForm]         = React.useState({ name: '', description: '', dataset_access: [] as string[], report_access: [] as string[], section: '', level: '' });
   const [groupMembers, setGroupMembers]   = React.useState<string[]>([]);
   const [memberSearch, setMemberSearch]   = React.useState('');
   const [deleteGroupTarget, setDeleteGroupTarget] = React.useState<AdminGroup | null>(null);
 
   const openEditGroup = (g: AdminGroup) => {
     setEditingGroup(g);
-    setGroupForm({ name: g.name, description: g.description ?? '', dataset_access: g.dataset_access, report_access: g.report_access });
+    setGroupForm({ name: g.name, description: g.description ?? '', dataset_access: g.dataset_access, report_access: g.report_access, section: g.section ?? '', level: g.level ?? '' });
     // Members come from the user_roles join (role_ids), plus any legacy single-group pointer.
     setGroupMembers(
       (users ?? [])
@@ -220,7 +222,14 @@ export default function AdminUsersPage() {
     await Promise.all([
       updateGroup.mutateAsync({
         id: editingGroup.id,
-        data: { name: groupForm.name, description: groupForm.description || undefined, dataset_access: groupForm.dataset_access, report_access: groupForm.report_access },
+        data: {
+          name: groupForm.name,
+          description: groupForm.description || undefined,
+          dataset_access: groupForm.dataset_access,
+          report_access: groupForm.report_access,
+          section: groupForm.section || null,
+          level: groupForm.section ? (groupForm.level || null) : null,
+        },
       }),
       setMembersMut.mutateAsync({ id: editingGroup.id, userIds: groupMembers }),
     ]);
@@ -549,8 +558,8 @@ export default function AdminUsersPage() {
       {/* ══ DIALOGS ══════════════════════════════════════════════ */}
 
       {/* Create role */}
-      <Dialog open={showCreateGroup} onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); }} className="max-w-sm">
-        <DialogHeader title="Create Role" onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); }} />
+      <Dialog open={showCreateGroup} onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupSection(''); setNewGroupLevel('viewer'); }} className="max-w-sm">
+        <DialogHeader title="Create Role" onClose={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupSection(''); setNewGroupLevel('viewer'); }} />
         <DialogBody>
           <div className="space-y-3">
             <div className="space-y-1.5">
@@ -561,17 +570,48 @@ export default function AdminUsersPage() {
               <Label>Description</Label>
               <Input value={newGroupDesc} onChange={(e) => setNewGroupDesc(e.target.value)} placeholder="Optional" />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Section</Label>
+                <Select value={newGroupSection} onChange={(e) => setNewGroupSection(e.target.value)}>
+                  <option value="">None (custom)</option>
+                  <option value="sms">SMS</option>
+                  <option value="voice">Voice</option>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Permission</Label>
+                <Select value={newGroupLevel} onChange={(e) => setNewGroupLevel(e.target.value)} disabled={!newGroupSection}>
+                  <option value="viewer">Viewer</option>
+                  <option value="editor">Editor</option>
+                </Select>
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-400">
+              An <span className="font-medium">Editor</span> role automatically grants everything in its section and lets
+              members create alerts and viewer users. A <span className="font-medium">Viewer</span> role grants only the
+              datasets/reports you tick in Edit Role. No section = a plain custom access bundle.
+            </p>
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); }}>Cancel</Button>
+          <Button variant="ghost" onClick={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupSection(''); setNewGroupLevel('viewer'); }}>Cancel</Button>
           <Button
             disabled={!newGroupName.trim()}
             isLoading={createGroup.isPending}
             onClick={async () => {
-              await createGroup.mutateAsync({ name: newGroupName.trim(), description: newGroupDesc.trim() || undefined });
-              setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc('');
+              const created = await createGroup.mutateAsync({
+                name: newGroupName.trim(),
+                description: newGroupDesc.trim() || undefined,
+                section: newGroupSection || null,
+                level: newGroupSection ? newGroupLevel : null,
+              });
+              setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupSection(''); setNewGroupLevel('viewer');
               setActiveTab('groups');
+              // Go straight into Edit Role so the admin can assign dataset/report
+              // permissions and members right away — a freshly created role has
+              // neither and is otherwise invisible/unusable until edited.
+              openEditGroup(created);
             }}
           >
             Create Role
@@ -597,9 +637,45 @@ export default function AdminUsersPage() {
               </div>
             </div>
 
-            {/* Permissions */}
+            {/* Role permission: section + level */}
             <div>
-              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Permissions</p>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Role Permission</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Section</Label>
+                  <Select
+                    value={groupForm.section}
+                    onChange={(e) => setGroupForm((p) => ({ ...p, section: e.target.value, level: e.target.value ? (p.level || 'viewer') : '' }))}
+                  >
+                    <option value="">None (custom)</option>
+                    <option value="sms">SMS</option>
+                    <option value="voice">Voice</option>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Permission</Label>
+                  <Select
+                    value={groupForm.level}
+                    onChange={(e) => setGroupForm((p) => ({ ...p, level: e.target.value }))}
+                    disabled={!groupForm.section}
+                  >
+                    <option value="viewer">Viewer</option>
+                    <option value="editor">Editor</option>
+                  </Select>
+                </div>
+              </div>
+              {groupForm.section && groupForm.level === 'editor' && (
+                <p className="text-[11px] text-amber-500 dark:text-amber-400 mt-1.5">
+                  Editor role: members automatically get ALL {groupForm.section.toUpperCase()} reports and datasets
+                  (including future ones) and can create alerts and viewer users — the checkboxes below are not needed.
+                </p>
+              )}
+            </div>
+
+            {/* Access (what a Viewer/custom role grants) */}
+            {!(groupForm.section && groupForm.level === 'editor') && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Access</p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">Datasets</p>
@@ -644,6 +720,7 @@ export default function AdminUsersPage() {
                 </div>
               </div>
             </div>
+            )}
 
             {/* Members */}
             <div>

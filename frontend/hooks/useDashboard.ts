@@ -118,7 +118,7 @@ export function useCreateGroup() {
   const queryClient = useQueryClient();
   const addToast = useUIStore((s) => s.addToast);
   return useMutation({
-    mutationFn: (data: { name: string; description?: string }) =>
+    mutationFn: (data: { name: string; description?: string; section?: string | null; level?: string | null }) =>
       adminGroupsApi.create(data).then((r) => r.data as AdminGroup),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['admin', 'groups'] });
@@ -135,7 +135,7 @@ export function useUpdateGroup() {
   const queryClient = useQueryClient();
   const addToast = useUIStore((s) => s.addToast);
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name?: string; description?: string; dataset_access?: string[]; report_access?: string[] } }) =>
+    mutationFn: ({ id, data }: { id: string; data: { name?: string; description?: string; dataset_access?: string[]; report_access?: string[]; section?: string | null; level?: string | null } }) =>
       adminGroupsApi.update(id, data).then((r) => r.data as AdminGroup),
     onSuccess: (updatedGroup) => {
       // Update cache immediately so re-opening edit dialog shows correct selections
