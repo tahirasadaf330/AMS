@@ -192,6 +192,23 @@ export class ConditionSchedulerService implements OnModuleInit {
           return;
         }
 
+        // Duplicate suppression: the scripts have no memory, so a persisting condition (e.g. a
+        // sender ID that stays stopped) re-triggers with the IDENTICAL payload on every cron tick
+        // — observed up to 10 identical sends/day. If the exact same rows were already sent for
+        // this condition within the window, log a skip instead of re-alerting. Any change in the
+        // data (new/removed/changed row) changes the hash and alerts immediately.
+        if (result.rows?.length) {
+          const dupAt = await this.identicalRecentSend(condition.id, result.rows);
+          if (dupAt) {
+            const msg = `duplicate suppressed — identical data already alerted at ${dupAt.toISOString()}`;
+            this.logger.log(`Python condition "${condition.name}": ${msg}`);
+            await this.notificationsService.logScriptExecution({
+              condition, status: 'skipped', message: msg, rows: result.rows,
+            });
+            return;
+          }
+        }
+
         // Report-style script (returns HTML): send the rich email to the condition's recipients.
         if (result.html) {
           const recipients = condition.channels?.email?.recipients ?? [];
@@ -239,6 +256,36 @@ export class ConditionSchedulerService implements OnModuleInit {
         await this.notificationsService.logScriptExecution({ condition, status: 'failed', errorMessage });
         return; // Don't re-throw — failure is logged, scheduler should continue
       }
+    }
+  }
+
+  /**
+   * Was an identical payload already SENT for this condition within the dedup window?
+   * Compares jsonb-normalized hashes (key order/whitespace-insensitive) in SQL. Returns the
+   * time of the matching send, or null. Window: PYTHON_ALERT_DEDUP_HOURS (default 24) — after
+   * that a still-persisting condition re-alerts once as a reminder. Fails open (never blocks
+   * a send on a bookkeeping error).
+   */
+  private async identicalRecentSend(
+    conditionId: string,
+    rows: Record<string, unknown>[],
+  ): Promise<Date | null> {
+    try {
+      const hours = Number(process.env.PYTHON_ALERT_DEDUP_HOURS ?? '24') || 24;
+      const found = await this.conditionRepo.manager.query<{ triggered_at: Date }[]>(
+        `SELECT triggered_at FROM notification_log
+          WHERE condition_id = $1 AND channel = 'script' AND status = 'sent'
+            AND triggered_at > NOW() - ($2 || ' hours')::interval
+            AND matched_rows IS NOT NULL
+            AND md5(matched_rows::text) = md5($3::jsonb::text)
+          ORDER BY triggered_at DESC
+          LIMIT 1`,
+        [conditionId, String(hours), JSON.stringify(rows)],
+      );
+      return found[0]?.triggered_at ?? null;
+    } catch (err) {
+      this.logger.warn(`Dedup check failed (sending anyway): ${err instanceof Error ? err.message : String(err)}`);
+      return null;
     }
   }
 
