@@ -246,8 +246,8 @@ export const adminUsersApi = {
     role_ids?: string[];
     send_welcome_email?: boolean;
   }) =>
-    // temp_password is generated server-side and returned exactly once
-    api.post<AdminUser & { temp_password: string }>('/admin/users', data),
+    // SSO-first onboarding: no password is generated or returned
+    api.post<AdminUser>('/admin/users', data),
 
   update: (id: string, data: Partial<AdminUser>) =>
     api.put<AdminUser>(`/admin/users/${id}`, data),

@@ -52,6 +52,8 @@ export interface CreateUserDto {
   groupId?: string | null;
   /** Role ids (user_groups with section+level) the user holds. Permission is derived from these. */
   roleIds?: string[];
+  /** Send the SSO welcome email (default true). */
+  sendWelcomeEmail?: boolean;
 }
 
 export interface UpdateUserDto {
@@ -284,13 +286,18 @@ export class AdminUsersService implements OnModuleInit {
   async create(
     dto: CreateUserDto,
     createdBy: string,
-  ): Promise<Omit<User, 'passwordHash'> & { tempPassword: string }> {
-    const tempPassword = dto.password?.trim() ? dto.password : generateTempPassword();
-    if (!PASSWORD_REGEX.test(tempPassword)) {
+  ): Promise<Omit<User, 'passwordHash'>> {
+    // SSO-first onboarding: NO temp password is generated, returned, or emailed. A random
+    // unusable secret is hashed only to satisfy the NOT NULL password column — nobody ever
+    // sees it, so password login is effectively disabled until the user sets one themselves.
+    // An explicitly supplied password (API-only; the UI never sends one) is still honored.
+    const explicitPassword = dto.password?.trim() || null;
+    if (explicitPassword && !PASSWORD_REGEX.test(explicitPassword)) {
       throw new BadRequestException(
         'Password must be at least 10 characters with uppercase, lowercase, digit, and special character',
       );
     }
+    const passwordSeed = explicitPassword ?? generateTempPassword() + crypto.randomBytes(24).toString('hex');
 
     const existing = await this.userRepo.findOne({ where: { email: dto.email.toLowerCase() } });
     if (existing) {
@@ -311,14 +318,16 @@ export class AdminUsersService implements OnModuleInit {
       const effectiveRole: UserRole =
         dto.role === 'admin' ? 'admin' : roleIds !== undefined ? await this.deriveRole(roleIds) : dto.role;
 
-      const passwordHash = await bcrypt.hash(tempPassword, BCRYPT_ROUNDS);
+      const passwordHash = await bcrypt.hash(passwordSeed, BCRYPT_ROUNDS);
       const user = this.userRepo.create({
         email: dto.email.toLowerCase(),
         name: dto.name,
         passwordHash,
         role: effectiveRole,
         isActive: true,
-        mustChangePassword: true,
+        // SSO users never see a temp password, so there is nothing to force-change; an
+        // admin-supplied explicit password keeps the must-change-on-first-login rule.
+        mustChangePassword: !!explicitPassword,
         failedLoginCount: 0,
         createdBy,
         groupId: dto.groupId ?? null,
@@ -357,15 +366,18 @@ export class AdminUsersService implements OnModuleInit {
       }
       this.access.invalidate(saved.id);
 
-      // Send welcome email (fire and forget)
-      this.sendWelcomeEmail(saved, tempPassword).catch((err) => {
-        this.logger.error('Failed to send welcome email', err);
-      });
+      // Welcome email (fire and forget) — SSO link only, never a password. Honors the
+      // admin's "send welcome email" toggle (default on).
+      const sendWelcome = ((dto as unknown as Record<string, unknown>)['sendWelcomeEmail']
+        ?? raw0['send_welcome_email']) as boolean | undefined;
+      if (sendWelcome !== false) {
+        this.sendWelcomeEmail(saved).catch((err) => {
+          this.logger.error('Failed to send welcome email', err);
+        });
+      }
 
       const { passwordHash: _, ...result } = saved;
-      // Returned exactly once so the admin can hand it to the user;
-      // never stored or logged in plaintext.
-      return { ...(result as Omit<User, 'passwordHash'>), tempPassword };
+      return result as Omit<User, 'passwordHash'>;
     } catch (err) {
       if ((err as any).code === '23505') {
         throw new ConflictException('Email already in use');
@@ -538,12 +550,11 @@ export class AdminUsersService implements OnModuleInit {
     }
   }
 
-  private async sendWelcomeEmail(user: User, temporaryPassword: string): Promise<void> {
+  private async sendWelcomeEmail(user: User): Promise<void> {
     try {
       await this.graphEmailService.sendWelcome({
         recipientEmail: user.email,
         recipientName: user.name,
-        temporaryPassword,
         role: user.role,
       });
     } catch (err) {

@@ -199,13 +199,16 @@ export class GraphEmailService {
   async sendWelcome(params: {
     recipientEmail: string;
     recipientName: string;
-    temporaryPassword: string;
     role: string;
     appUrl?: string;
   }): Promise<void> {
     if (this.outboundSuppressed()) return;
     const appUrl = (params.appUrl || this.configService.get<string>('APP_URL', 'http://ams.voipsystem.org')).replace(/\/$/, '');
-    const html = this.buildWelcomeHtml({ ...params, appUrl });
+    // Users now sign in via Microsoft SSO (login page shows the same "Sign in with Microsoft"
+    // button gated on this flag) — the welcome email must never carry a password. If SSO is
+    // ever disabled org-wide, fall back to instructing a password reset instead of emailing one.
+    const ssoEnabled = this.configService.get<string>('SSO_ENABLED', 'true') !== 'false';
+    const html = this.buildWelcomeHtml({ ...params, appUrl, ssoEnabled });
 
     await this.getTransporter().sendMail({
       from: this.mailFrom(),
@@ -218,14 +221,16 @@ export class GraphEmailService {
   private buildWelcomeHtml(params: {
     recipientName: string;
     recipientEmail: string;
-    temporaryPassword: string;
     role: string;
     appUrl: string;
+    ssoEnabled: boolean;
   }): string {
     const roleLabel = params.role.charAt(0).toUpperCase() + params.role.slice(1).replace(/_/g, ' ');
     const name = this.escapeHtml(params.recipientName);
     const email = this.escapeHtml(params.recipientEmail);
-    const password = this.escapeHtml(params.temporaryPassword);
+    // With SSO the button goes STRAIGHT into the Microsoft sign-in redirect (backend endpoint,
+    // proxied at /api), not the login page — one click from the email to Entra.
+    const loginHref = params.ssoEnabled ? `${params.appUrl}/api/auth/sso/login` : params.appUrl;
 
     return `<!DOCTYPE html>
 <html>
@@ -246,13 +251,14 @@ export class GraphEmailService {
       <td style="padding:32px 32px 8px;">
         <div style="font-size:20px;font-weight:600;color:#1a2e4a;">Welcome, ${name}!</div>
         <p style="font-size:14px;color:#555;line-height:1.7;margin:12px 0 0;">
-          Your AMS account has been created. You can now log in using the credentials below.<br>
-          You will be prompted to set a new password on your first login.
+          ${params.ssoEnabled
+            ? 'Your AMS account has been created. Log in using your Microsoft account — no separate AMS password is needed.'
+            : 'Your AMS account has been created. Use the button below to log in, then set your password via "Forgot password".'}
         </p>
       </td>
     </tr>
 
-    <!-- Credentials box -->
+    <!-- Account box -->
     <tr>
       <td style="padding:20px 32px;">
         <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f8fc;border:1px solid #d0daea;border-radius:6px;overflow:hidden;">
@@ -260,12 +266,6 @@ export class GraphEmailService {
             <td style="padding:14px 20px;border-bottom:1px solid #e0e8f0;">
               <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Login Email</div>
               <div style="font-size:14px;color:#1a2e4a;font-weight:600;">${email}</div>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:14px 20px;border-bottom:1px solid #e0e8f0;">
-              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Temporary Password</div>
-              <div style="font-size:14px;color:#1a2e4a;font-weight:600;font-family:monospace,monospace;">${password}</div>
             </td>
           </tr>
           <tr>
@@ -281,9 +281,9 @@ export class GraphEmailService {
     <!-- CTA Button -->
     <tr>
       <td style="padding:4px 32px 28px;text-align:center;">
-        <a href="${params.appUrl}" target="_blank"
+        <a href="${loginHref}" target="_blank"
           style="display:inline-block;background:#1f3864;color:#ffffff;font-size:14px;font-weight:600;padding:12px 36px;border-radius:5px;text-decoration:none;letter-spacing:0.3px;">
-          Login to AMS &rarr;
+          ${params.ssoEnabled ? 'Sign in with Microsoft' : 'Login to AMS'} &rarr;
         </a>
         <div style="margin-top:10px;font-size:11px;color:#999;">${params.appUrl}</div>
       </td>
@@ -293,7 +293,9 @@ export class GraphEmailService {
     <tr>
       <td style="padding:0 32px 24px;">
         <div style="background:#fffbea;border:1px solid #f0d070;border-radius:5px;padding:12px 16px;font-size:12px;color:#7a6000;line-height:1.6;">
-          <strong>Security notice:</strong> This is a temporary password. You will be required to change it immediately after your first login. Do not share your credentials.
+          ${params.ssoEnabled
+            ? '<strong>Note:</strong> AMS no longer emails passwords. Click the button above and sign in with your Microsoft work account.'
+            : '<strong>Security notice:</strong> Do not share your login credentials with anyone.'}
         </div>
       </td>
     </tr>

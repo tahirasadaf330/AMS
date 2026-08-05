@@ -102,7 +102,7 @@ const defaultUserForm = {
   name: '', email: '', role: 'viewer',
   dataset_access: [] as string[], report_access: [] as string[],
   role_ids: [] as string[],
-  send_welcome_email: false, group_id: '',
+  send_welcome_email: true, group_id: '',
 };
 
 // ────────────────────────────────────────────────────────────────
@@ -248,12 +248,16 @@ export default function AdminUsersPage() {
   const createUserMut = useMutation({
     mutationFn: async (f: typeof defaultUserForm) =>
       adminUsersApi.create({ name: f.name, email: f.email, role: f.role, dataset_access: f.dataset_access, report_access: f.report_access, role_ids: f.role_ids, send_welcome_email: f.send_welcome_email }),
-    onSuccess: (res) => {
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-      addToast({ title: 'User created', variant: 'success' });
+      addToast({
+        title: 'User created',
+        description: userForm.send_welcome_email
+          ? 'Welcome email sent — they sign in with their Microsoft account.'
+          : 'They sign in with their Microsoft account (no email was sent).',
+        variant: 'success',
+      });
       setShowUserForm(false);
-      // Show the server-generated temp password once so the admin can share it
-      setTempPwResult({ email: userForm.email, password: res.data.temp_password ?? '' });
       setUserForm(defaultUserForm);
     },
     onError: (err: unknown) => { const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message; addToast({ title: msg ?? 'Failed to create user', variant: 'destructive' }); },
@@ -853,8 +857,8 @@ export default function AdminUsersPage() {
               <div className="flex items-start gap-2 rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-3 py-2.5">
                 <KeyRound className="h-4 w-4 text-blue-500 flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-blue-700 dark:text-blue-300">
-                  A temporary password is generated automatically and shown once after the user is created.
-                  The user must change it on first login.
+                  No password is created or emailed — the user signs in with their Microsoft account (SSO).
+                  The welcome email contains a direct Microsoft sign-in link.
                 </p>
               </div>
             )}
