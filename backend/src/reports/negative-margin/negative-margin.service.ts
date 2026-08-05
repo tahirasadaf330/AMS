@@ -55,6 +55,9 @@ WITH base AS (
     WHERE ot.aggr_date >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
       AND ot.result_status = 'success'
       AND ot.volume > 0
+      -- origterm stores each aggregate TWICE (record_type 'logical' and 'physical',
+      -- identical values). Keep one so costs/volume/profit aren't double-counted.
+      AND ot.record_type = 'logical'
 ),
 rate_name AS (
     -- Resolve each distinct rate's destination name once, via longest-prefix match
@@ -71,13 +74,22 @@ rate_name AS (
 )
 SELECT
     b.orig_account                                                              AS orig_account,
+    -- Orig-account category, for filtering the report and scoping alerts.
+    CASE
+      WHEN b.orig_account LIKE 'NOC-%'         THEN 'NOC'
+      WHEN b.orig_account LIKE 'TID-ORIG-%'    THEN 'TID-ORIG'
+      WHEN b.orig_account LIKE 'TID-CN-CUST-%' THEN 'TID-CN-CUST'
+      ELSE 'OTHER'
+    END                                                                         AS account_type,
     COALESCE(rno.dst, 'UNKNOWN')                                                AS orig_dst_code_name,
     b.term_account                                                              AS term_account,
     COALESCE(rnt.dst, 'UNKNOWN')                                                AS term_dst_code_name,
     ROUND(SUM(ABS(b.orig_cost)) / NULLIF(SUM(b.orig_volume_billed) / 60.0, 0), 6) AS orig_rate,
     ROUND(SUM(ABS(b.term_cost)) / NULLIF(SUM(b.term_volume_billed) / 60.0, 0), 6) AS term_rate,
     ROUND(SUM(ABS(b.orig_cost)) / NULLIF(SUM(b.orig_volume_billed) / 60.0, 0)
-        - SUM(ABS(b.term_cost)) / NULLIF(SUM(b.term_volume_billed) / 60.0, 0), 6) AS negative_margin
+        - SUM(ABS(b.term_cost)) / NULLIF(SUM(b.term_volume_billed) / 60.0, 0), 6) AS negative_margin,
+    -- Profit (abs): total currency profit = orig revenue - term cost (matches Jera "Profit (abs)")
+    ROUND(SUM(ABS(b.orig_cost)) - SUM(ABS(b.term_cost)), 4)                       AS profit
 FROM base b
 LEFT JOIN rate_name rno ON rno.rate_id = b.orig_rates_id
 LEFT JOIN rate_name rnt ON rnt.rate_id = b.term_rates_id
@@ -87,13 +99,15 @@ ORDER BY negative_margin ASC
 `;
 
 const SEED_COLUMNS = [
-  { key: 'orig_account',        label: 'Orig Account',        type: 'text'    },
-  { key: 'orig_dst_code_name',  label: 'Orig Dst Code Name',  type: 'text'    },
-  { key: 'term_account',        label: 'Term Account',        type: 'text'    },
-  { key: 'term_dst_code_name',  label: 'Term Dst Code Name',  type: 'text'    },
-  { key: 'orig_rate',           label: 'Orig Rate',           type: 'numeric' },
-  { key: 'term_rate',           label: 'Term Rate',           type: 'numeric' },
-  { key: 'negative_margin',     label: 'Negative Margin',     type: 'numeric' },
+  { key: 'orig_account',        label: 'Orig Account',        type: 'text',    description: 'Originating (customer) account name — who sent the traffic.' },
+  { key: 'account_type',        label: 'Account Type',        type: 'text',    description: "Orig-account category derived from its name prefix: 'NOC', 'TID-ORIG', 'TID-CN-CUST', or 'OTHER'. Use to filter the report and scope alerts." },
+  { key: 'orig_dst_code_name',  label: 'Orig Dst Code Name',  type: 'text',    description: 'Destination name on the orig side, resolved by longest-prefix match on the HY-DEFAULT code deck (19).' },
+  { key: 'term_account',        label: 'Term Account',        type: 'text',    description: 'Terminating (vendor) account name — who the traffic is routed to and paid.' },
+  { key: 'term_dst_code_name',  label: 'Term Dst Code Name',  type: 'text',    description: 'Destination name on the term side (from the term rate); usually matches the orig destination.' },
+  { key: 'orig_rate',           label: 'Orig Rate',           type: 'numeric', description: 'Volume-weighted avg origination (customer revenue) rate per BILLED minute, in USD. Precomputed.' },
+  { key: 'term_rate',           label: 'Term Rate',           type: 'numeric', description: 'Volume-weighted avg termination (vendor cost) rate per BILLED minute, in USD. Precomputed.' },
+  { key: 'negative_margin',     label: 'Negative Margin',     type: 'numeric', description: 'orig_rate − term_rate per minute (USD); negative = negative margin (term rate exceeds orig rate). Precomputed.' },
+  { key: 'profit',              label: 'Profit (abs)',        type: 'numeric', description: 'Total profit for today in USD = SUM(orig_cost) − SUM(term_cost); negative = loss. Matches Jerasoft "Profit (abs)". Precomputed.' },
 ];
 
 @Injectable()
@@ -258,12 +272,14 @@ export class NegativeMarginService implements OnModuleInit {
 
     const rows = stageRows.map((r: any) => ({
       orig_account:       r.orig_account ?? null,
+      account_type:       r.account_type ?? null,
       orig_dst_code_name: r.orig_dst_code_name ?? null,
       term_account:       r.term_account ?? null,
       term_dst_code_name: r.term_dst_code_name ?? null,
       orig_rate:          r.orig_rate != null ? Number(r.orig_rate) : null,
       term_rate:          r.term_rate != null ? Number(r.term_rate) : null,
       negative_margin:    r.negative_margin != null ? Number(r.negative_margin) : null,
+      profit:             r.profit != null ? Number(r.profit) : null,
     }));
 
     const [refreshRow] = await this.dataSource.query(
