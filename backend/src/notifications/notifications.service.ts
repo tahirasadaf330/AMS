@@ -60,7 +60,7 @@ export class NotificationsService {
     errorMessage?: string;
   }): Promise<void> {
     const log = this.notifLogRepo.create({
-      conditionId: params.condition.id,
+      conditionId: params.condition.id === 'preview' ? null : params.condition.id,
       datasetId: null,
       channel: 'script',
       recipients: null,
@@ -179,7 +179,7 @@ export class NotificationsService {
     recipients: string[];
   }): Promise<void> {
     const logEntry = this.notifLogRepo.create({
-      conditionId: params.condition.id,
+      conditionId: params.condition.id === 'preview' ? null : params.condition.id,
       datasetId: params.condition.datasetId,
       channel: 'email',
       recipients: params.recipients,
@@ -243,7 +243,7 @@ export class NotificationsService {
     severity: 'critical' | 'warning' | 'info';
   }): Promise<void> {
     const logEntry = this.notifLogRepo.create({
-      conditionId: params.condition.id,
+      conditionId: params.condition.id === 'preview' ? null : params.condition.id,
       datasetId: params.condition.datasetId,
       channel: 'teams',
       recipients: null,
