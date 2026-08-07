@@ -68,13 +68,13 @@ type SortDir = 'asc' | 'desc' | null;
 
 // Column widths sum to 100% so the table fits without horizontal scroll.
 const COLS: { key: string; label: string; left?: boolean; w: string }[] = [
-  { key: 'orig_code_name', label: 'Orig Code Name',     left: true, w: '26%' },
-  { key: 'term_account',   label: 'Term Account',       left: true, w: '22%' },
-  { key: 'term_rate',      label: 'Term Rate',          w: '12%' },
-  { key: 'attempts',       label: 'Total Attempts',     w: '11%' },
-  { key: 'volume_min',     label: 'Total Volume (min)', w: '12%' },
-  { key: 'success',        label: 'Total Success',      w: '10%' },
-  { key: 'asr',            label: 'ASR %',              w: '7%'  },
+  { key: 'term_account',   label: 'Term Account',        left: true, w: '22%' },
+  { key: 'orig_code_name', label: 'Orig Code Name',      left: true, w: '24%' },
+  { key: 'term_rate',      label: 'Term Rate',           w: '11%' },
+  { key: 'attempts',       label: 'Total Attempts',      w: '11%' },
+  { key: 'volume_min',     label: 'Total Volume (min)',  w: '12%' },
+  { key: 'success_min',    label: 'Total Success (min)', w: '13%' },
+  { key: 'asr',            label: 'ASR %',               w: '7%'  },
 ];
 
 export default function SpecialRoutesMonitoringPage() {
@@ -108,7 +108,7 @@ export default function SpecialRoutesMonitoringPage() {
     if (!data?.rows) return [];
     let f: any[] = data.rows.map((r: any) => ({
       ...r,
-      asr: r.attempts > 0 ? Math.round((r.success / r.attempts) * 1000) / 10 : null,
+      asr: r.attempts > 0 ? Math.round((r.success_calls / r.attempts) * 1000) / 10 : null,
     }));
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -131,16 +131,17 @@ export default function SpecialRoutesMonitoringPage() {
   // Cards derive from all rows so they always match the table's source data.
   const stats = React.useMemo(() => {
     const all: any[] = data?.rows ?? [];
-    const attempts = all.reduce((s: number, r: any) => s + (r.attempts ?? 0), 0);
-    const success  = all.reduce((s: number, r: any) => s + (r.success ?? 0), 0);
-    const volume   = all.reduce((s: number, r: any) => s + (r.volume_min ?? 0), 0);
+    const attempts   = all.reduce((s: number, r: any) => s + (r.attempts ?? 0), 0);
+    const successMin = all.reduce((s: number, r: any) => s + (r.success_min ?? 0), 0);
+    const calls      = all.reduce((s: number, r: any) => s + (r.success_calls ?? 0), 0);
+    const volume     = all.reduce((s: number, r: any) => s + (r.volume_min ?? 0), 0);
     return {
-      routes:    all.length,
-      suppliers: new Set(all.map((r) => r.term_account)).size,
+      routes:     all.length,
+      suppliers:  new Set(all.map((r) => r.term_account)).size,
       attempts,
-      success,
+      successMin,
       volume,
-      asr: attempts > 0 ? Math.round((success / attempts) * 1000) / 10 : 0,
+      asr: attempts > 0 ? Math.round((calls / attempts) * 1000) / 10 : 0,
     };
   }, [data]);
 
@@ -187,9 +188,9 @@ export default function SpecialRoutesMonitoringPage() {
           <div className="srm-cards">
             <div className="srm-card"><div className="srm-card-num">{fN(stats.routes)}</div><div className="srm-card-lbl">Routes</div></div>
             <div className="srm-card"><div className="srm-card-num">{fN(stats.suppliers)}</div><div className="srm-card-lbl">Suppliers</div></div>
-            <div className="srm-card srm-card-accent"><div className="srm-card-num">{fN(stats.attempts)}</div><div className="srm-card-lbl">Total Attempts</div></div>
-            <div className="srm-card"><div className="srm-card-num">{fN(stats.success)}</div><div className="srm-card-lbl">Total Success · ASR {fPct(stats.asr)}</div></div>
+            <div className="srm-card srm-card-accent"><div className="srm-card-num">{fN(stats.attempts)}</div><div className="srm-card-lbl">Total Attempts · ASR {fPct(stats.asr)}</div></div>
             <div className="srm-card"><div className="srm-card-num">{fMin(stats.volume)}</div><div className="srm-card-lbl">Total Volume (min)</div></div>
+            <div className="srm-card"><div className="srm-card-num">{fMin(stats.successMin)}</div><div className="srm-card-lbl">Total Success (min)</div></div>
           </div>
 
           <div className="srm-filt">
@@ -208,13 +209,13 @@ export default function SpecialRoutesMonitoringPage() {
                   <tr><td className="srm-empty" colSpan={COLS.length}>{error ? 'Load failed — see error above' : hasFilter ? 'No matching routes' : 'No data — refresh the dataset first'}</td></tr>
                 )}
                 {!loading && rows.map((r: any, i: number) => (
-                  <tr key={`${r.orig_code_name}|${r.term_account}|${i}`}>
-                    <td className="l" style={{ fontWeight: 600 }} title={r.orig_code_name ?? ''}>{r.orig_code_name ?? '—'}</td>
-                    <td className="l" title={r.term_account ?? ''}>{r.term_account ?? '—'}</td>
+                  <tr key={`${r.term_account}|${r.orig_code_name}|${i}`}>
+                    <td className="l" style={{ fontWeight: 600 }} title={r.term_account ?? ''}>{r.term_account ?? '—'}</td>
+                    <td className="l" title={r.orig_code_name ?? ''}>{r.orig_code_name ?? '—'}</td>
                     <td className="mono rate-t">{fRate(r.term_rate)}</td>
                     <td className="mono">{fN(r.attempts)}</td>
                     <td className="mono">{fMin(r.volume_min)}</td>
-                    <td className="mono">{fN(r.success)}</td>
+                    <td className="mono">{fMin(r.success_min)}</td>
                     <td className={`mono ${r.asr != null && r.asr >= 30 ? 'asr-good' : r.asr != null && r.asr < 10 ? 'asr-bad' : ''}`}>{fPct(r.asr)}</td>
                   </tr>
                 ))}
