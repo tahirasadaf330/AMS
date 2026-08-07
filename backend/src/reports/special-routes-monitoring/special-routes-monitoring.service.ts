@@ -17,14 +17,15 @@ const SCHEDULE_CRON = '*/5 * * * *'; // every 5 minutes
 // Unlike Negative Margin this report keeps FAILED events too (no result_status filter),
 // because it monitors route quality:
 //     attempts (Total events)  = SUM(total)                  — every event, failed or connected
-//     volume_min (Total volume)= SUM(term_volume_billed)/60  — BILLED minutes (what we pay;
-//                                billing rounds short calls up to the increment, so ≥ raw)
-//     success_min (Total success) = SUM(volume)/60           — actual CONNECTED minutes (raw
-//                                call seconds; failed events contribute 0) — always ≤ volume_min
-//     success_calls            = SUM(notzero)                — connected events (volume > 0);
-//                                kept for ASR = success_calls / attempts
+//     success  (Total success) = SUM(notzero)                — CONNECTED calls (events volume>0);
+//                                a call count, and the ASR numerator (ASR = success/attempts)
+//     volume_min (Total volume)= SUM(volume)/60              — connected call minutes (raw seconds)
 //     term_rate                = SUM(|term_cost|) / (SUM(term_volume_billed)/60)
 // term_rate divides by BILLED volume, exactly like Negative Margin — see that service's header.
+//
+// Suppliers are limited to ACTIVE companies only — tcl.status='active' AND name not like
+// 'BLOCKED%' (the BLOCKED-503 catch-all route accounts are 'active' in Jerasoft but are not
+// real suppliers, so they are excluded by name).
 //
 // Term Account = the terminating CLIENT (supplier) name — origterm carries the client id
 // on both sides (orig_clients_id / term_clients_id), so we join clients directly.
@@ -43,6 +44,8 @@ WITH base AS (
            ot.term_cost, ot.term_volume_billed
     FROM origterm ot
     JOIN clients tcl ON tcl.id = ot.term_clients_id
+                    AND tcl.status = 'active'
+                    AND tcl.name NOT ILIKE 'BLOCKED%'
     WHERE ot.aggr_date >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
       AND ot.record_type = 'logical'
 ),
@@ -61,9 +64,8 @@ SELECT
     COALESCE(rno.dst, 'UNKNOWN')                                                   AS orig_code_name,
     ROUND(SUM(ABS(b.term_cost)) / NULLIF(SUM(b.term_volume_billed) / 60.0, 0), 6)  AS term_rate,
     SUM(b.total)                                                                   AS attempts,
-    ROUND(SUM(b.term_volume_billed) / 60.0, 2)                                     AS volume_min,
-    ROUND(SUM(b.volume) / 60.0, 2)                                                 AS success_min,
-    SUM(b.notzero)                                                                 AS success_calls
+    SUM(b.notzero)                                                                 AS success,
+    ROUND(SUM(b.volume) / 60.0, 2)                                                 AS volume_min
 FROM base b
 LEFT JOIN rate_name rno ON rno.rate_id = b.orig_rates_id
 GROUP BY b.term_account, COALESCE(rno.dst, 'UNKNOWN')
@@ -71,13 +73,12 @@ ORDER BY attempts DESC
 `;
 
 const SEED_COLUMNS = [
-  { key: 'term_account',   label: 'Term Account',        type: 'text',    description: 'Terminating supplier — the term-side CLIENT name the traffic is routed to.' },
+  { key: 'term_account',   label: 'Term Account',        type: 'text',    description: 'Terminating supplier — the term-side CLIENT name (active companies only; BLOCKED-* route accounts excluded).' },
   { key: 'orig_code_name', label: 'Orig Code Name',      type: 'text',    description: 'Destination name on the orig side, resolved by longest-prefix match of the orig rate code on the HY-DEFAULT code deck (19); UNKNOWN when no prefix matches.' },
   { key: 'term_rate',      label: 'Term Rate',           type: 'numeric', description: 'Volume-weighted avg termination (supplier cost) rate per BILLED minute, in USD. Precomputed.' },
   { key: 'attempts',       label: 'Total Attempts',      type: 'numeric', description: 'Total events (call attempts) today, INCLUDING failed calls — SUM(origterm.total).' },
-  { key: 'volume_min',     label: 'Total Volume (min)',  type: 'numeric', description: 'Total BILLED minutes today = SUM(term_volume_billed)/60 — what we pay the supplier for (short calls round up to the billing increment, so ≥ success minutes).' },
-  { key: 'success_min',    label: 'Total Success (min)', type: 'numeric', description: 'Actual CONNECTED minutes today = SUM(volume)/60 (raw call seconds; failed events contribute 0). Always ≤ Total Volume.' },
-  { key: 'success_calls',  label: 'Success Calls',       type: 'numeric', description: 'Connected (answered) call count — events with volume > 0, SUM(origterm.notzero). ASR = success_calls/attempts.' },
+  { key: 'success',        label: 'Total Success',       type: 'numeric', description: 'Connected (answered) calls today — events with volume > 0, SUM(origterm.notzero). ASR = success/attempts.' },
+  { key: 'volume_min',     label: 'Total Volume (min)',  type: 'numeric', description: 'Total connected call minutes today = SUM(volume)/60 (raw call seconds).' },
 ];
 
 @Injectable()
@@ -243,38 +244,35 @@ export class SpecialRoutesMonitoringService implements OnModuleInit {
       orig_code_name: r.orig_code_name ?? null,
       term_rate:      r.term_rate != null ? Number(r.term_rate) : null,
       attempts:       r.attempts != null ? Number(r.attempts) : 0,
+      success:        r.success != null ? Number(r.success) : 0,
       volume_min:     r.volume_min != null ? Number(r.volume_min) : 0,
-      success_min:    r.success_min != null ? Number(r.success_min) : 0,
-      success_calls:  r.success_calls != null ? Number(r.success_calls) : 0,
     }));
 
     const [refreshRow] = await this.dataSource.query(
       `SELECT MAX(refreshed_at) AS last_refreshed FROM ${STAGE}`,
     );
 
-    const totalAttempts   = rows.reduce((s, r) => s + r.attempts, 0);
-    const totalSuccessMin = rows.reduce((s, r) => s + r.success_min, 0);
-    const totalCalls      = rows.reduce((s, r) => s + r.success_calls, 0);
-    const totalVolume     = rows.reduce((s, r) => s + r.volume_min, 0);
+    const totalAttempts = rows.reduce((s, r) => s + r.attempts, 0);
+    const totalSuccess  = rows.reduce((s, r) => s + r.success, 0);
+    const totalVolume   = rows.reduce((s, r) => s + r.volume_min, 0);
 
     return {
       datasetId:     this._datasetId,
       rows,
       lastRefreshed: refreshRow?.last_refreshed ?? null,
       summary: {
-        totalRows:       rows.length,
-        suppliers:       new Set(rows.map((r) => r.term_account)).size,
-        destinations:    new Set(rows.map((r) => r.orig_code_name)).size,
+        totalRows:     rows.length,
+        suppliers:     new Set(rows.map((r) => r.term_account)).size,
+        destinations:  new Set(rows.map((r) => r.orig_code_name)).size,
         totalAttempts,
-        totalSuccessMin: Math.round(totalSuccessMin * 100) / 100,
-        totalCalls,
-        totalVolume:     Math.round(totalVolume * 100) / 100,
-        asr:             totalAttempts > 0 ? Math.round((totalCalls / totalAttempts) * 10000) / 100 : 0,
+        totalSuccess,
+        totalVolume:   Math.round(totalVolume * 100) / 100,
+        asr:           totalAttempts > 0 ? Math.round((totalSuccess / totalAttempts) * 10000) / 100 : 0,
       },
     };
   }
 
   private emptySummary() {
-    return { totalRows: 0, suppliers: 0, destinations: 0, totalAttempts: 0, totalSuccessMin: 0, totalCalls: 0, totalVolume: 0, asr: 0 };
+    return { totalRows: 0, suppliers: 0, destinations: 0, totalAttempts: 0, totalSuccess: 0, totalVolume: 0, asr: 0 };
   }
 }
