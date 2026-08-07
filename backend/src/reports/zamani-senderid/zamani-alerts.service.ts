@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Condition, ConditionChannels } from '../../common/entities/condition.entity';
+import { ZAMANI_APPROVED_VENDORS } from './zamani-senderid.service';
 
 // Recipients are code-managed and re-applied to all 5 alerts on boot (ensureCondition). The SCHEDULE
 // is user-managed via the Alerts UI (trigger_cron) — we only seed a sensible default for a fresh
@@ -77,12 +78,16 @@ except Exception as e:
     fail("Alert build failed: " + str(e))
 `;
 
-// ── 1) Routing error: any Zamani-destined message not on the active "Zamani_Niger" route ────────
+// ── 1) Routing error: any Zamani-destined message not on an approved route ──────────────────────
+// Approved vendors are excluded BOTH via is_misrouted (computed in the dataset SQL) and by name
+// here — belt-and-braces so a stale/incorrect flag can never page anyone for an approved supplier.
+const APPROVED_VENDORS_PY = ZAMANI_APPROVED_VENDORS.map((v) => `'${v}'`).join(', ');
 const ROUTING_BODY = String.raw`
     cur.execute("""
         SELECT terminated_senderid, customer_connection, vendor_connection, mt_vendor_connection_id, COUNT(*)
         FROM stage_zamani_senderid
         WHERE is_misrouted = 1 AND submit_datetime >= now() - interval '5 minutes'
+          AND COALESCE(vendor_connection, '') NOT IN (${APPROVED_VENDORS_PY})
         GROUP BY 1, 2, 3, 4 ORDER BY COUNT(*) DESC
     """)
     rows = cur.fetchall()
