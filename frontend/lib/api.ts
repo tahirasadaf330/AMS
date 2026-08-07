@@ -517,6 +517,11 @@ export const negativeMarginApi = {
   getData: () => api.get('/reports/negative-margin/data'),
 };
 
+// ── SPECIAL ROUTES MONITORING REPORT ──────────────────────────
+export const specialRoutesApi = {
+  getData: () => api.get('/reports/special-routes-monitoring/data'),
+};
+
 // ── PRE-PAYMENT CL REPORT ─────────────────────────────────────
 export const prepaymentClApi = {
   getData: () => api.get('/reports/prepayment-cl/data'),

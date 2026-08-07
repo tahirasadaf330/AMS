@@ -48,6 +48,7 @@ const REPORT_LINKS: ReportLink[] = ([
   { slug: 'prepayment-cl', href: '/reports/prepayment-cl', label: 'Pre-Payment Limit', section: 'voice' },
   { slug: 'sms-credit-limit', href: '/reports/sms-credit-limit', label: 'SMS Credit Limit', section: 'sms' },
   { slug: 'sms-report', href: '/reports/sms-report', label: 'SMS Report', section: 'sms' },
+  { slug: 'special-routes-monitoring', href: '/reports/special-routes-monitoring', label: 'Special Routes Monitoring', section: 'voice' },
   { slug: 'src-dst-number-monitoring', href: '/reports/src-dst-number-monitoring', label: 'SRC/DST Number Monitoring', section: 'voice' },
   { slug: 'vcs-balance', href: '/reports/vcs-balance', label: 'Voice Credit Limit', section: 'voice' },
   { slug: 'voice-live-traffic', href: '/reports/voice-live-traffic', label: 'Voice Live Traffic', section: 'voice' },
