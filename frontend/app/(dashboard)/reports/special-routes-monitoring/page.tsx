@@ -171,7 +171,7 @@ export default function SpecialRoutesMonitoringPage() {
               <div className="srm-title">Special Routes Monitoring</div>
               <div className="srm-sub">
                 <span className="srm-dot" />
-                Jerasoft VCS · Today (since midnight UTC) · per destination × supplier, incl. failed attempts
+                Jerasoft VCS · Live · last 15 minutes · per destination × supplier, incl. failed attempts
               </div>
             </div>
             {lastRefreshed && (

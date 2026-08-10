@@ -8,46 +8,60 @@ import { CredentialsService } from '../../credentials/credentials.service';
 const STAGE         = 'stage_special_routes_monitoring';
 const DATASET_NAME  = 'Special Routes Monitoring';
 const DATASOURCE    = 'Jerasoft';
-const SCHEDULE_CRON = '*/5 * * * *'; // every 5 minutes
+const SCHEDULE_CRON = '*/15 * * * *'; // every 15 minutes
 
-// Special Routes Monitoring — Jerasoft VCS "Statistics" (origterm fact table).
+// Special Routes Monitoring — LIVE, rolling last-15-minutes view from Jerasoft VCS raw CDRs
+// (public.xdrs + public.xdrs_billed), per (Orig Code Name × terminating supplier).
 //
-// One row per (destination code name → terminating supplier) combination, aggregated
-// over TODAY's traffic (since midnight UTC, same daily window as Negative Margin).
-// Unlike Negative Margin this report keeps FAILED events too (no result_status filter),
-// because it monitors route quality:
-//     attempts (Total events)  = SUM(total)                  — every event, failed or connected
-//     success  (Total success) = SUM(notzero)                — CONNECTED calls (events volume>0);
-//                                a call count, and the ASR numerator (ASR = success/attempts)
-//     volume_min (Total volume)= SUM(volume)/60              — connected call minutes (raw seconds)
-//     term_rate                = SUM(|term_cost|) / (SUM(term_volume_billed)/60)
-// term_rate divides by BILLED volume, exactly like Negative Margin — see that service's header.
+// origterm (the daily Statistics fact table Negative Margin uses) can only give a whole-day
+// aggregate — it has no sub-day granularity — so a 15-minute window must come from the raw
+// per-call xdrs, paired the same way Voice Live Traffic pairs legs (orig leg ⟷ term leg on
+// session_id within a ±5s / ±1s tolerance). Each matched pair = one call:
+//     attempts (Total events)  = COUNT(*)                      — every attempt, failed or connected
+//     success  (Total success) = COUNT(*) FILTER (orig_volume>0) — connected (answered) calls
+//     volume_min (Total volume)= SUM(orig raw volume)/60       — connected call minutes
+//     term_rate                = SUM(|term cost_net|) / (SUM(term billed volume)/60)  [BILLED mins]
+// (xdrs.volume = raw call seconds; xdrs_billed.volume = billed seconds; xdrs_billed.cost_net = cost.)
 //
-// Suppliers are limited to ACTIVE companies only — tcl.status='active' AND name not like
-// 'BLOCKED%' (the BLOCKED-503 catch-all route accounts are 'active' in Jerasoft but are not
-// real suppliers, so they are excluded by name).
+// #1 Exclude records with no term rate: HAVING requires positive term cost AND billed volume,
+//    so every row has a real, computable term_rate (route with 0 billed traffic is dropped).
+// Suppliers limited to ACTIVE companies only — tc.status='active', name NOT ILIKE 'BLOCKED%'
+// (BLOCKED-* catch-alls are 'active' in Jerasoft but aren't real suppliers), and type<>10
+// excludes internal/test clients.
+// Orig Code Name resolved like Jerasoft's report: longest-prefix match of the ORIG rate's code
+// against the HY-DEFAULT destination deck (code_decks_id=19), each distinct rate resolved once.
 //
-// Term Account = the terminating CLIENT (supplier) name — origterm carries the client id
-// on both sides (orig_clients_id / term_clients_id), so we join clients directly.
-// Orig Code Name resolved like Jerasoft's own report: longest-prefix match of the orig
-// rate's code against the default destination deck HY-DEFAULT (code_decks_id = 19),
-// each distinct rate resolved once in a CTE (index-friendly exact prefix lookups).
-//
-// origterm stores each aggregate twice (record_type 'logical'/'physical', identical values);
-// keep 'logical' only so counts/volume aren't double-counted. Daily partitions make the
-// aggr_date filter prune to today's partition, so the full re-pull stays fast.
+// The window is a fixed 15 minutes and the query is a full re-pull each cycle (cron */15), so the
+// stage table always holds exactly the last 15 minutes of live traffic. Validated live ~2.1s.
 const SEED_SQL = `
-WITH base AS (
-    SELECT ot.orig_rates_id,
-           tcl.name AS term_account,
-           ot.total, ot.notzero, ot.volume,
-           ot.term_cost, ot.term_volume_billed
-    FROM origterm ot
-    JOIN clients tcl ON tcl.id = ot.term_clients_id
-                    AND tcl.status = 'active'
-                    AND tcl.name NOT ILIKE 'BLOCKED%'
-    WHERE ot.aggr_date >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
-      AND ot.record_type = 'logical'
+WITH orig AS MATERIALIZED (
+    SELECT x.id, x.session_id, x.volume, x.dst_party_id, x.stop_time,
+           b.rates_id AS orig_rates_id
+    FROM public.xdrs x
+    JOIN public.xdrs_billed b ON b.xdrs_id = x.id
+    WHERE x.origin = 'orig'
+      AND x.stop_time >= now() - interval '15 minutes' AND x.stop_time <= now()
+      AND b.dt        >= now() - interval '15 minutes' AND b.dt        <= now()
+),
+term AS MATERIALIZED (
+    SELECT x.id, x.session_id, x.volume, x.dst_party_id, x.stop_time,
+           b.clients_id AS term_clients_id, b.cost_net AS term_cost, b.volume AS term_volume_billed
+    FROM public.xdrs x
+    JOIN public.xdrs_billed b ON b.xdrs_id = x.id
+    WHERE x.origin = 'term'
+      AND x.stop_time >= now() - interval '15 minutes' - interval '5 seconds' AND x.stop_time <= now() + interval '5 seconds'
+      AND b.dt        >= now() - interval '15 minutes' - interval '5 seconds' AND b.dt        <= now() + interval '5 seconds'
+),
+pairs AS (
+    SELECT o.orig_rates_id, t.term_clients_id, o.volume AS orig_volume,
+           t.term_cost, t.term_volume_billed
+    FROM orig o
+    JOIN term t
+      ON t.session_id = o.session_id AND o.id <> t.id
+     AND o.stop_time BETWEEN t.stop_time - interval '5 seconds' AND t.stop_time + interval '5 seconds'
+     AND o.volume BETWEEN t.volume - 1 AND t.volume + 1
+     AND (o.volume = 0) = (t.volume = 0)
+     AND substring(o.dst_party_id FROM length(o.dst_party_id) - 5) = substring(t.dst_party_id FROM length(t.dst_party_id) - 5)
 ),
 rate_name AS (
     SELECT r.id AS rate_id,
@@ -56,19 +70,24 @@ rate_name AS (
              AND c.code IN (SELECT substring(r.code FROM 1 FOR g)
                             FROM generate_series(1, length(r.code)) g)
            ORDER BY length(c.code) DESC LIMIT 1) AS dst
-    FROM (SELECT DISTINCT orig_rates_id AS id FROM base) ids
+    FROM (SELECT DISTINCT orig_rates_id AS id FROM pairs WHERE orig_rates_id IS NOT NULL) ids
     JOIN rates r ON r.id = ids.id
 )
 SELECT
-    b.term_account                                                                 AS term_account,
-    COALESCE(rno.dst, 'UNKNOWN')                                                   AS orig_code_name,
-    ROUND(SUM(ABS(b.term_cost)) / NULLIF(SUM(b.term_volume_billed) / 60.0, 0), 6)  AS term_rate,
-    SUM(b.total)                                                                   AS attempts,
-    SUM(b.notzero)                                                                 AS success,
-    ROUND(SUM(b.volume) / 60.0, 2)                                                 AS volume_min
-FROM base b
-LEFT JOIN rate_name rno ON rno.rate_id = b.orig_rates_id
-GROUP BY b.term_account, COALESCE(rno.dst, 'UNKNOWN')
+    tc.name                                                                          AS term_account,
+    COALESCE(rn.dst, 'UNKNOWN')                                                      AS orig_code_name,
+    ROUND(SUM(ABS(p.term_cost)) / NULLIF(SUM(p.term_volume_billed) / 60.0, 0), 6)    AS term_rate,
+    COUNT(*)                                                                         AS attempts,
+    COUNT(*) FILTER (WHERE p.orig_volume > 0)                                        AS success,
+    ROUND(SUM(p.orig_volume) / 60.0, 2)                                              AS volume_min
+FROM pairs p
+JOIN public.clients tc ON tc.id = p.term_clients_id
+LEFT JOIN rate_name rn ON rn.rate_id = p.orig_rates_id
+WHERE COALESCE(tc.type, 0) <> 10
+  AND tc.status = 'active'
+  AND tc.name NOT ILIKE 'BLOCKED%'
+GROUP BY tc.name, COALESCE(rn.dst, 'UNKNOWN')
+HAVING SUM(ABS(p.term_cost)) > 0 AND SUM(p.term_volume_billed) > 0   -- exclude routes with no term rate
 ORDER BY attempts DESC
 `;
 
@@ -76,9 +95,9 @@ const SEED_COLUMNS = [
   { key: 'term_account',   label: 'Term Account',        type: 'text',    description: 'Terminating supplier — the term-side CLIENT name (active companies only; BLOCKED-* route accounts excluded).' },
   { key: 'orig_code_name', label: 'Orig Code Name',      type: 'text',    description: 'Destination name on the orig side, resolved by longest-prefix match of the orig rate code on the HY-DEFAULT code deck (19); UNKNOWN when no prefix matches.' },
   { key: 'term_rate',      label: 'Term Rate',           type: 'numeric', description: 'Volume-weighted avg termination (supplier cost) rate per BILLED minute, in USD. Precomputed.' },
-  { key: 'attempts',       label: 'Total Attempts',      type: 'numeric', description: 'Total events (call attempts) today, INCLUDING failed calls — SUM(origterm.total).' },
-  { key: 'success',        label: 'Total Success',       type: 'numeric', description: 'Connected (answered) calls today — events with volume > 0, SUM(origterm.notzero). ASR = success/attempts.' },
-  { key: 'volume_min',     label: 'Total Volume (min)',  type: 'numeric', description: 'Total connected call minutes today = SUM(volume)/60 (raw call seconds).' },
+  { key: 'attempts',       label: 'Total Attempts',      type: 'numeric', description: 'Call attempts in the last 15 minutes, INCLUDING failed calls — COUNT of paired orig⟷term legs.' },
+  { key: 'success',        label: 'Total Success',       type: 'numeric', description: 'Connected (answered) calls in the last 15 minutes — pairs with volume > 0. ASR = success/attempts.' },
+  { key: 'volume_min',     label: 'Total Volume (min)',  type: 'numeric', description: 'Connected call minutes in the last 15 minutes = SUM(raw call seconds)/60.' },
 ];
 
 @Injectable()
@@ -168,7 +187,7 @@ export class SpecialRoutesMonitoringService implements OnModuleInit {
     const saved = await this.datasetRepo.save(
       this.datasetRepo.create({
         name:           DATASET_NAME,
-        description:    "Route-quality monitoring from Jerasoft VCS — per destination (orig code name) and terminating supplier: term rate, attempts (incl. failed), raw volume minutes and connected calls. Aggregated over today's traffic (since midnight UTC), refreshed every 5 minutes.",
+        description:    "Live route-quality monitoring from Jerasoft VCS raw CDRs — per destination (orig code name) and terminating supplier: term rate, attempts (incl. failed), connected calls and volume minutes over the LAST 15 MINUTES, refreshed every 15 minutes. Routes with no term rate are excluded.",
         sourceDb:       'postgresql',
         dataSourceId:   source.id,
         sqlQuery:       SEED_SQL,
