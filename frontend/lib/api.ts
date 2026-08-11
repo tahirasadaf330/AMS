@@ -522,6 +522,11 @@ export const specialRoutesApi = {
   getData: () => api.get('/reports/special-routes-monitoring/data'),
 };
 
+// ── COST CHANGES REPORT ───────────────────────────────────────
+export const costChangesApi = {
+  getData: () => api.get('/reports/cost-changes/data'),
+};
+
 // ── PRE-PAYMENT CL REPORT ─────────────────────────────────────
 export const prepaymentClApi = {
   getData: () => api.get('/reports/prepayment-cl/data'),

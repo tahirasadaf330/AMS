@@ -52,6 +52,7 @@ import { VoiceLiveTrafficModule } from "./reports/voice-live-traffic/voice-live-
 import { AppleTrafficModule } from "./reports/apple-traffic/apple-traffic.module";
 import { SrcDstNumberMonitoringModule } from "./reports/src-dst-number-monitoring/src-dst-number-monitoring.module";
 import { SpecialRoutesMonitoringModule } from "./reports/special-routes-monitoring/special-routes-monitoring.module";
+import { CostChangesModule } from "./reports/cost-changes/cost-changes.module";
 import { McpModule } from "./mcp/mcp.module";
 import { AccessModule } from "./common/access/access.module";
 @Module({
@@ -130,6 +131,7 @@ import { AccessModule } from "./common/access/access.module";
     AppleTrafficModule,
     SrcDstNumberMonitoringModule,
     SpecialRoutesMonitoringModule,
+    CostChangesModule,
     ReportsRegistryModule,
     AdminGroupsModule,
     McpModule,
