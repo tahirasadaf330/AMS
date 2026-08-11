@@ -112,6 +112,15 @@ export class NotificationsService {
     const channelsDispatched: string[] = [];
     const vendorScoped = this.conditionHasVendorClause(condition);
 
+    // Voice Negative Margin alerts list routes worst-loss-first (profit ascending) in BOTH the
+    // email and the Teams card, matching the on-screen report's ordering — so the most negative
+    // profit is at the top (and inside the Teams card's first-20 window). Scoped by stage table
+    // so no other dataset's row order is touched. Done once here so both channels agree.
+    const orderedRows =
+      condition.dataset?.stageTableName === 'stage_negative_margin'
+        ? [...matchedRows].sort((a, b) => Number(a.profit ?? 0) - Number(b.profit ?? 0))
+        : matchedRows;
+
     const subject = `[AMS Alert] ${condition.name} — ${matchedRows.length} rows matched`;
     const tasks: Promise<void>[] = [];
 
@@ -122,7 +131,7 @@ export class NotificationsService {
         this.dispatchEmail({
           condition,
           datasetName,
-          matchedRows,
+          matchedRows: orderedRows,
           columnMeta,
           vendorScoped,
           subject,
@@ -138,7 +147,7 @@ export class NotificationsService {
         this.dispatchTeams({
           condition,
           datasetName,
-          matchedRows,
+          matchedRows: orderedRows,
           columnMeta,
           vendorScoped,
           selectedColumns: channels.email?.columns,

@@ -103,10 +103,13 @@ export default function NegativeMarginPage() {
   const toggleCat = (c: string) =>
     setCats((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
 
+  // Two-state toggle: first click on a column sorts ascending, next click descending,
+  // then back to ascending. (Previously cycled asc→desc→null and started on desc, so a
+  // column took up to 3 clicks to reach ascending.)
   const onSort = React.useCallback((key: string) => {
     setSort((s) => ({
       key,
-      dir: s.key === key ? (s.dir === 'asc' ? 'desc' : s.dir === 'desc' ? null : 'asc') : 'desc',
+      dir: s.key === key ? (s.dir === 'asc' ? 'desc' : 'asc') : 'asc',
     }));
   }, []);
 
