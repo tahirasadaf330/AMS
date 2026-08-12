@@ -297,6 +297,12 @@ export const adminReportsApi = {
   list: () => api.get<ReportInfo[]>('/admin/reports'),
 };
 
+// ── REPORT — VOICE OUTLIERS ──────────────────────────────────────
+export const voiceOutliersApi = {
+  getData: () => api.get('/reports/voice-outliers/data'),
+  rebuild: () => api.post('/reports/voice-outliers/rebuild'),
+};
+
 // ── ADMIN — DATASETS ──────────────────────────────────────────
 export const adminDatasetsApi = {
   list: () => api.get<Dataset[]>('/admin/datasets'),

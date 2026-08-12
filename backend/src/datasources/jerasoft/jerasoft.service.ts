@@ -63,6 +63,30 @@ export class JerasoftService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
+  /**
+   * Run a SELECT with a hard server-side statement_timeout so a heavy scan can never run away and
+   * hammer the production billing DB. Uses a dedicated pooled client + `SET LOCAL` inside a
+   * transaction so the timeout is scoped to THIS query only and never leaks onto other pool users.
+   * On timeout Postgres raises 57014, surfaced to the caller as an error.
+   */
+  async queryWithTimeout(sql: string, timeoutMs: number, params?: unknown[]): Promise<QueryResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`SET LOCAL statement_timeout = ${Math.max(1000, Math.floor(timeoutMs))}`);
+      const result = await client.query(sql, params);
+      await client.query('COMMIT');
+      this.connected = true;
+      return result;
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+      this.logger.error('Jerasoft queryWithTimeout error:', err);
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   async testConnection(): Promise<boolean> {
     try {
       await this.pool.query('SELECT 1');

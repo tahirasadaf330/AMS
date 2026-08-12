@@ -54,6 +54,7 @@ import { SrcDstNumberMonitoringModule } from "./reports/src-dst-number-monitorin
 import { SpecialRoutesMonitoringModule } from "./reports/special-routes-monitoring/special-routes-monitoring.module";
 import { McpModule } from "./mcp/mcp.module";
 import { AccessModule } from "./common/access/access.module";
+import { VoiceOutliersModule } from "./reports/voice-outliers/voice-outliers.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -134,6 +135,7 @@ import { AccessModule } from "./common/access/access.module";
     AdminGroupsModule,
     McpModule,
     AccessModule,
+    VoiceOutliersModule,
   ],
 })
 export class AppModule {}
