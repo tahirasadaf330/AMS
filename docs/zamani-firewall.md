@@ -3,7 +3,7 @@
 `zamani-firewall` · sms · route `reports/zamani-firewall` · module
 `backend/src/reports/zamani-firewall/` · page `frontend/app/(dashboard)/reports/zamani-firewall/`
 
-Traffic Overview and Pipeline Health for the Zamani SMS firewall, built on the three firewall log
+Five tabs over the Zamani SMS firewall logs, built on the three firewall log
 streams (SS7, SMPP, SRI) rather than on billing data. Where the other SMS reports answer "what was
 charged", this one answers "what actually crossed the firewall, and did we receive all of it".
 
@@ -42,8 +42,18 @@ The script drops and recreates in dependency order, so it is safe to re-run afte
 | `v_ss7_daily` | Exact per-day unique subscribers |
 | `v_pipeline_health` | `load_log` with node and traffic hour resolved |
 | `v_pipeline_hourly` | Per (stream, hour) ingest coverage with a complete/partial/missing verdict |
+| `v_ss7_message_tags` | Tags per logical message, not per segment |
+| `v_firewall_tags_hourly` | Tag frequency per (hour, stream, tag) |
+| `v_firewall_tag_senders_hourly` | Top senders per blocked/A2P tag |
+| `v_smpp_submits` | Each submit-sm with the message_id its response assigned |
+| `v_smpp_dlr_hourly` | Delivery outcomes and error codes per hour |
+| `v_smpp_dlr_senders_hourly` | Delivery outcome per originating sender |
+| `v_smpp_latency_hourly` | Round-trip percentiles, paired within a bind |
+| `v_sri_hourly` / `v_sri_smsc_hourly` | SRI rate and the enumeration detector |
+| `v_ss7_routing_hourly` | OPC/DPC and traffic-source volumes |
+| `v_smpp_content_defects_hourly` | Content-encoding defect rate per data_coding |
 
-### Why — the six rules
+### Why — the seven rules
 
 Each was measured against the loaded data, not inferred from the schema. Getting any one wrong
 produces a plausible-looking dashboard with wrong numbers.
@@ -95,7 +105,23 @@ To re-verify after any change to the delivery pipeline, compare
 `date_trunc('hour', file_mtime) - MTIME_LAG` against the modal hour of each file's rows. If the lag
 moved, that one interval in `v_pipeline_health` is the only thing to change.
 
-### Measured approximations
+**R7 · A response PDU carries no sender.** `sender_id` and `dest_addr` live on the *request*
+(`submit-sm`); the `message_id` a DLR references lives only on the *response*. Joining a receipt
+straight to the response returns a row whose sender is NULL for **every** record, which silently
+collapses "delivery rate by sender" into a single `(unmatched)` bucket - the shape this report
+shipped with until it was caught. `v_smpp_submits` closes the gap by linking request to response
+within a bind first. Measured: 13,595 of 16,920 receipts (80.3%) resolve to one of 91 senders; the
+rest are receipts whose submit is outside the window, kept as `(unmatched)` rather than dropped from
+the denominator.
+
+**Tag counts overlap.** A message carries several firewall tags at once, so tag counts sum to more
+than the message total. They are flags, never a partition of traffic, and the UI never renders them
+as a share-of-total. Tags are read from a multipart message's *first segment*: unnesting the base
+table would weight a 47-part SMS 47 times. Measured on `long_sms`: 1,102,213 raw-segment hits versus
+754,423 real messages - a 46% overstatement avoided. Tag sets are invariant within a group (1,395 of
+694,267 = 0.2% differ), so the representative is faithful.
+
+## Measured approximations
 
 Stated rather than hidden, and both far below the ~27% error that counting raw rows would introduce:
 
@@ -117,6 +143,19 @@ neither can sit behind a page load.
 | `stage_zfw_sender_hourly` | hour × stream × sender (top 50/hour) | rolling-overlap, 6h re-pull, 7d retention | `*/30 * * * *` |
 | `stage_zfw_pipeline` | hour × stream ingest coverage (21d) | full replace | `*/10 * * * *` |
 | `stage_zfw_daily` | UTC day × stream, exact distincts | full replace | `40 0 * * *` |
+| `stage_zfw_tags` | hour × stream × tag, and × sender (grain column) | rolling-overlap | `10,40 * * * *` |
+| `stage_zfw_dlr` | hour × status/error, and × sender (grain column) | rolling-overlap | `5,35 * * * *` |
+| `stage_zfw_latency` | hour × PDU kind percentiles | rolling-overlap | `5,35 * * * *` |
+| `stage_zfw_sri` | hour totals, and × SMSC (grain column) | rolling-overlap | `15,45 * * * *` |
+| `stage_zfw_routing` | hour × traffic source × OPC/DPC × GT | rolling-overlap | `20,50 * * * *` |
+| `stage_zfw_content` | hour × data_coding defect rate | rolling-overlap | `25,55 * * * *` |
+
+Several tables hold **two grains** behind a `grain` column so the source is scanned once instead of
+twice - every read filters on it, and summing across grains would double-count. Crons are staggered
+because the SS7 datasets each scan millions of rows and firing them together would queue several
+heavy scans for no extra freshness; files land hourly, so twice an hour is already ahead of the data.
+Measured incremental cost per cycle: tags ~107s (595s on first backfill), routing ~30s, SRI ~17s, the
+SMPP datasets under a second.
 
 Measured cost: first load backfills the 7-day window in ~120s (traffic) and ~57s (senders); each
 subsequent cycle re-pulls only the last 6 hours in **~21s**. The 6h overlap is wider than any
@@ -140,16 +179,31 @@ alongside the `bucket_hour` used for the re-pull window.
 
 ## Page
 
-Two tabs, matching the sequencing that was agreed: Traffic Overview and Pipeline Health.
+Five tabs. Styling follows the Zamani Traffic report (flat-UI palette, Hanken Grotesk body, JetBrains
+Mono figures, full-width `.ztabs`, chunky offset shadows) so the two Zamani reports read as one
+family.
 
 **Traffic Overview** — KPI tiles (messages, peak subscribers/hour, peak senders/hour, firewall
 interventions), messages-per-hour stacked by stream over a 6h/24h/3d/7d window, outcome mix per
 stream, top senders, and exact daily uniques. The messages tile states the raw row count and the
 percentage by which counting rows would have overstated it, so the correction stays visible.
 
-**Pipeline Health** — per-stream complete/partial/missing hour counts, then per-hour coverage with
-files loaded/seen, nodes, rows, rejects, attempts and the last loader error. When any hour is
-incomplete the Traffic tab shows a banner, because those volumes undercount.
+**Firewall Effectiveness** — tag frequency, the `dropped_*` family by reason *and* the senders behind
+it, A2P classification (local vs international vs P2P - the revenue-leakage view), whitelist coverage,
+and a grey-route watch listing international A2P senders that arrived through more than one SMSC
+global title.
+
+**Delivery Quality** — DLR outcome mix, error breakdown by `dlr_err` and network error code, delivery
+rate by sender ranked worst-first, and submit→response percentiles. `command_status` gets no panel: it
+is 0 on every response in the loaded data, so it would only ever show one value.
+
+**Network & SRI** — SRI request rate and requests-per-MSISDN per hour (the probing detector, coloured
+by threshold), distinct MSISDNs per querying SMSC, and SS7 OPC/DPC routing.
+
+**Pipeline Health** — per-stream complete/partial/missing hour counts, the content-encoding defect
+rate per `data_coding`, then per-hour coverage with files loaded/seen, nodes, rows, rejects, attempts
+and the last loader error. When any hour is incomplete the Traffic tab shows a banner, because those
+volumes undercount.
 
 ### Distinct counts are not additive
 
@@ -162,17 +216,29 @@ them across hours counts recurring subscribers repeatedly. Therefore:
 - exact whole-day uniques come only from `stage_zfw_daily`, which computes them over the full day —
   the reason that dataset exists separately at all.
 
-The API response carries `subscribersNote` and `senderCapNote` so the constraint travels with the
-numbers.
+The API response carries `subscribersNote`, `senderCapNote`, `tagsNote` and `latencyNote` so each
+constraint travels with the numbers rather than living only in this doc.
+
+### Rendering degrades, never blanks
+
+The page crashed once on `new Date(bucketHour).toISOString()` throwing `RangeError` for one
+unparseable value. Date handling and the hourly pivot now live in `chart-data.ts`, which never throws:
+unusable timestamps become an em dash or are counted in `chart.skipped`, surfaced in the panel header.
+All text cells go through `txt()`, because rendering a raw API field prints "NaN" for a null and
+throws "Objects are not valid as a React child" for an object. `FirewallView` is exported separately
+from the data container specifically so the populated branch can be rendered in tests -
+`renderToString` does not run effects, so testing the container alone only exercises its loading
+state. The suite covers 229 payload variants x 5 tabs (1,440 assertions).
 
 ## Not yet available
 
 Be explicit with stakeholders rather than promising these:
 
-- **Firewall Effectiveness, Delivery Quality and Network/SRI Integrity pages.** The data now
-  supports them — `tags` is populated (SS7 `whitelist_sender` 5.46M, `p2p_traffic` 1.87M,
-  `long_sms` 5.60M; SMPP `int_a2p` 10,901 of 14,423 submits) and DLRs are complete (DELIVRD 81.3%,
-  EXPIRED 16.5%, UNDELIV 2.0%, REJECTD 0.1%). They are simply out of scope for this change.
+- **Cross-dataset reconciliation of historical hours.** Routing and traffic agree exactly for any hour
+  both have re-pulled (verified diff 0 across the overlap window), but while the source is still
+  backfilling, two stage tables refreshed minutes apart can hold the same older hour at different
+  completeness - the discrepancies quantise to n/4, one per node file. This resolves itself once the
+  backfill catches up and hours stop changing.
 - **Destination breakdown / roaming.** SS7 `country` has one value and `network` two, so there is
   nothing to break down.
 - **SS7 delivery outcome.** The status-report fields are not stored; SMPP has DLRs, SS7 does not.

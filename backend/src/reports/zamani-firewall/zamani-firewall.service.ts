@@ -3,6 +3,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Dataset } from '../../common/entities/dataset.entity';
 import { ExternalDataSource } from '../../common/entities/data-source.entity';
+import { EXTRA_DATASETS } from './zamani-firewall.datasets';
 
 /**
  * Zamani SMS Firewall — Traffic Overview + Pipeline Health.
@@ -221,6 +222,7 @@ export class ZamaniFirewallService implements OnModuleInit {
       await this.ensureStageTable(STAGE_SENDERS,  SENDER_COLUMNS);
       await this.ensureStageTable(STAGE_PIPELINE, PIPELINE_COLUMNS);
       await this.ensureStageTable(STAGE_DAILY,    DAILY_COLUMNS);
+      for (const d of EXTRA_DATASETS) await this.ensureStageTable(d.stage, d.columns);
       await this.ensureDatasetRecords();
     } catch (err) {
       this.logger.error('Zamani SMS Firewall dataset seed failed', err);
@@ -284,6 +286,25 @@ export class ZamaniFirewallService implements OnModuleInit {
       cron: '40 0 * * *',
       dataSourceId: ds.id,
     });
+
+    // Pages 2-5. Same upsert path, definitions live in ./zamani-firewall.datasets.
+    for (const d of EXTRA_DATASETS) {
+      const id = await this.upsertDataset({
+        stage: d.stage, name: d.name, description: d.description,
+        sql: d.sql, columns: d.columns, cron: d.cron, dataSourceId: ds.id,
+      });
+      this.datasetIds[d.stage] = id;
+      await this.dataSource.query(
+        `UPDATE datasets
+            SET incremental_overlap_minutes  = $2,
+                incremental_timestamp_column = 'bucket_hour',
+                retention_days               = $3,
+                incremental_lookback_days    = NULL
+          WHERE id = $1`,
+        [id, d.overlapMinutes, d.retentionDays],
+      ).catch((e: Error) =>
+        this.logger.error(`Failed to set overlap config for ${d.stage}: ${e.message}`));
+    }
 
     // Rolling-overlap config for the two hourly datasets (columns are not on the entity → raw SQL,
     // idempotent). The pipeline and daily datasets stay full-replace, so they must NOT carry
@@ -513,6 +534,101 @@ export class ZamaniFirewallService implements OnModuleInit {
           (SELECT MAX(refreshed_at) FROM ${STAGE_DAILY})    AS daily`),
     ]);
 
+    // ---- pages 2-5 -----------------------------------------------------------------------------
+    // Each block filters on `grain`, because those stage tables deliberately hold two grains to
+    // keep the source scanned once. Summing across grains would double-count.
+    const [tags, tagSenders, dlrOutcomes, dlrSenders, latency, sri, sriSmsc, routing, content] =
+      await Promise.all([
+        this.q(`
+          SELECT tag, stream,
+                 SUM(messages) AS messages,
+                 SUM(intervened) AS intervened,
+                 MAX(senders) AS peak_senders_hr,
+                 MAX(subscribers) AS peak_subscribers_hr
+            FROM ${'stage_zfw_tags'}
+           WHERE grain = 'tag' AND bucket_hour >= ${since}
+           GROUP BY tag, stream
+           ORDER BY messages DESC`),
+
+        this.q(`
+          SELECT tag, stream, sender_id,
+                 SUM(messages) AS messages,
+                 SUM(intervened) AS intervened,
+                 MAX(via_smscs) AS via_smscs
+            FROM ${'stage_zfw_tags'}
+           WHERE grain = 'sender' AND bucket_hour >= ${since}
+           GROUP BY tag, stream, sender_id
+           ORDER BY messages DESC
+           LIMIT 300`),
+
+        this.q(`
+          SELECT dlr_stat, dlr_err, network_error_code,
+                 SUM(receipts) AS receipts, SUM(orphan_receipts) AS orphan_receipts
+            FROM ${'stage_zfw_dlr'}
+           WHERE grain = 'outcome' AND bucket_hour >= ${since}
+           GROUP BY dlr_stat, dlr_err, network_error_code
+           ORDER BY receipts DESC`),
+
+        this.q(`
+          SELECT sender_id,
+                 SUM(receipts) AS receipts,
+                 SUM(receipts) FILTER (WHERE dlr_stat = 'DELIVRD') AS delivered,
+                 SUM(receipts) FILTER (WHERE dlr_stat = 'EXPIRED') AS expired,
+                 SUM(receipts) FILTER (WHERE dlr_stat = 'UNDELIV') AS undeliv,
+                 SUM(receipts) FILTER (WHERE dlr_stat = 'REJECTD') AS rejectd,
+                 MAX(destinations) AS peak_destinations_hr
+            FROM ${'stage_zfw_dlr'}
+           WHERE grain = 'sender' AND bucket_hour >= ${since}
+           GROUP BY sender_id
+          HAVING SUM(receipts) > 0
+           ORDER BY receipts DESC
+           LIMIT 50`),
+
+        this.q(`
+          SELECT bucket_hour, pdu_kind, pairs, p50_ms, p95_ms, p99_ms, max_ms
+            FROM ${'stage_zfw_latency'}
+           WHERE bucket_hour >= ${since}
+           ORDER BY bucket_hour, pdu_kind`),
+
+        this.q(`
+          SELECT bucket_hour, requests, msisdns, requests_per_msisdn, smscs, callers, requests_per_sec
+            FROM ${'stage_zfw_sri'}
+           WHERE grain = 'hour' AND bucket_hour >= ${since}
+           ORDER BY bucket_hour`),
+
+        this.q(`
+          SELECT smsc, calling_party,
+                 SUM(requests) AS requests,
+                 MAX(msisdns) AS peak_msisdns_hr,
+                 MAX(requests_per_msisdn) AS peak_req_per_msisdn
+            FROM ${'stage_zfw_sri'}
+           WHERE grain = 'smsc' AND bucket_hour >= ${since}
+           GROUP BY smsc, calling_party
+           ORDER BY requests DESC
+           LIMIT 40`),
+
+        this.q(`
+          SELECT traffic_source_name, opc, dpc, calling_party,
+                 SUM(messages) AS messages, SUM(raw_rows) AS raw_rows,
+                 SUM(intervened) AS intervened, MAX(subscribers) AS peak_subscribers_hr
+            FROM ${'stage_zfw_routing'}
+           WHERE bucket_hour >= ${since}
+           GROUP BY traffic_source_name, opc, dpc, calling_party
+           ORDER BY messages DESC
+           LIMIT 60`),
+
+        this.q(`
+          SELECT data_coding,
+                 SUM(messages) AS messages,
+                 SUM(mojibake) AS mojibake,
+                 SUM(null_content) AS null_content,
+                 ROUND(100.0 * SUM(mojibake) / NULLIF(SUM(messages), 0), 2) AS mojibake_pct
+            FROM ${'stage_zfw_content'}
+           WHERE bucket_hour >= ${since}
+           GROUP BY data_coding
+           ORDER BY messages DESC`),
+      ]);
+
     const num = (v: any) => Number(v ?? 0);
 
     return {
@@ -576,6 +692,53 @@ export class ZamaniFirewallService implements OnModuleInit {
         subscribers: num(r.subscribers),
         senders:     num(r.senders),
       })),
+      // ---- page 2 · Firewall Effectiveness ----
+      tags: tags.map((r: any) => ({
+        tag: r.tag, stream: r.stream,
+        messages: num(r.messages), intervened: num(r.intervened),
+        peakSendersHr: num(r.peak_senders_hr), peakSubscribersHr: num(r.peak_subscribers_hr),
+      })),
+      tagSenders: tagSenders.map((r: any) => ({
+        tag: r.tag, stream: r.stream, senderId: r.sender_id,
+        messages: num(r.messages), intervened: num(r.intervened), viaSmscs: num(r.via_smscs),
+      })),
+      // ---- page 3 · Delivery Quality ----
+      dlrOutcomes: dlrOutcomes.map((r: any) => ({
+        dlrStat: r.dlr_stat, dlrErr: r.dlr_err, networkErrorCode: r.network_error_code,
+        receipts: num(r.receipts), orphanReceipts: num(r.orphan_receipts),
+      })),
+      dlrSenders: dlrSenders.map((r: any) => ({
+        senderId: r.sender_id, receipts: num(r.receipts),
+        delivered: num(r.delivered), expired: num(r.expired),
+        undeliv: num(r.undeliv), rejectd: num(r.rejectd),
+        peakDestinationsHr: num(r.peak_destinations_hr),
+        deliveryRate: num(r.receipts) > 0 ? (num(r.delivered) / num(r.receipts)) * 100 : null,
+      })),
+      latency: latency.map((r: any) => ({
+        bucketHour: r.bucket_hour, pduKind: r.pdu_kind, pairs: num(r.pairs),
+        p50Ms: num(r.p50_ms), p95Ms: num(r.p95_ms), p99Ms: num(r.p99_ms), maxMs: num(r.max_ms),
+      })),
+      // ---- page 4 · Network & SRI Integrity ----
+      sri: sri.map((r: any) => ({
+        bucketHour: r.bucket_hour, requests: num(r.requests), msisdns: num(r.msisdns),
+        requestsPerMsisdn: num(r.requests_per_msisdn), smscs: num(r.smscs),
+        callers: num(r.callers), requestsPerSec: num(r.requests_per_sec),
+      })),
+      sriSmsc: sriSmsc.map((r: any) => ({
+        smsc: r.smsc, callingParty: r.calling_party, requests: num(r.requests),
+        peakMsisdnsHr: num(r.peak_msisdns_hr), peakReqPerMsisdn: num(r.peak_req_per_msisdn),
+      })),
+      routing: routing.map((r: any) => ({
+        trafficSourceName: r.traffic_source_name, opc: num(r.opc), dpc: num(r.dpc),
+        callingParty: r.calling_party, messages: num(r.messages), rawRows: num(r.raw_rows),
+        intervened: num(r.intervened), peakSubscribersHr: num(r.peak_subscribers_hr),
+      })),
+      // ---- page 5 · content-encoding defects ----
+      contentDefects: content.map((r: any) => ({
+        dataCoding: num(r.data_coding), messages: num(r.messages),
+        mojibake: num(r.mojibake), nullContent: num(r.null_content),
+        mojibakePct: num(r.mojibake_pct),
+      })),
       refreshedAt: refreshed[0] ?? {},
       // Carried in the payload so the constraint travels with the numbers rather than living only
       // in a doc: per-hour distincts cannot be summed, so the UI must not offer a windowed total.
@@ -583,6 +746,12 @@ export class ZamaniFirewallService implements OnModuleInit {
         'Distinct subscriber and sender counts are per-hour and cannot be summed across hours. '
         + 'Window tiles show the peak hour; exact whole-day uniques come from the daily dataset.',
       senderCapNote: 'Top senders are captured 50 per hour per stream; the long tail is not retained.',
+      tagsNote:
+        'A message carries several firewall tags at once, so tag counts overlap and sum to more than the message '
+        + 'total. They are flags, not a partition of traffic.',
+      latencyNote:
+        'Paired within a bind (src_ip, src_port) on the nearest following response. No mean is shown: pairing on '
+        + 'sequence_number alone — which is reused within the hour — yields a 24-minute mean that looks plausible.',
     };
   }
 
