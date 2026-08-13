@@ -42,7 +42,7 @@ import { StageService } from '../../stage/stage.service';
 const STAGE = 'ds_voice_outliers';
 const SAMPLES = 'voice_outlier_samples';
 const BASELINE = 'voice_outlier_baseline';
-const DATASET_NAME = 'Voice Outliers';
+const DATASET_NAME = 'Voice Smart Outliers';
 
 // Data-driven day/night split (UTC), derived from 2 days of Jerasoft hourly ASR: the low-ASR
 // high-traffic daytime block is ~08:00-20:00 UTC (ASR ~11.6%), the high-ASR low-traffic night is

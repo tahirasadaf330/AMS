@@ -8,7 +8,7 @@ import { VoiceOutliersService } from './voice-outliers.service';
 
 @Controller('reports/voice-outliers')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
-@ReportAccess('voice-outliers', 'Voice Outliers', 'voice')
+@ReportAccess('voice-outliers', 'Voice Smart Outliers', 'voice')
 export class VoiceOutliersController {
   constructor(private readonly service: VoiceOutliersService) {}
 

@@ -53,7 +53,7 @@ const REPORT_LINKS: ReportLink[] = ([
   { slug: 'vcs-balance', href: '/reports/vcs-balance', label: 'Voice Credit Limit', section: 'voice' },
   { slug: 'voice-live-traffic', href: '/reports/voice-live-traffic', label: 'Voice Live Traffic', section: 'voice' },
   { slug: 'negative-margin', href: '/reports/negative-margin', label: 'Voice Negative Margin', section: 'voice' },
-  { slug: 'voice-outliers', href: '/reports/voice-outliers', label: 'Voice Outliers', section: 'voice' },
+  { slug: 'voice-outliers', href: '/reports/voice-outliers', label: 'Voice Smart Outliers', section: 'voice' },
   { slug: 'zamani', href: '/reports/zamani-traffic', label: 'Zamani Traffic', section: 'sms' },
   { slug: 'zamani-sender-id', href: '/reports/zamani-sender-id', label: 'Zamani Sender ID', section: 'sms' },
 ] as ReportLink[]).sort((a, b) => a.label.localeCompare(b.label));

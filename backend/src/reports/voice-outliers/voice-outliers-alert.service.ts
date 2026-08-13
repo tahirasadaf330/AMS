@@ -9,7 +9,8 @@ import { ConditionSchedulerService } from '../../conditions/condition-scheduler.
 // that is a spike (> P95) or drop (< P5) on ASR or ACD. The report refreshes every 10 min (minute
 // 0,10,20,…); this fires one minute later (minute 1,11,21,…) so it always sees the fresh refresh.
 // The schedule is user-adjustable afterwards via the Alerts UI (condition.trigger_cron).
-const COND_NAME = 'Voice Outliers — Spike/Drop Alert';
+const COND_NAME = 'Voice Smart Outliers — Spike/Drop Alert';
+const OLD_COND_NAME = 'Voice Outliers — Spike/Drop Alert'; // pre-rename; migrated in place on boot
 const DEFAULT_CRON = '1-59/10 * * * *'; // :01, :11, :21, :31, :41, :51 — 1 min after each */10 refresh
 const RECIPIENTS = ['bilal.waris@hayo.net', 'mashhood@hayo.net'];
 
@@ -152,11 +153,11 @@ head = ("<thead><tr>"
     + "</tr></thead>")
 
 n = len(outliers)
-subject = "Voice Outliers — " + str(n) + " route(s) with ASR/ACD spike or drop"
+subject = "Voice Smart Outliers — " + str(n) + " route(s) with ASR/ACD spike or drop"
 
 html = (
     '<div style="font-family:Segoe UI,Arial,sans-serif;color:#222;">'
-    + '<h2 style="color:' + NAVY + ';margin:0 0 4px;">Voice Outliers Alert</h2>'
+    + '<h2 style="color:' + NAVY + ';margin:0 0 4px;">Voice Smart Outliers Alert</h2>'
     + '<div style="color:' + NEUTRAL + ';font-size:12px;margin-bottom:12px;">'
     + str(n) + ' route(s) outside their own P5&ndash;P95 day/night baseline in the last refresh'
     + ((' &middot; last refresh ' + esc(last_ref) + ' UTC') if last_ref else '')
@@ -183,6 +184,9 @@ export class VoiceOutliersAlertService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     try {
+      // Rename the pre-rename condition in place (keeps its schedule + recipients), so we don't
+      // leave a duplicate "Voice Outliers …" alert firing alongside the new name.
+      await this.conditionRepo.update({ name: OLD_COND_NAME } as any, { name: COND_NAME });
       const existing = await this.conditionRepo.findOne({ where: { name: COND_NAME } });
       let id: string;
       if (!existing) {
