@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { zamaniFirewallApi } from '@/lib/api';
 import { useDatasetSocket } from '@/hooks/useDatasetSocket';
+import { STREAMS, buildChart, hourLabel, hourFull, stamp, toDate } from './chart-data';
 
 const CSS = `
 .zf{
@@ -105,7 +106,6 @@ const CSS = `
 const fN = (n: any) => (n != null ? Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—');
 const fPct = (n: any) => (n != null ? `${Number(n).toFixed(2)}%` : '—');
 
-const STREAMS = ['ss7', 'smpp', 'sri'] as const;
 const STREAM_LABEL: Record<string, string> = { ss7: 'SS7', smpp: 'SMPP', sri: 'SRI', sri_req: 'SRI' };
 const WINDOWS = [
   { h: 6,   label: '6h' },
@@ -124,15 +124,11 @@ const ACTION_COLOR: Record<string, string> = {
   drop:         'var(--danger)',
 };
 
-const hourLabel = (iso: string) => {
-  const d = new Date(iso);
-  return `${String(d.getUTCHours()).padStart(2, '0')}:00`;
-};
-const hourFull = (iso: string) => {
-  const d = new Date(iso);
-  return `${d.toISOString().slice(0, 10)} ${String(d.getUTCHours()).padStart(2, '0')}:00 UTC`;
-};
+// Date handling and the hourly pivot live in ./chart-data so they can be tested against malformed
+// payloads. They never throw: an unparseable timestamp renders as '—' or is counted in
+// chart.skipped, rather than taking the whole page down with a RangeError.
 
+/** Data container: owns fetching, the window selector and the live-refresh socket. */
 export default function ZamaniFirewallPage() {
   const [data, setData] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
@@ -155,51 +151,74 @@ export default function ZamaniFirewallPage() {
   React.useEffect(() => { load(); }, [load]);
   useDatasetSocket(datasetId ?? undefined, load);
 
-  const totals: any[] = data?.totals ?? [];
+  return (
+    <FirewallView
+      data={data} loading={loading} error={error}
+      tab={tab} onTab={setTab} hours={hours} onHours={setHours}
+    />
+  );
+}
+
+export type FirewallViewProps = {
+  data: any;
+  loading?: boolean;
+  error?: string | null;
+  tab?: 'traffic' | 'pipeline';
+  onTab?: (t: 'traffic' | 'pipeline') => void;
+  hours?: number;
+  onHours?: (h: number) => void;
+};
+
+/**
+ * Pure presentation. Split out from the container so it can be rendered directly against real and
+ * malformed payloads — the populated branch is where a bad value actually reaches the DOM, so it is
+ * the part worth testing. Every field is read defensively: a report should degrade to '—' or a
+ * skipped row, never to a blank page.
+ */
+export function FirewallView({
+  data, loading = false, error = null,
+  tab = 'traffic', onTab, hours = 24, onHours,
+}: FirewallViewProps) {
+  const setTab = onTab ?? (() => {});
+  const setHours = onHours ?? (() => {});
+
+  // Sum defensively: a missing or non-numeric field must not turn a KPI into NaN.
+  const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const arr = (v: any): any[] => (Array.isArray(v) ? v : []);
+
+  const totals = arr(data?.totals);
   const byStream = React.useMemo(() => {
     const m: Record<string, any> = {};
-    for (const t of totals) m[t.stream] = t;
+    for (const t of totals) if (t && typeof t.stream === 'string') m[t.stream] = t;
     return m;
   }, [totals]);
 
-  const totalMessages = totals.reduce((a, t) => a + t.messages, 0);
-  const totalRawRows  = totals.reduce((a, t) => a + t.rawRows, 0);
+  const totalMessages = totals.reduce((a, t) => a + num(t?.messages), 0);
+  const totalRawRows  = totals.reduce((a, t) => a + num(t?.rawRows), 0);
   // The whole point of the semantic layer: show how far a naive row count would have been off.
   const inflation = totalMessages > 0 ? ((totalRawRows - totalMessages) / totalMessages) * 100 : 0;
 
-  const outcomes: any[] = data?.outcomes ?? [];
+  const outcomes = arr(data?.outcomes);
   const interventions = outcomes
-    .filter((o) => o.finalAction !== 'send' && o.finalAction !== 'lookup')
-    .reduce((a, o) => a + o.messages, 0);
+    .filter((o) => o?.finalAction !== 'send' && o?.finalAction !== 'lookup')
+    .reduce((a, o) => a + num(o?.messages), 0);
 
-  // Hourly series pivoted to one column per hour, stacked by stream.
-  const chart = React.useMemo(() => {
-    const rows: any[] = data?.series ?? [];
-    const byHour = new Map<string, Record<string, number>>();
-    for (const r of rows) {
-      const k = new Date(r.bucketHour).toISOString();
-      if (!byHour.has(k)) byHour.set(k, {});
-      byHour.get(k)![r.stream] = (byHour.get(k)![r.stream] ?? 0) + r.messages;
-    }
-    const cols = Array.from(byHour.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([iso, v]) => ({ iso, ...v, total: STREAMS.reduce((a, s) => a + ((v as any)[s] ?? 0), 0) }));
-    const max = Math.max(1, ...cols.map((c) => c.total));
-    return { cols, max };
-  }, [data]);
+  // Hourly series pivoted to one column per hour, stacked by stream. See ./chart-data.
+  const chart = React.useMemo(() => buildChart(data?.series), [data]);
 
-  const pipelineSummary: any[] = data?.pipelineSummary ?? [];
-  const badHours = pipelineSummary.reduce((a, p) => a + p.hoursPartial + p.hoursMissing, 0);
-  const failedFiles = pipelineSummary.reduce((a, p) => a + p.filesFailed, 0);
+  const pipelineSummary = arr(data?.pipelineSummary);
+  const badHours = pipelineSummary.reduce((a, p) => a + num(p?.hoursPartial) + num(p?.hoursMissing), 0);
+  const failedFiles = pipelineSummary.reduce((a, p) => a + num(p?.filesFailed), 0);
 
-  const topSenders: any[] = data?.topSenders ?? [];
-  const pipeline: any[] = data?.pipeline ?? [];
-  const daily: any[] = data?.daily ?? [];
-  const refreshed = data?.refreshedAt ?? {};
+  const topSenders = arr(data?.topSenders);
+  const pipeline = arr(data?.pipeline);
+  const daily = arr(data?.daily);
+  const refreshed = (data?.refreshedAt && typeof data.refreshedAt === 'object') ? data.refreshedAt : {};
 
   const outcomeGroups = React.useMemo(() => {
     const g: Record<string, any[]> = {};
     for (const o of outcomes) {
+      if (!o || typeof o.stream !== 'string') continue;
       (g[o.stream] ??= []).push(o);
     }
     return g;
@@ -218,10 +237,13 @@ export default function ZamaniFirewallPage() {
                 SS7 · SMPP · SRI firewall logs · corrected message counts (multipart reassembled, SMPP responses excluded) · all times UTC
               </div>
             </div>
-            {refreshed.traffic && (
+            {/* toDate() rather than a bare truthiness test: `{NaN && …}` evaluates to NaN and React
+                renders that as the text "NaN" — same footgun as the classic `{count && …}` printing
+                a literal 0. toDate yields only a Date or null, and null renders nothing. */}
+            {toDate(refreshed.traffic) && (
               <div className="zf-lu">
                 <span className="zf-lu-lbl">Traffic Refreshed</span>
-                <span className="zf-lu-val">{new Date(refreshed.traffic).toLocaleString()}</span>
+                <span className="zf-lu-val">{stamp(refreshed.traffic)}</span>
               </div>
             )}
           </div>
@@ -233,10 +255,10 @@ export default function ZamaniFirewallPage() {
             </button>
           </div>
 
-          {error && <div className="zf-err">Could not load data: {error}</div>}
+          {!!error && <div className="zf-err">Could not load data: {error}</div>}
           {loading && !data && <div className="zf-empty">Loading…</div>}
 
-          {tab === 'traffic' && data && (
+          {tab === 'traffic' && !!data && (
             <>
               <div className="zf-filt">
                 {WINDOWS.map((w) => (
@@ -282,7 +304,10 @@ export default function ZamaniFirewallPage() {
               <div className="zf-panel" style={{ marginBottom: 18 }}>
                 <div className="zf-panel-hd">
                   <div className="zf-panel-ti">Messages per hour</div>
-                  <div className="zf-panel-sub">stacked by stream · {chart.cols.length} hour{chart.cols.length === 1 ? '' : 's'} with data · peak {fN(chart.max)}/h</div>
+                  <div className="zf-panel-sub">
+                    stacked by stream · {chart.cols.length} hour{chart.cols.length === 1 ? '' : 's'} with data · peak {fN(chart.max)}/h
+                    {chart.skipped > 0 && <span style={{ color: 'var(--warn)', fontWeight: 700 }}> · {fN(chart.skipped)} unreadable row{chart.skipped === 1 ? '' : 's'} skipped</span>}
+                  </div>
                 </div>
                 <div className="zf-panel-bd">
                   {chart.cols.length === 0 ? (
@@ -296,8 +321,8 @@ export default function ZamaniFirewallPage() {
                               {hourFull(c.iso)}<br />
                               {STREAMS.filter((s) => c[s]).map((s) => `${STREAM_LABEL[s]} ${fN(c[s])}`).join(' · ') || 'no traffic'}
                             </div>
-                            {STREAMS.map((s) => (c[s] ? (
-                              <div key={s} className={`zf-seg ${s}`} style={{ height: `${(c[s] / chart.max) * 100}%` }} />
+                            {STREAMS.map((s) => (num((c as any)[s]) > 0 ? (
+                              <div key={s} className={`zf-seg ${s}`} style={{ height: `${(num((c as any)[s]) / chart.max) * 100}%` }} />
                             ) : null))}
                             <div className="zf-track" />
                           </div>
@@ -331,7 +356,7 @@ export default function ZamaniFirewallPage() {
                     {outcomes.length === 0 ? <div className="zf-empty">No data.</div> : STREAMS.map((s) => {
                       const rows = outcomeGroups[s];
                       if (!rows?.length) return null;
-                      const tot = rows.reduce((a, r) => a + r.messages, 0) || 1;
+                      const tot = rows.reduce((a, r) => a + num(r?.messages), 0) || 1;
                       return (
                         <div key={s} style={{ marginBottom: 14 }}>
                           <div style={{ fontSize: '.7rem', fontWeight: 700, color: 'var(--mu)', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '.05em' }}>
@@ -342,11 +367,11 @@ export default function ZamaniFirewallPage() {
                               <div className="zf-bar-lbl" title={r.finalAction}>{r.finalAction}</div>
                               <div className="zf-bar-track">
                                 <div className="zf-bar-fill" style={{
-                                  width: `${Math.max((r.messages / tot) * 100, 0.4)}%`,
+                                  width: `${Math.max((num(r?.messages) / tot) * 100, 0.4)}%`,
                                   background: ACTION_COLOR[r.finalAction] ?? 'var(--mu)',
                                 }} />
                               </div>
-                              <div className="zf-bar-val">{fN(r.messages)} · {fPct((r.messages / tot) * 100)}</div>
+                              <div className="zf-bar-val">{fN(r?.messages)} · {fPct((num(r?.messages) / tot) * 100)}</div>
                             </div>
                           ))}
                         </div>
@@ -421,7 +446,7 @@ export default function ZamaniFirewallPage() {
                             <td>{fN(r.rawRows)}</td>
                             <td>{fN(r.subscribers)}</td>
                             <td>{fN(r.senders)}</td>
-                            <td>{r.subscribers ? (r.messages / r.subscribers).toFixed(2) : '—'}</td>
+                            <td>{num(r?.subscribers) > 0 ? (num(r?.messages) / num(r.subscribers)).toFixed(2) : '—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -438,7 +463,7 @@ export default function ZamaniFirewallPage() {
             </>
           )}
 
-          {tab === 'pipeline' && data && (
+          {tab === 'pipeline' && !!data && (
             <>
               <div className="zf-cards">
                 {pipelineSummary.map((p) => (
@@ -504,7 +529,7 @@ export default function ZamaniFirewallPage() {
                   )}
                 </div>
                 <div className="zf-foot" style={{ padding: '0 15px 12px' }}>
-                  Pipeline refreshed {refreshed.pipeline ? new Date(refreshed.pipeline).toLocaleString() : '—'}
+                  Pipeline refreshed {stamp(refreshed.pipeline)}
                 </div>
               </div>
             </>
