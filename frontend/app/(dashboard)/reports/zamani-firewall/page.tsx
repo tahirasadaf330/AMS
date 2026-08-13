@@ -427,8 +427,8 @@ export function FirewallView({
 
   const bars = (rows: { l: string; n: number; c: string }[], total: number, fmt = fN) => (
     <div className="zpb">
-      {rows.length === 0 ? <div className="zempty">No data in this window.</div> : rows.map((r) => (
-        <div className="zbar" key={r.l}>
+      {rows.length === 0 ? <div className="zempty">No data in this window.</div> : rows.map((r, i) => (
+        <div className="zbar" key={`${i}-${r.l}`}>
           <div className="zbar-l" title={txt(r.l)}>{txt(r.l)}</div>
           <div className="zbar-t"><div className="zbar-f" style={{ width: `${Math.max((r.n / (total || 1)) * 100, 0.4)}%`, background: r.c }} /></div>
           <div className="zbar-v">{fmt(r.n)} · {fPct((r.n / (total || 1)) * 100)}</div>
@@ -546,8 +546,8 @@ export function FirewallView({
                       return (
                         <div key={s} style={{ marginBottom: 14 }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--mu)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.05em' }}>{STREAM_LABEL[s]}</div>
-                          {rows.map((r) => (
-                            <div className="zbar" key={r.finalAction}>
+                          {rows.map((r, i) => (
+                            <div className="zbar" key={`${s}-${i}-${txt(r?.finalAction)}`}>
                               <div className="zbar-l">{txt(r.finalAction)}</div>
                               <div className="zbar-t"><div className="zbar-f" style={{ width: `${Math.max((num(r?.messages) / tot) * 100, 0.4)}%`, background: ACTION_COLOR[slug(r.finalAction)] ?? 'var(--mu)' }} /></div>
                               <div className="zbar-v">{fN(r?.messages)} · {fPct((num(r?.messages) / tot) * 100)}</div>
@@ -590,8 +590,8 @@ export function FirewallView({
                     <table className="zt">
                       <thead><tr><th>Date (UTC)</th><th>Messages</th><th>Raw Rows</th><th>Unique Subscribers</th><th>Unique Senders</th><th>Msgs / Sub</th></tr></thead>
                       <tbody>
-                        {daily.map((r) => (
-                          <tr key={`${r.date}-${r.stream}`}>
+                        {daily.map((r, i) => (
+                          <tr key={`${i}-${txt(r?.date)}`}>
                             <td>{String(r.date ?? '').slice(0, 10) || '—'}</td>
                             <td>{fN(r.messages)}</td><td>{fN(r.rawRows)}</td>
                             <td>{fN(r.subscribers)}</td><td>{fN(r.senders)}</td>
@@ -963,8 +963,8 @@ export function FirewallView({
           {tab === 'pipeline' && !!data && (
             <>
               <div className="zf-kpis">
-                {pipelineSummary.map((p) => (
-                  <Kpi key={p.stream} cls={num(p?.hoursMissing) > 0 ? 'kr' : num(p?.hoursPartial) > 0 ? 'kc' : 'kg'}
+                {pipelineSummary.map((p, i) => (
+                  <Kpi key={`${i}-${txt(p?.stream)}`} cls={num(p?.hoursMissing) > 0 ? 'kr' : num(p?.hoursPartial) > 0 ? 'kc' : 'kg'}
                     ic={IC.pipe} lbl={`${STREAM_LABEL[slug(p.stream)] ?? txt(p.stream)} — COMPLETE HOURS`} val={fN(p.hoursComplete)}
                     sub={<>{fN(p.hoursPartial)} partial · {fN(p.hoursMissing)} missing · {fN(p.filesFailed)} failed files
                       {toDate(p.latestHour) ? <><br />latest {hourFull(p.latestHour)}</> : null}</>} />

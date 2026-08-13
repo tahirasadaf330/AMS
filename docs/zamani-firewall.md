@@ -245,6 +245,13 @@ from the data container specifically so the populated branch can be rendered in 
 `renderToString` does not run effects, so testing the container alone only exercises its loading
 state. The suite covers 229 payload variants x 5 tabs (1,440 assertions).
 
+List keys are index-composite (`${i}-${txt(field)}`) rather than bare data fields. A key taken
+straight from the payload becomes `key={undefined}` the moment that field is missing, which React
+treats as no key at all — and it reports that through `console.error`, not by throwing and not in the
+rendered HTML. So the harness captures `console.error`/`console.warn` during every render and fails
+on any output; asserting on HTML alone is precisely what let a `key={undefined}` ship. The capture is
+itself verified against a deliberately keyless render.
+
 ## Not yet available
 
 Be explicit with stakeholders rather than promising these:
