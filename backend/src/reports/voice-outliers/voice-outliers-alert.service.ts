@@ -11,7 +11,7 @@ import { ConditionSchedulerService } from '../../conditions/condition-scheduler.
 // The schedule is user-adjustable afterwards via the Alerts UI (condition.trigger_cron).
 const COND_NAME = 'Voice Outliers — Spike/Drop Alert';
 const DEFAULT_CRON = '1-59/10 * * * *'; // :01, :11, :21, :31, :41, :51 — 1 min after each */10 refresh
-const RECIPIENTS = ['bilal.waris@hayo.net'];
+const RECIPIENTS = ['bilal.waris@hayo.net', 'mashhood@hayo.net'];
 
 // Python report script. String.raw so backslashes survive; contains NO backticks or ${...}. Prints a
 // single JSON line {triggered, subject, html}. Reads AMS Postgres via the AMS_PG_* env the executor sets.
