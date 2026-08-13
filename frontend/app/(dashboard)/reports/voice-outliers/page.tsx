@@ -179,7 +179,7 @@ export default function VoiceOutliersPage() {
         <div className="vo-body">
           <div className="vo-hdr">
             <div>
-              <div className="vo-title">Voice Outliers</div>
+              <div className="vo-title">Voice Smart Outliers</div>
               <div className="vo-sub">
                 <span className="vo-dot" />
                 Jerasoft VCS · last 10 min vs each route&apos;s own [P5–P95] baseline band · day/night separated
