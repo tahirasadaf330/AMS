@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { zamaniFirewallApi } from '@/lib/api';
 import { useDatasetSocket } from '@/hooks/useDatasetSocket';
-import { STREAMS, buildChart, hourLabel, hourFull, stamp, toDate } from './chart-data';
+import { STREAMS, buildChart, hourLabel, hourFull, stamp, toDate, camelizeKeys } from './chart-data';
 
 /**
  * Zamani SMS Firewall — five tabs over the SS7 / SMPP / SRI firewall logs.
@@ -122,7 +122,10 @@ const CSS = `
 .zchart{display:flex;align-items:flex-end;gap:2px;height:190px;padding-top:6px}
 .zcol{flex:1;display:flex;flex-direction:column;justify-content:flex-end;min-width:0;height:100%;position:relative}
 .zcol:hover .ztip{display:block}
-.zseg{width:100%;border-radius:1px 1px 0 0}
+/* min-height keeps a low hour visible: over a 7-day window the busiest hour can be ~500k
+   against a 1-message hour, and without a floor every quiet hour rounds to nothing and the chart
+   reads as empty. */
+.zseg{width:100%;border-radius:1px 1px 0 0;min-height:1px}
 .zseg.ss7{background:var(--river)} .zseg.smpp{background:var(--amethyst)} .zseg.sri{background:var(--turquoise)}
 .ztrack{width:100%;height:1px;background:var(--lns)}
 .ztip{display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:6px;background:var(--midnight);
@@ -228,7 +231,12 @@ export default function ZamaniFirewallPage() {
   const load = React.useCallback(() => {
     setLoading(true); setError(null);
     zamaniFirewallApi.getData(hours)
-      .then((r) => { setData(r.data); setDatasetId(r.data?.datasetIds?.traffic ?? null); })
+      // camelizeKeys: the backend snake_cases every response key globally (see chart-data.ts).
+      .then((r) => {
+        const d = camelizeKeys<any>(r.data);
+        setData(d);
+        setDatasetId(d?.datasetIds?.traffic ?? null);
+      })
       .catch((err: any) => setError(err?.response?.data?.message ?? err?.message ?? 'Failed to load data'))
       .finally(() => setLoading(false));
   }, [hours]);

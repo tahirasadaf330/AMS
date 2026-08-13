@@ -234,6 +234,21 @@ them across hours counts recurring subscribers repeatedly. Therefore:
 The API response carries `subscribersNote`, `senderCapNote`, `tagsNote` and `latencyNote` so each
 constraint travels with the numbers rather than living only in this doc.
 
+### The wire format is snake_case
+
+`backend/src/main.ts` installs a global `SnakeCaseInterceptor`, so a service returning `bucketHour`
+puts `bucket_hour` on the wire. Reading camelCase in the component yields `undefined` for every
+multi-word field while single-word ones (`messages`, `stream`, `requests`) pass through — which
+presents as "the panel has no data" rather than as a key mismatch, and is what emptied most of this
+report's panels on first release. The page calls `camelizeKeys()` on every payload at the fetch
+boundary so component code and tests stay in the same camelCase the service uses.
+
+The test harness dumps the payload **through the same transform the HTTP layer applies** and then
+through the shipped `camelizeKeys`, so it exercises service -> wire -> normalise -> component. It
+also asserts the raw wire payload does *not* already satisfy the component contract, so the check
+cannot quietly stop being meaningful. Testing the service return value directly is exactly what let
+this ship with a fully green suite.
+
 ### Rendering degrades, never blanks
 
 The page crashed once on `new Date(bucketHour).toISOString()` throwing `RangeError` for one

@@ -101,3 +101,27 @@ export function buildChart(rows: SeriesRow[] | null | undefined): Chart {
   const max = Math.max(1, ...cols.map((c) => c.total));
   return { cols, max, skipped };
 }
+
+/**
+ * Undo the backend's global snake_case response transform.
+ *
+ * `main.ts` installs a `SnakeCaseInterceptor` on every route, so a service returning `bucketHour`
+ * puts `bucket_hour` on the wire. Reading camelCase in the component therefore yields `undefined`
+ * for every multi-word field while single-word ones (`messages`, `stream`, `requests`) sail through
+ * — which looks exactly like "the panel has no data" rather than like a key mismatch.
+ *
+ * Normalising once at the fetch boundary keeps the component and its tests written in the same
+ * camelCase the service uses, instead of scattering snake_case reads through the JSX. Applied to
+ * every payload before it reaches state.
+ */
+export function camelizeKeys<T = any>(value: unknown): T {
+  if (Array.isArray(value)) return value.map((v) => camelizeKeys(v)) as unknown as T;
+  if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k.replace(/_([a-z0-9])/g, (_m, c: string) => c.toUpperCase())] = camelizeKeys(v);
+    }
+    return out as T;
+  }
+  return value as T;
+}
