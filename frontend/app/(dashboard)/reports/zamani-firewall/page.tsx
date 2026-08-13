@@ -140,11 +140,24 @@ const CSS = `
 .zbar-f{height:100%;border-radius:3px}
 .zbar-v{width:150px;flex-shrink:0;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--mu);font-size:11.5px}
 
-/* ── sparkline for latency/sri ────────── */
-.zspark{display:flex;align-items:flex-end;gap:2px;height:90px}
-.zspark .b{flex:1;background:var(--river);border-radius:1px 1px 0 0;min-height:1px;position:relative}
-.zspark .b.hi{background:var(--alizarin)}
-.zspark .b:hover .ztip{display:block}
+/* ── sparkline (trend bars) ───────────── */
+.zspark{display:flex;align-items:flex-end;gap:2px;height:110px;padding-top:4px}
+.zsc{flex:1;display:flex;flex-direction:column;justify-content:flex-end;min-width:0;height:100%;position:relative}
+.zsc:hover .ztip{display:block}
+.zsb{width:100%;border-radius:1px 1px 0 0;min-height:1px;background:var(--river)}
+.zsb.ok{background:var(--nephritis)} .zsb.warn{background:var(--carrot)} .zsb.bad{background:var(--alizarin)}
+.zsb.alt{background:var(--amethyst)}
+.zsfoot{display:flex;justify-content:space-between;font-size:10.5px;color:var(--mu);margin-top:6px;
+  font-family:'JetBrains Mono',monospace}
+/* ── per-hour status strip (pipeline) ─── */
+.zstrip{display:flex;gap:2px;height:26px;margin-bottom:6px}
+.zsq{flex:1;border-radius:3px;min-width:3px;position:relative}
+.zsq:hover .ztip{display:block}
+.zsq.complete{background:var(--nephritis)}
+.zsq.partial{background:var(--carrot)}
+.zsq.missing{background:var(--alizarin)}
+.zstrip-lbl{font-size:11px;color:var(--inks);width:64px;flex-shrink:0;font-weight:600}
+.zstrip-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 `;
 
 const IC = {
@@ -284,6 +297,19 @@ export function FirewallView({
   const routing = arr(data?.routing);
   const contentDefects = arr(data?.contentDefects);
 
+  // Pipeline coverage grouped per stream and ordered oldest-first, for the timeline strip.
+  const pipeStrips = React.useMemo(() => {
+    const g: Record<string, any[]> = {};
+    for (const r of pipeline) {
+      if (!r || typeof r.stream !== 'string') continue;
+      (g[r.stream] ??= []).push(r);
+    }
+    for (const k of Object.keys(g)) {
+      g[k].sort((a, b) => String(a?.fileHour ?? '').localeCompare(String(b?.fileHour ?? '')));
+    }
+    return Object.entries(g).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [pipeline]);
+
   const outcomeGroups = React.useMemo(() => {
     const g: Record<string, any[]> = {};
     for (const o of outcomes) { if (!o || typeof o.stream !== 'string') continue; (g[o.stream] ??= []).push(o); }
@@ -304,11 +330,23 @@ export function FirewallView({
   ].map((x) => ({ ...x, n: tagTotal(x.k) }));
   const a2pTotal = a2p.reduce((a, x) => a + x.n, 0) || 1;
   const whitelisted = tagTotal('whitelist_sender');
-  const nonWhitelisted = Math.max(totalMessages - whitelisted, 0);
-  // Grey route: international A2P that arrived through more than one local SMSC global title.
+  // Denominator is SS7 + SMPP only: SRI lookups carry no tags at all, so including them would
+  // dilute whitelist coverage with traffic that could never have been whitelisted.
+  const taggableMessages = num(byStream.ss7?.messages) + num(byStream.smpp?.messages);
+  const nonWhitelisted = Math.max(taggableMessages - whitelisted, 0);
+  /**
+   * Grey-route watch. The signal differs by stream and conflating them would manufacture false
+   * positives, so it is not conflated:
+   *  - SS7: `via_smscs` counts distinct SMSC *global titles*. International A2P entering through
+   *    more than one is the actual grey-route shape, so those are flagged as candidates.
+   *  - SMPP: it counts distinct ingress links (binds). A large aggregator legitimately uses many —
+   *    WhatsApp, WAVE and Apple each show 8-10 — so the count is shown as context and never flagged.
+   */
   const greyRoutes = tagSenders
-    .filter((t) => t?.tag === 'int_a2p' && num(t?.viaSmscs) > 1)
-    .sort((a, b) => num(b?.messages) - num(a?.messages));
+    .filter((t) => t?.tag === 'int_a2p' && num(t?.viaSmscs) > 0)
+    .map((t) => ({ ...t, candidate: slug(t?.stream) === 'ss7' && num(t?.viaSmscs) > 1 }))
+    .sort((a, b) => (Number(b.candidate) - Number(a.candidate)) || (num(b?.messages) - num(a?.messages)));
+  const greyCandidates = greyRoutes.filter((g) => g.candidate).length;
 
   // ── page 3 derivations ────────────────────────────────────────────────────────────────────
   const dlrByStat = React.useMemo(() => {
@@ -344,6 +382,41 @@ export function FirewallView({
       {sub ? <div className="zk-sub">{sub}</div> : null}
     </div>
   );
+
+  /**
+   * Trend bars over an hourly series. Heights are scaled to the window maximum, so a flat series
+   * reads flat rather than being stretched to look like variation. `band` colours each bar by
+   * threshold when the metric has one (the probing ratio, the defect rate).
+   */
+  const Spark = ({ rows, valueOf, labelOf, band, alt }: {
+    rows: any[]; valueOf: (r: any) => number; labelOf: (r: any) => string;
+    band?: (v: number) => string; alt?: boolean;
+  }) => {
+    const vals = rows.map((r) => num(valueOf(r)));
+    const max = Math.max(1, ...vals);
+    if (!rows.length) return <div className="zempty">No data in this window.</div>;
+    return (
+      <>
+        <div className="zspark">
+          {rows.map((r, i) => {
+            const v = vals[i];
+            const cls = band ? band(v) : (alt ? 'alt' : '');
+            return (
+              <div className="zsc" key={i}>
+                <div className="ztip">{labelOf(r)}</div>
+                <div className={`zsb ${cls}`} style={{ height: `${(v / max) * 100}%` }} />
+              </div>
+            );
+          })}
+        </div>
+        <div className="zsfoot">
+          <span>{hourLabel(rows[0]?.bucketHour)}</span>
+          {rows.length > 2 && <span>{hourLabel(rows[Math.floor(rows.length / 2)]?.bucketHour)}</span>}
+          <span>{hourLabel(rows[rows.length - 1]?.bucketHour)}</span>
+        </div>
+      </>
+    );
+  };
 
   const Panel = ({ title, sub, children }: any) => (
     <div className="zpnl">
@@ -549,11 +622,23 @@ export function FirewallView({
                   sub={`${blocked.length} distinct dropped_* reason${blocked.length === 1 ? '' : 's'}`} />
                 <Kpi cls="kc" ic={IC.send} lbl="INTERNATIONAL A2P" val={fN(tagTotal('int_a2p'))}
                   sub={`${fPct((tagTotal('int_a2p') / a2pTotal) * 100)} of classified traffic — the revenue-leakage view`} />
-                <Kpi cls="kb" ic={IC.user} lbl="WHITELISTED" val={fPct(totalMessages > 0 ? (whitelisted / totalMessages) * 100 : null)}
-                  sub={`${fN(whitelisted)} whitelisted vs ${fN(nonWhitelisted)} not`} />
+                <Kpi cls="kb" ic={IC.user} lbl="WHITELISTED" val={fPct(taggableMessages > 0 ? (whitelisted / taggableMessages) * 100 : null)}
+                  sub={`${fN(whitelisted)} of ${fN(taggableMessages)} SS7+SMPP messages (SRI carries no tags)`} />
               </div>
 
               <div className="znote">{data.tagsNote}</div>
+
+              <Panel title="Top rules by volume" sub="messages carrying each tag — overlapping flags, not a share of traffic">
+                {bars(
+                  [...tags].sort((a, b) => num(b?.messages) - num(a?.messages)).slice(0, 12)
+                    .map((t) => ({
+                      l: `${txt(t?.tag)} · ${STREAM_LABEL[slug(t?.stream)] ?? txt(t?.stream)}`,
+                      n: num(t?.messages),
+                      c: String(t?.tag ?? '').startsWith('dropped_') ? 'var(--alizarin)'
+                        : num(t?.intervened) > 0 ? 'var(--carrot)' : 'var(--river)',
+                    })),
+                  Math.max(1, ...tags.map((t) => num(t?.messages))))}
+              </Panel>
 
               <div className="zgrid2">
                 <Panel title="Tag frequency" sub="which rules fire, in corrected messages">
@@ -585,7 +670,7 @@ export function FirewallView({
                     {bars([
                       { l: 'Whitelisted sender', n: whitelisted, c: 'var(--nephritis)' },
                       { l: 'Not whitelisted', n: nonWhitelisted, c: 'var(--alizarin)' },
-                    ], totalMessages || 1)}
+                    ], taggableMessages || 1)}
                   </Panel>
                 </div>
               </div>
@@ -616,29 +701,39 @@ export function FirewallView({
                 </div>
               </Panel>
 
-              <Panel title="Grey-route watch" sub="international A2P arriving through more than one SMSC global title">
+              <Panel title="Grey-route watch" sub={`international A2P by arrival path · ${greyCandidates} SS7 candidate${greyCandidates === 1 ? '' : 's'}`}>
                 <div className="tbl-scroll">
                   {greyRoutes.length === 0 ? (
                     <div className="zempty">
-                      No international A2P sender arrived via multiple SMSC global titles in this window.
+                      No international A2P traffic in this window.
                       {tagTotal('dropped_int_a2p') > 0 ? ` ${fN(tagTotal('dropped_int_a2p'))} int_a2p message(s) were dropped outright.` : ''}
                     </div>
                   ) : (
                     <table className="zt">
-                      <thead><tr><th>Sender ID</th><th>Stream</th><th>Int. A2P Messages</th><th>Via SMSCs</th><th>Intervened</th></tr></thead>
+                      <thead><tr><th>Sender ID</th><th>Stream</th><th>Int. A2P Messages</th><th>Arrival Paths</th><th>Grey Route?</th><th>Intervened</th></tr></thead>
                       <tbody>
                         {greyRoutes.slice(0, 30).map((r, i) => (
                           <tr key={`${r.senderId}-${i}`}>
                             <td>{txt(r.senderId)}</td>
                             <td><span className={`ztag ${slug(r.stream)}`}>{STREAM_LABEL[slug(r.stream)] ?? txt(r.stream)}</span></td>
                             <td>{fN(r.messages)}</td>
-                            <td><span className="zpill warn">{fN(r.viaSmscs)}</span></td>
+                            <td><span className={`zpill ${r.candidate ? 'warn' : 'info'}`}>{fN(r.viaSmscs)}</span></td>
+                            <td>{r.candidate
+                              ? <span className="zpill bad">candidate</span>
+                              : <span style={{ color: 'var(--mu)' }}>—</span>}</td>
                             <td>{fN(r.intervened)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   )}
+                </div>
+                <div className="zpb" style={{ paddingTop: 10, paddingBottom: 12 }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--mu)', lineHeight: 1.5 }}>
+                    Only SS7 rows are flagged. There, arrival paths are distinct SMSC global titles and more than one
+                    for international A2P is the grey-route shape. On SMPP the count is distinct ingress binds, which a
+                    large aggregator legitimately spreads across — flagging those would be a false positive.
+                  </div>
                 </div>
               </Panel>
             </>
@@ -718,6 +813,15 @@ export function FirewallView({
                 </div>
               </Panel>
 
+              <Panel title="Submit latency trend" sub="p95 per hour (submit-sm), scaled to the window maximum">
+                <div className="zpb">
+                  <Spark rows={submitLat}
+                    valueOf={(r) => num(r?.p95Ms)}
+                    labelOf={(r) => `${hourFull(r?.bucketHour)} · p50 ${fN(r?.p50Ms)}ms · p95 ${fN(r?.p95Ms)}ms · ${fN(r?.pairs)} pairs`}
+                    band={(v) => (v >= 1000 ? 'bad' : v >= 300 ? 'warn' : 'ok')} />
+                </div>
+              </Panel>
+
               <Panel title="Submit → response latency" sub="percentiles per hour, paired within a bind">
                 <div className="tbl-scroll" style={{ maxHeight: 340 }}>
                   {latency.length === 0 ? <div className="zempty">No matched request/response pairs in this window.</div> : (
@@ -761,6 +865,24 @@ export function FirewallView({
                 normal; a sustained rise means the same numbers are being queried again and again, and sequential
                 MSISDN ranges would indicate enumeration. It is reported per hour because a daily average would
                 flatten exactly the spike worth seeing.
+              </div>
+
+              <div className="zgrid2">
+                <Panel title="SRI requests per hour" sub="lookup volume">
+                  <div className="zpb">
+                    <Spark rows={sri} alt
+                      valueOf={(r) => num(r?.requests)}
+                      labelOf={(r) => `${hourFull(r?.bucketHour)} · ${fN(r?.requests)} requests · ${f2(r?.requestsPerSec)}/sec`} />
+                  </div>
+                </Panel>
+                <Panel title="Requests per MSISDN — probing detector" sub="green under 2, amber 2-3, red above 3">
+                  <div className="zpb">
+                    <Spark rows={sri}
+                      valueOf={(r) => num(r?.requestsPerMsisdn)}
+                      labelOf={(r) => `${hourFull(r?.bucketHour)} · ${f2(r?.requestsPerMsisdn)} req/MSISDN · ${fN(r?.msisdns)} numbers`}
+                      band={(v) => (v >= 3 ? 'bad' : v >= 2 ? 'warn' : 'ok')} />
+                  </div>
+                </Panel>
               </div>
 
               <Panel title="SRI request rate" sub="requests, distinct MSISDNs and the probing ratio per hour">
@@ -858,6 +980,23 @@ export function FirewallView({
                 modification time, not its name — the name carries a 12-hour clock with no AM/PM and names the rotation
                 hour, one ahead of the traffic it holds.
               </div>
+
+              <Panel title="Ingest coverage timeline" sub="one block per traffic hour, oldest left — green complete, amber partial, red missing">
+                <div className="zpb">
+                  {pipeStrips.length === 0 ? <div className="zempty">No ingest history in this window.</div> : pipeStrips.map(([stream, rows]) => (
+                    <div className="zstrip-row" key={stream}>
+                      <span className="zstrip-lbl">{STREAM_LABEL[slug(stream)] ?? txt(stream)}</span>
+                      <div className="zstrip">
+                        {rows.map((r: any, i: number) => (
+                          <div key={i} className={`zsq ${slug(r?.hourStatus) || 'missing'}`}>
+                            <div className="ztip">{hourFull(r?.fileHour)} · {txt(r?.hourStatus)} · {fN(r?.filesLoaded)}/{fN(r?.filesSeen)} files · {fN(r?.rowsLoaded)} rows</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
 
               <Panel title="Content-encoding defect rate" sub="double-encoded at source, per data_coding">
                 <div className="tbl-scroll" style={{ maxHeight: 260 }}>

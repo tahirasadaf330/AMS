@@ -125,6 +125,8 @@ table would weight a 47-part SMS 47 times. Measured on `long_sms`: 1,102,213 raw
 
 Stated rather than hidden, and both far below the ~27% error that counting raw rows would introduce:
 
+- Whitelist coverage is denominated on SS7 + SMPP only — SRI lookups carry no tags at all, so
+  including them would dilute the percentage with traffic that could never have been whitelisted.
 - Multipart groups are bucketed **by hour**, which double-counts a message whose segments straddle
   an hour boundary: 2,250 of 3,719,171 groups = **0.06%**. This is what makes each hour independently
   computable, and therefore what makes the incremental rollup possible at all.
@@ -190,15 +192,28 @@ percentage by which counting rows would have overstated it, so the correction st
 
 **Firewall Effectiveness** — tag frequency, the `dropped_*` family by reason *and* the senders behind
 it, A2P classification (local vs international vs P2P - the revenue-leakage view), whitelist coverage,
-and a grey-route watch listing international A2P senders that arrived through more than one SMSC
-global title.
+and a grey-route watch over international A2P arrival paths.
+
+The grey-route flag is **stream-aware on purpose**. On SS7, arrival paths are distinct SMSC global
+titles and more than one for international A2P is the actual grey-route shape — 3 candidates showed
+up (CANAL+ via 2 paths on 2,893 messages, CANALPLUS, SAMSUNG). On SMPP the same count means distinct
+ingress binds, which large aggregators legitimately spread across (WAVE and WhatsApp each use 10), so
+those are shown as context and never flagged. Conflating the two would manufacture false positives.
+An earlier version passed NULL as the SMPP arrival path, which pinned the count at 0 and left the
+panel blind to SMPP altogether.
 
 **Delivery Quality** — DLR outcome mix, error breakdown by `dlr_err` and network error code, delivery
 rate by sender ranked worst-first, and submit→response percentiles. `command_status` gets no panel: it
 is 0 on every response in the loaded data, so it would only ever show one value.
 
-**Network & SRI** — SRI request rate and requests-per-MSISDN per hour (the probing detector, coloured
-by threshold), distinct MSISDNs per querying SMSC, and SS7 OPC/DPC routing.
+**Network & SRI** — trend charts for lookup volume and requests-per-MSISDN (the probing detector,
+coloured green/amber/red by threshold), the per-hour table, distinct MSISDNs per querying SMSC, and
+SS7 OPC/DPC routing.
+
+Every tab carries at least one chart, not just tables: the traffic spine is a stacked hourly bar
+chart, Firewall Effectiveness ranks the top 12 rules as proportion bars, Delivery Quality trends p95
+latency per hour, Network & SRI trends both SRI metrics, and Pipeline Health draws a per-hour
+coverage timeline (one block per traffic hour, green/amber/red per stream).
 
 **Pipeline Health** — per-stream complete/partial/missing hour counts, the content-encoding defect
 rate per `data_coding`, then per-hour coverage with files loaded/seen, nodes, rows, rejects, attempts

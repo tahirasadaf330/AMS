@@ -513,7 +513,11 @@ WITH tagged AS (
     FROM zamani.v_ss7_message_tags, unnest(tags) AS tag
     WHERE sender_id IS NOT NULL
     UNION ALL
-    SELECT bucket_hour, business_date, 'smpp', tag, sender_id, NULL, final_action
+    -- For SMPP the arrival path is the bind/ingress link, not an SCCP global title, so
+    -- traffic_source_name stands in for calling_party. Passing NULL here (as this view first did)
+    -- made COUNT(DISTINCT calling_party) zero for every SMPP row, which left via_smscs stuck at 0
+    -- and the grey-route watch blind to SMPP entirely — where most int_a2p traffic actually is.
+    SELECT bucket_hour, business_date, 'smpp', tag, sender_id, traffic_source_name, final_action
     FROM zamani.v_smpp_messages, unnest(tags) AS tag
     WHERE sender_id IS NOT NULL
 ), agg AS (
