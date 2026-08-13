@@ -44,6 +44,7 @@ import { PrepaymentClModule } from "./reports/prepayment-cl/prepayment-cl.module
 import { ReportsRegistryModule } from "./admin/reports/reports-registry.module";
 import { MtEdrModule } from "./reports/mt-edr/mt-edr.module";
 import { ZamaniSenderIdModule } from "./reports/zamani-senderid/zamani-senderid.module";
+import { ZamaniFirewallModule } from "./reports/zamani-firewall/zamani-firewall.module";
 import { SmsReportModule } from "./reports/sms-report/sms-report.module";
 import { NegativeMarginModule } from "./reports/negative-margin/negative-margin.module";
 import { AdminGroupsModule } from "./admin/groups/groups.module";
@@ -124,6 +125,7 @@ import { VoiceOutliersModule } from "./reports/voice-outliers/voice-outliers.mod
     PrepaymentClModule,
     MtEdrModule,
     ZamaniSenderIdModule,
+    ZamaniFirewallModule,
     SmsReportModule,
     NegativeMarginModule,
     DealsAutomationModule,

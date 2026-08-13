@@ -493,6 +493,11 @@ export const appleTrafficApi = {
   getData: () => api.get('/reports/apple-traffic/data'),
 };
 
+// ── ZAMANI SMS FIREWALL REPORT ────────────────────────────────
+export const zamaniFirewallApi = {
+  getData: (hours = 24) => api.get('/reports/zamani-firewall/data', { params: { hours } }),
+};
+
 // ── SMS CREDIT LIMIT REPORT ───────────────────────────────────
 export const smsCreditLimitApi = {
   getData: () => api.get('/reports/sms-credit-limit/data'),
