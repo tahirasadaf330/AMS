@@ -12,7 +12,12 @@ const TO: string[] = ['bilal.waris@hayo.net', 'mladen.jankovic@hayo.net', 'sarka
 const CC: string[] = [];
 
 // Shared Python preamble: helpers + DB connect (AMS Postgres) + opens a try block. Each alert body
-// runs its window query and emits {triggered, subject, html, message}; the epilogue closes the try.
+// runs its window query and emits {triggered, subject, html, message, rows}; the epilogue closes the
+// try. `rows` is the machine-readable payload the scheduler's duplicate suppression hashes
+// (condition-scheduler identicalRecentSend): identical rows already SENT within
+// PYTHON_ALERT_DEDUP_HOURS (default 24h) → the email is skipped, so a persisting condition no longer
+// re-emails on every cron tick. Rows are sorted by a stable key (not the display order, which follows
+// volume and can reshuffle between runs) and exclude values that drift as windows slide where noted.
 const PREAMBLE = String.raw`
 import os, sys, json, traceback
 import psycopg2
@@ -98,8 +103,10 @@ const ROUTING_BODY = String.raw`
     inner = table(["Sender ID", "Customer", "Wrong Vendor", "Messages"], ["left", "left", "left", "right"], trows)
     intro = ("<b>" + fi(total) + "</b> Zamani-destined message(s) in the last 5 minutes were terminated to a vendor "
              "OTHER than the approved suppliers (Zamani_Niger / Innovatio) — please check the routing.")
+    drows = sorted([{"sender_id": r[0], "customer": r[1], "vendor": (r[2] or "vendor") + " (" + str(r[3]) + ")",
+                     "messages": int(r[4] or 0)} for r in rows], key=lambda d: str(d["sender_id"]))
     emit({"triggered": True, "subject": "[Zamani] Routing error — traffic sent to the wrong vendor",
-          "html": wrap("Zamani Routing Error", intro, inner), "message": "misrouted " + fi(total)})
+          "html": wrap("Zamani Routing Error", intro, inner), "message": "misrouted " + fi(total), "rows": drows})
 `;
 
 // ── 2) Spike / AIT: SD last-15-min >= 3x its trailing-2h per-15min average AND >= 100 ───────────
@@ -133,8 +140,12 @@ const SPIKE_BODY = String.raw`
                   ["left", "left", "right", "right", "right"], trows)
     intro = ("Unusual volume surge (≥ 3× the sender's trailing-2h average and ≥ 100 messages in 15 minutes). "
              "Review for possible AIT and consider notifying the partner directly.")
+    # Dedup key = identity only (sender + customer): a spike that persists across ticks would
+    # otherwise re-email every 15 min as the count/factor drift.
+    drows = sorted([{"sender_id": r[0], "customer": r[1]} for r in rows], key=lambda d: str(d["sender_id"]))
     emit({"triggered": True, "subject": "[Zamani] Traffic spike (possible AIT)",
-          "html": wrap("Zamani Traffic Spike", intro, inner), "message": str(len(rows)) + " spiking sender ID(s)"})
+          "html": wrap("Zamani Traffic Spike", intro, inner), "message": str(len(rows)) + " spiking sender ID(s)",
+          "rows": drows})
 `;
 
 // ── 3) New Sender ID alive: >=10 msgs in last 15 min, not seen in the prior 24h ─────────────────
@@ -163,8 +174,11 @@ const NEW_SID_BODY = String.raw`
     inner = table(["New Sender ID", "Customer", "Messages (15 min)"], ["left", "left", "right"], trows)
     intro = ("A new sender ID just went live on Zamani (sending now, not seen in the prior 24h) — likely a "
              "customer testing a new SD. Worth an early check with them.")
+    # Dedup key = identity only (sender + customer); the 15-min count is window noise.
+    drows = sorted([{"sender_id": r[0], "customer": r[1]} for r in rows], key=lambda d: str(d["sender_id"]))
     emit({"triggered": True, "subject": "[Zamani] New sender ID is live",
-          "html": wrap("Zamani — New Sender ID Alive", intro, inner), "message": str(len(rows)) + " new sender ID(s)"})
+          "html": wrap("Zamani — New Sender ID Alive", intro, inner), "message": str(len(rows)) + " new sender ID(s)",
+          "rows": drows})
 `;
 
 // ── 4) Stopped Sender ID: >=50 msgs in prior 24h..30m but 0 in the last 30 min ──────────────────
@@ -194,8 +208,15 @@ const STOPPED_SID_BODY = String.raw`
     inner = table(["Sender ID", "Customer", "Msgs (prior 6h)", "Last seen"], ["left", "left", "right", "left"], trows)
     intro = ("An established sender ID that was working has STOPPED — it sent ≥ 100 messages in the prior 6h but 0 "
              "in the last 60 minutes. Could be a route break or the client stopping traffic.")
+    # Dedup key = the stop EVENT (sender + customer + last_seen). The prior-6h count is deliberately
+    # excluded: that window slides every run, so the count drifts (483 → 471 …) with no new
+    # information and would defeat the duplicate suppression — the exact every-30-min repeat this
+    # payload exists to stop. A genuinely new stop (new sender or a new last_seen) still alerts.
+    drows = sorted([{"sender_id": r[0], "customer": r[1], "last_seen": r[3]} for r in rows],
+                   key=lambda d: str(d["sender_id"]))
     emit({"triggered": True, "subject": "[Zamani] A sender ID that was working has stopped",
-          "html": wrap("Zamani — Sender ID Stopped", intro, inner), "message": str(len(rows)) + " stopped sender ID(s)"})
+          "html": wrap("Zamani — Sender ID Stopped", intro, inner), "message": str(len(rows)) + " stopped sender ID(s)",
+          "rows": drows})
 `;
 
 // ── 5) Delivery < 50%: settled 60-min window ([now-70m, now-10m]), >=50 msgs ────────────────────
@@ -218,8 +239,13 @@ const DELIVERY_BODY = String.raw`
                   ["left", "left", "right", "right", "right"], trows)
     intro = ("Delivery below 50% over the last hour (≥ 50 messages, DLRs settled). The AM should be ready for "
              "customer complaints on these sender IDs.")
+    # Dedup key = identity only (sender + customer): the hourly window slides every run so counts and
+    # DLR% drift — the same senders staying below 50% should not re-email every 30 min. A sender
+    # joining or leaving the list changes the payload and alerts immediately.
+    drows = sorted([{"sender_id": r[0], "customer": r[1]} for r in rows], key=lambda d: str(d["sender_id"]))
     emit({"triggered": True, "subject": "[Zamani] Low delivery (< 50%)",
-          "html": wrap("Zamani — Low Delivery", intro, inner), "message": str(len(rows)) + " sender ID(s) < 50%"})
+          "html": wrap("Zamani — Low Delivery", intro, inner), "message": str(len(rows)) + " sender ID(s) < 50%",
+          "rows": drows})
 `;
 
 interface ZamaniAlert { name: string; defaultCron: string; script: string; }
