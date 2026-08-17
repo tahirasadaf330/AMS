@@ -56,6 +56,7 @@ import { SpecialRoutesMonitoringModule } from "./reports/special-routes-monitori
 import { McpModule } from "./mcp/mcp.module";
 import { AccessModule } from "./common/access/access.module";
 import { VoiceOutliersModule } from "./reports/voice-outliers/voice-outliers.module";
+import { InnovatioTrafficModule } from "./reports/innovatio-traffic/innovatio-traffic.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -138,6 +139,7 @@ import { VoiceOutliersModule } from "./reports/voice-outliers/voice-outliers.mod
     McpModule,
     AccessModule,
     VoiceOutliersModule,
+    InnovatioTrafficModule,
   ],
 })
 export class AppModule {}

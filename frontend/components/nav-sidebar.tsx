@@ -44,6 +44,7 @@ const REPORT_LINKS: ReportLink[] = ([
   { slug: 'apple-traffic', href: '/reports/apple-traffic', label: 'Apple Traffic', section: 'sms' },
   { slug: 'deals-automation', href: '/reports/deals-automation', label: 'Deals Automation', section: 'voice' },
   { slug: 'google_mo', href: '/reports/google-mo-traffic', label: 'Google MO Traffic', section: 'sms' },
+  { slug: 'innovatio-traffic', href: '/reports/innovatio-traffic', label: 'Innovatio Traffic', section: 'sms' },
   { slug: 'mt-edr', href: '/reports/mt-edr-monitoring', label: 'MT EDR Monitoring', section: 'sms' },
   { slug: 'prepayment-cl', href: '/reports/prepayment-cl', label: 'Pre-Payment Limit', section: 'voice' },
   { slug: 'sms-credit-limit', href: '/reports/sms-credit-limit', label: 'SMS Credit Limit', section: 'sms' },
@@ -136,7 +137,7 @@ export function NavSidebar() {
               <Clock className="h-5 w-5" />
             </Link>
           )}
-          {(hasReportAccess('zamani') || hasReportAccess('vcs-balance') || hasReportAccess('sms-credit-limit') || hasReportAccess('prepayment-cl') || hasReportAccess('google_mo') || hasReportAccess('mt-edr') || hasReportAccess('sms-report') || hasReportAccess('deals-automation') || hasReportAccess('voice-live-traffic') || hasReportAccess('apple-traffic') || hasReportAccess('negative-margin') || hasReportAccess('src-dst-number-monitoring') || hasReportAccess('voice-outliers') || hasReportAccess('zamani-firewall')) && (
+          {(hasReportAccess('zamani') || hasReportAccess('vcs-balance') || hasReportAccess('sms-credit-limit') || hasReportAccess('prepayment-cl') || hasReportAccess('google_mo') || hasReportAccess('mt-edr') || hasReportAccess('sms-report') || hasReportAccess('deals-automation') || hasReportAccess('voice-live-traffic') || hasReportAccess('apple-traffic') || hasReportAccess('negative-margin') || hasReportAccess('src-dst-number-monitoring') || hasReportAccess('voice-outliers') || hasReportAccess('zamani-firewall') || hasReportAccess('innovatio-traffic')) && (
             <Link href={hasReportAccess('zamani') ? '/reports/zamani-traffic' : hasReportAccess('google_mo') ? '/reports/google-mo-traffic' : hasReportAccess('vcs-balance') ? '/reports/vcs-balance' : hasReportAccess('sms-credit-limit') ? '/reports/sms-credit-limit' : hasReportAccess('mt-edr') ? '/reports/mt-edr-monitoring' : hasReportAccess('deals-automation') ? '/reports/deals-automation' : hasReportAccess('voice-live-traffic') ? '/reports/voice-live-traffic' : hasReportAccess('negative-margin') ? '/reports/negative-margin' : hasReportAccess('src-dst-number-monitoring') ? '/reports/src-dst-number-monitoring' : '/reports/sms-report'} className={cn('p-2 rounded-lg hover:bg-gray-700', isActive('/reports') ? 'text-blue-400' : 'text-gray-400')} title="Reports">
 
               <BarChart2 className="h-5 w-5" />

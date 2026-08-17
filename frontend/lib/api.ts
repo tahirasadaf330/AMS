@@ -303,6 +303,11 @@ export const voiceOutliersApi = {
   rebuild: () => api.post('/reports/voice-outliers/rebuild'),
 };
 
+// ── REPORT — INNOVATIO TRAFFIC ───────────────────────────────────
+export const innovatioTrafficApi = {
+  getData: () => api.get('/reports/innovatio-traffic/data'),
+};
+
 // ── ADMIN — DATASETS ──────────────────────────────────────────
 export const adminDatasetsApi = {
   list: () => api.get<Dataset[]>('/admin/datasets'),
