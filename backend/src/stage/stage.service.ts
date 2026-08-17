@@ -349,6 +349,18 @@ export class StageService implements OnModuleInit {
             [retentionDays],
           ).catch((e: Error) => this.logger.error(`Retention prune failed for ${dataset.stageTableName}: ${e.message}`));
         }
+
+        // Retention prune (lookback-incremental mode): opt-in via retention_days > 0.
+        // Gate on the RAW column value, NOT the `retentionDays` variable (which defaults to 1
+        // for overlap mode) — lookback datasets that leave retention_days NULL must keep
+        // unlimited history (e.g. SMS Report).
+        const lookbackRetention = Number(incrConfig?.retention_days) || 0;
+        if (isIncremental && lookbackRetention > 0) {
+          await this.dataSource.query(
+            `DELETE FROM ${dataset.stageTableName} WHERE "date" < ((now() AT TIME ZONE 'UTC')::date - $1::int)`,
+            [lookbackRetention],
+          ).catch((e: Error) => this.logger.error(`Retention prune failed for ${dataset.stageTableName}: ${e.message}`));
+        }
       } catch (err) {
         await queryRunner.rollbackTransaction();
         throw err;

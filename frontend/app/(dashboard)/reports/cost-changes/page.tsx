@@ -44,6 +44,10 @@ const CSS = `
 .dark .ccr-sel{color-scheme:dark}
 .ccr-sel:focus{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.15)}
 .ccr-clr{height:33px;padding:0 11px;border:1px dashed #94a3b8;border-radius:7px;background:transparent;color:var(--mu);font-size:.74rem;cursor:pointer}
+.ccr-qb{height:33px;padding:0 12px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--inks);font-size:.76rem;cursor:pointer}
+.ccr-qb:hover{border-color:#2563eb;color:#2563eb}
+.ccr-qb.active{border-color:#2563eb;color:#2563eb;font-weight:700;background:var(--accent-bg)}
+.ccr-qbs{display:flex;align-items:flex-end;gap:6px}
 .ccr-tbl-wrap{overflow:auto;max-height:calc(100vh - 320px);min-height:260px;border-radius:10px;border:1px solid var(--ln);background:var(--sf)}
 .ccr-tbl{width:100%;border-collapse:collapse;font-size:.79rem;table-layout:fixed}
 .ccr-tbl thead tr{background:var(--sf2);border-bottom:2px solid var(--lns)}
@@ -69,13 +73,25 @@ type SortDir = 'asc' | 'desc' | null;
 
 // Column widths sum to 100% so the table fits without horizontal scroll.
 const COLS: { key: string; label: string; left?: boolean; w: string }[] = [
-  { key: 'supplier_account', label: 'Supplier Account', left: true, w: '24%' },
-  { key: 'country',          label: 'Country',          left: true, w: '18%' },
-  { key: 'network',          label: 'Network',          left: true, w: '22%' },
-  { key: 'currency',         label: 'Currency',         w: '10%' },
+  { key: 'date',             label: 'Date',             left: true, w: '10%' },
+  { key: 'supplier_account', label: 'Supplier Account', left: true, w: '21%' },
+  { key: 'country',          label: 'Country',          left: true, w: '15%' },
+  { key: 'network',          label: 'Network',          left: true, w: '19%' },
+  { key: 'currency',         label: 'Currency',         w: '9%'  },
   { key: 'old_rate',         label: 'Old Rate',         w: '13%' },
   { key: 'new_rate',         label: 'New Rate',         w: '13%' },
 ];
+
+const fMonth = (m: string) =>
+  new Date(m + '-01T00:00:00Z').toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+// Quick ranges (calendar days including today): Last 24h ≈ yesterday + today.
+const QUICK_RANGES = [
+  { key: '24h', label: 'Last 24h',  days: 2 },
+  { key: '7d',  label: 'Last 7 D',  days: 7 },
+  { key: '30d', label: 'Last 30 D', days: 30 },
+] as const;
+type QuickRange = typeof QUICK_RANGES[number]['key'] | '';
 
 const EMPTY_FILTERS = { supplier: '', country: '', network: '', currency: '' };
 
@@ -85,7 +101,9 @@ export default function CostChangesPage() {
   const [loading, setLoading]     = React.useState(true);
   const [error, setError]         = React.useState<string | null>(null);
   const [filters, setFilters]     = React.useState(EMPTY_FILTERS);
-  const [sort, setSort]           = React.useState<{ key: string | null; dir: SortDir }>({ key: 'supplier_account', dir: 'asc' });
+  const [month, setMonth]         = React.useState(''); // '' = server default (current month)
+  const [range, setRange]         = React.useState<QuickRange>(''); // quick range wins over month
+  const [sort, setSort]           = React.useState<{ key: string | null; dir: SortDir }>({ key: 'date', dir: 'desc' });
 
   const onSort = React.useCallback((key: string) => {
     setSort((s) => ({
@@ -96,11 +114,12 @@ export default function CostChangesPage() {
 
   const load = React.useCallback(() => {
     setLoading(true); setError(null);
-    costChangesApi.getData()
+    const rangeDef = QUICK_RANGES.find((q) => q.key === range);
+    costChangesApi.getData(rangeDef ? { days: rangeDef.days } : month ? { month } : undefined)
       .then(r => { setData(r.data); setDatasetId(r.data?.datasetId ?? null); })
       .catch((err: any) => setError(err?.response?.data?.message ?? err?.message ?? 'Failed to load data'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [month, range]);
 
   React.useEffect(() => { load(); }, [load]);
   useDatasetSocket(datasetId, load);
@@ -185,7 +204,7 @@ export default function CostChangesPage() {
               <div className="ccr-title">Cost Changes Report</div>
               <div className="ccr-sub">
                 <span className="ccr-dot" />
-                ASMSC · last 48h · latest supplier rate of the last 24h vs the previous 24h — changed rates only
+                ASMSC · daily rate-change history · latest supplier rate per day vs the previous day
               </div>
             </div>
             {lastRefreshed && (
@@ -207,6 +226,28 @@ export default function CostChangesPage() {
           </div>
 
           <div className="ccr-filt">
+            <div className="ccr-qbs">
+              {QUICK_RANGES.map((q) => (
+                <button
+                  key={q.key}
+                  className={`ccr-qb ${range === q.key ? 'active' : ''}`}
+                  onClick={() => { setRange(q.key); setMonth(''); }}
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
+            <div className="ccr-ff">
+              <label>Month</label>
+              <select
+                className="ccr-sel"
+                value={range ? '' : (month || data?.month || '')}
+                onChange={(e) => { setMonth(e.target.value); setRange(''); }}
+              >
+                {range && <option value="">—</option>}
+                {(data?.months ?? []).map((m: string) => <option key={m} value={m}>{fMonth(m)}</option>)}
+              </select>
+            </div>
             {FILTER_DEFS.map((f) => (
               <div className="ccr-ff" key={f.key}>
                 <label>{f.label}</label>
@@ -231,13 +272,14 @@ export default function CostChangesPage() {
               <tbody>
                 {loading && <tr><td className="ccr-empty" colSpan={COLS.length}>Loading…</td></tr>}
                 {!loading && rows.length === 0 && (
-                  <tr><td className="ccr-empty" colSpan={COLS.length}>{error ? 'Load failed — see error above' : hasFilter ? 'No matching rate changes' : 'No rate changes in the last 24h — or refresh the dataset first'}</td></tr>
+                  <tr><td className="ccr-empty" colSpan={COLS.length}>{error ? 'Load failed — see error above' : hasFilter ? 'No matching rate changes' : `No rate changes in ${range ? QUICK_RANGES.find((q) => q.key === range)?.label.toLowerCase() : data?.month ? fMonth(data.month) : 'this month'}`}</td></tr>
                 )}
                 {!loading && rows.map((r: any, i: number) => {
                   const up = r.old_rate != null && r.new_rate != null && r.new_rate > r.old_rate;
                   const down = r.old_rate != null && r.new_rate != null && r.new_rate < r.old_rate;
                   return (
-                    <tr key={`${r.supplier_account}|${r.network}|${i}`}>
+                    <tr key={`${r.date}|${r.supplier_account}|${r.network}|${i}`}>
+                      <td className="l mono">{r.date ?? '—'}</td>
                       <td className="l" style={{ fontWeight: 600 }} title={r.supplier_account ?? ''}>{r.supplier_account ?? '—'}</td>
                       <td className="l" title={r.country ?? ''}>{r.country ?? '—'}</td>
                       <td className="l" title={r.network ?? ''}>{r.network ?? '—'}</td>
