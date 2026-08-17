@@ -108,9 +108,24 @@ export class CostChangesService implements OnModuleInit {
     try {
       await this.ensureDatasetRecord();
       await this.ensureStageTable();
+      await this.applyRefreshConfig();
     } catch (err) {
       this.logger.error('Cost Changes dataset seed failed', err);
     }
+  }
+
+  /** An empty result is a VALID outcome here ("no rates changed in the window"), so opt out of
+   *  StageService's full-refresh data-loss guard (column not on the entity → raw SQL, idempotent). */
+  private async applyRefreshConfig(): Promise<void> {
+    if (!this._datasetId) return;
+    // Self-ensure the column: module init order vs StageService's own DDL is not guaranteed.
+    await this.dataSource.query(
+      `ALTER TABLE datasets ADD COLUMN IF NOT EXISTS allow_empty_full_refresh BOOLEAN`,
+    ).catch(() => undefined);
+    await this.dataSource.query(
+      `UPDATE datasets SET allow_empty_full_refresh = TRUE WHERE id = $1`,
+      [this._datasetId],
+    ).catch((e: Error) => this.logger.error(`Failed to set Cost Changes refresh config: ${e.message}`));
   }
 
   private async ensureDatasetRecord(): Promise<void> {

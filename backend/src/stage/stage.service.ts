@@ -39,7 +39,8 @@ export class StageService implements OnModuleInit {
            ADD COLUMN IF NOT EXISTS row_limit                    INT,
            ADD COLUMN IF NOT EXISTS window_code                  VARCHAR(16),
            ADD COLUMN IF NOT EXISTS incremental_fill_days        INT,
-           ADD COLUMN IF NOT EXISTS incremental_repull_days      INT`,
+           ADD COLUMN IF NOT EXISTS incremental_repull_days      INT,
+           ADD COLUMN IF NOT EXISTS allow_empty_full_refresh     BOOLEAN`,
       );
     } catch (err) {
       this.logger.error('Failed to ensure rolling-overlap columns on datasets', err);
@@ -113,7 +114,8 @@ export class StageService implements OnModuleInit {
       const [incrConfig] = await this.dataSource.query(
         `SELECT incremental_lookback_days, incremental_initial_date,
                 incremental_overlap_minutes, incremental_timestamp_column, retention_days,
-                row_limit, window_code, incremental_fill_days, incremental_repull_days
+                row_limit, window_code, incremental_fill_days, incremental_repull_days,
+                allow_empty_full_refresh
          FROM datasets WHERE id = $1`,
         [dataset.id],
       ).catch(() => [null]);
@@ -329,7 +331,10 @@ export class StageService implements OnModuleInit {
         // Full-refresh data-loss guard: never commit a wipe when the source returned 0 rows but the
         // table had data — abort (rollback in catch) so the previous snapshot is preserved and the
         // cycle is retried, rather than publishing an empty table that silently stops alerts.
-        if (!isOverlap && !isIncremental && fullTableHadData && totalRows === 0) {
+        // Datasets where an empty result is a valid outcome (e.g. Cost Changes: "no rates changed")
+        // opt out via allow_empty_full_refresh = TRUE.
+        const allowEmpty = incrConfig?.allow_empty_full_refresh === true;
+        if (!isOverlap && !isIncremental && fullTableHadData && totalRows === 0 && !allowEmpty) {
           throw new Error(`Full refresh for ${dataset.name} returned 0 rows but the table had data — aborting to preserve existing data`);
         }
 
