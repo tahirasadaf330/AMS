@@ -106,7 +106,7 @@ export default function InnovatioTrafficPage() {
             <div>
               <div className="it-title">Innovatio Traffic Report</div>
               <div className="it-sub">
-                aSMSC · supplier {scope.vendor ?? 'Innovatio'} · MCC/MNC {scope.mccmnc ?? '614004'} · whole day{selDay ? ` · ${selDay}` : ''}
+                aSMSC · supplier {scope.vendor ?? 'Innovatio'} · MCC/MNC {scope.mccmnc ?? '614004'} · whole UTC day{selDay ? ` · ${selDay}` : ''}
               </div>
             </div>
             {lastRefreshed && (

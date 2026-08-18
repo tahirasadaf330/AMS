@@ -17,30 +17,35 @@ const MCCMNC = '614004'; // Niger — Airtel
 // rows/day), so a 30-day full-replace stays a cheap query.
 const HISTORY_DAYS = 30;
 
-// Day bounds are computed from GETDATE() — the aSMSC SERVER-LOCAL clock, which runs Pacific time
-// (UTC-7 in summer, UTC-8 in winter). The refresh must therefore run AFTER server-local midnight
-// (07:00/08:00 UTC), or the newest day resolves a day too early. 09:30 UTC = 01:30/02:30
-// server-local, safely past midnight year-round.
-const SCHEDULE_CRON = '30 9 * * *';
+// TIMEZONE: aSMSC stores SubmitDateTime in UTC (verified: MAX(SubmitDateTime) tracks GETUTCDATE(),
+// not the server's Pacific GETDATE()). AMS is UTC end-to-end, so day buckets are UTC days and all
+// window bounds MUST be computed from GETUTCDATE() — never GETDATE(), whose Pacific date lags UTC by
+// 7-8h and made the newest day resolve a day late. Yesterday-UTC is complete at 00:00 UTC, so the
+// daily refresh runs shortly after, at 00:30 UTC.
+const SCHEDULE_CRON = '30 0 * * *';
+// Older seeded defaults, migrated once to SCHEDULE_CRON (user-customised crons are never touched):
+// '30 1 * * *' (original), '30 9 * * *' (interim Pacific-midnight fix).
+const LEGACY_CRONS = ['30 1 * * *', '30 9 * * *'];
 
-// Last HISTORY_DAYS whole days (server-local), refreshed daily after the newest day closes
-// (full-replace by the generic StageService — no incremental columns). MTEdr keeps only ~2-3 days
-// live, so the archive UNION covers the rest. Volume = SUM(PartsSent), same convention as the
-// SMS Report. The UI filters by day and aggregates by client / sender ID.
+// Last HISTORY_DAYS whole UTC days, refreshed daily after the newest UTC day closes (full-replace
+// by the generic StageService — no incremental columns). SubmitDateTime is UTC (see TIMEZONE note),
+// so CAST(SubmitDateTime AS DATE) is a true UTC day and the bounds use GETUTCDATE(). MTEdr keeps
+// only ~2-3 days live, so the archive UNION covers the rest. Volume = SUM(PartsSent), same
+// convention as the SMS Report. The UI filters by day and aggregates by client / sender ID.
 const SEED_SQL = `
 WITH M AS (
     SELECT CAST(mt.SubmitDateTime AS DATE) AS d,
            mt.CustomerConnectionId, mt.TerminatedSenderId, mt.PartsSent, mt.MtVendorConnectionId
     FROM SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
-    WHERE mt.SubmitDateTime >= CAST(DATEADD(day, -${HISTORY_DAYS}, CAST(GETDATE() AS DATE)) AS DATETIME)
-      AND mt.SubmitDateTime <  CAST(CAST(GETDATE() AS DATE) AS DATETIME)
+    WHERE mt.SubmitDateTime >= CAST(DATEADD(day, -${HISTORY_DAYS}, CAST(GETUTCDATE() AS DATE)) AS DATETIME)
+      AND mt.SubmitDateTime <  CAST(CAST(GETUTCDATE() AS DATE) AS DATETIME)
       AND mt.MccMnc = '${MCCMNC}'
     UNION ALL
     SELECT CAST(mt.SubmitDateTime AS DATE),
            mt.CustomerConnectionId, mt.TerminatedSenderId, mt.PartsSent, mt.MtVendorConnectionId
     FROM SMSCArchiveEdr.dbo.ArchiveMtEdr mt WITH(NOLOCK)
-    WHERE mt.SubmitDateTime >= CAST(DATEADD(day, -${HISTORY_DAYS}, CAST(GETDATE() AS DATE)) AS DATETIME)
-      AND mt.SubmitDateTime <  CAST(CAST(GETDATE() AS DATE) AS DATETIME)
+    WHERE mt.SubmitDateTime >= CAST(DATEADD(day, -${HISTORY_DAYS}, CAST(GETUTCDATE() AS DATE)) AS DATETIME)
+      AND mt.SubmitDateTime <  CAST(CAST(GETUTCDATE() AS DATE) AS DATETIME)
       AND mt.MccMnc = '${MCCMNC}'
 )
 SELECT
@@ -58,7 +63,7 @@ GROUP BY m.d, comp.Name, m.TerminatedSenderId
 ORDER BY SUM(m.PartsSent) DESC`;
 
 const SEED_COLUMNS = [
-  { key: 'day',       label: 'Day',       type: 'date',    description: `Calendar date of the traffic (message submit date); the stage keeps the last ${HISTORY_DAYS} whole days.` },
+  { key: 'day',       label: 'Day',       type: 'date',    description: `UTC calendar date of the traffic (message submit time, stored in UTC by aSMSC); the stage keeps the last ${HISTORY_DAYS} whole UTC days.` },
   { key: 'client',    label: 'Client',    type: 'text',    description: 'Customer company that sent the traffic.' },
   { key: 'sender_id', label: 'SenderId',  type: 'text',    description: 'Terminated sender ID the messages were delivered under.' },
   { key: 'volume',    label: 'Volume',    type: 'numeric', description: `Message parts sent via ${VENDOR_NAME} to MCC/MNC ${MCCMNC}; SUM(PartsSent).` },
@@ -112,13 +117,11 @@ export class InnovatioTrafficService implements OnModuleInit {
         });
         this.logger.log('Updated Innovatio Traffic Report dataset SQL and column metadata');
       }
-      // One-time migration off the original 01:30 UTC default: the aSMSC server clock is Pacific
-      // (UTC-7/-8), so at 01:30 UTC GETDATE() is still on the PREVIOUS server day and "yesterday"
-      // resolved a day too early (report stuck on two-days-ago). Only rewrites the known-bad default,
-      // never a user-customised schedule.
-      if (existing.scheduleCron === '30 1 * * *') {
+      // One-time migration off older seeded defaults (see LEGACY_CRONS) to the UTC-aligned schedule.
+      // Only rewrites known old defaults, never a user-customised schedule.
+      if (existing.scheduleCron && LEGACY_CRONS.includes(existing.scheduleCron)) {
         await this.datasetRepo.update(existing.id, { scheduleCron: SCHEDULE_CRON });
-        this.logger.log(`Migrated Innovatio Traffic Report schedule to ${SCHEDULE_CRON} (aSMSC is Pacific time)`);
+        this.logger.log(`Migrated Innovatio Traffic Report schedule to ${SCHEDULE_CRON} (UTC-day aligned)`);
       }
       return;
     }
