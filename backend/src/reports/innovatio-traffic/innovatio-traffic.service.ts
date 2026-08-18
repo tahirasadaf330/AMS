@@ -9,13 +9,17 @@ const DATASET_NAME = 'Innovatio Traffic Report';
 const ASMSC_DATASOURCE_NAME = 'ASMSC';
 
 // Report scope — SMS traffic terminated via this supplier to this destination network,
-// for the WHOLE of yesterday (SQL Server local date). Kept as constants for easy tweaks.
+// whole UTC days. Kept as constants for easy tweaks.
 const VENDOR_NAME = 'Innovatio';
 const MCCMNC = '614004'; // Niger — Airtel
 
-// Days of history kept in the stage table (the UI day-filter range). Volume is tiny (~45 grouped
-// rows/day), so a 30-day full-replace stays a cheap query.
-const HISTORY_DAYS = 30;
+// History is kept from this fixed start date and grows daily: the stage is INCREMENTAL
+// (incremental_initial_date + incremental_lookback_days on the dataset row). The engine's first
+// load (empty table) pulls from START_DATE; every later run re-pulls only the last LOOKBACK_DAYS
+// (the engine deletes stage rows WHERE "date" >= lookback and re-inserts — which is why the day
+// column is named "date": the incremental delete in StageService is keyed to that name).
+const START_DATE = '2026-03-01';
+const LOOKBACK_DAYS = 3;
 
 // TIMEZONE: aSMSC stores SubmitDateTime in UTC (verified: MAX(SubmitDateTime) tracks GETUTCDATE(),
 // not the server's Pacific GETDATE()). AMS is UTC end-to-end, so day buckets are UTC days and all
@@ -27,29 +31,29 @@ const SCHEDULE_CRON = '30 0 * * *';
 // '30 1 * * *' (original), '30 9 * * *' (interim Pacific-midnight fix).
 const LEGACY_CRONS = ['30 1 * * *', '30 9 * * *'];
 
-// Last HISTORY_DAYS whole UTC days, refreshed daily after the newest UTC day closes (full-replace
-// by the generic StageService — no incremental columns). SubmitDateTime is UTC (see TIMEZONE note),
-// so CAST(SubmitDateTime AS DATE) is a true UTC day and the bounds use GETUTCDATE(). MTEdr keeps
-// only ~2-3 days live, so the archive UNION covers the rest. Volume = SUM(PartsSent), same
-// convention as the SMS Report. The UI filters by day and aggregates by client / sender ID.
+// Whole UTC days from {{LOOKBACK_DATE}} (engine-substituted: START_DATE on the initial empty-table
+// load, today-LOOKBACK_DAYS on daily runs) up to but excluding today — partial days never enter the
+// stage. SubmitDateTime is UTC (see TIMEZONE note), so CAST(SubmitDateTime AS DATE) is a true UTC
+// day and the upper bound uses GETUTCDATE(). MTEdr keeps only ~2-3 days live, so the archive UNION
+// covers the rest. Volume = SUM(PartsSent), same convention as the SMS Report.
 const SEED_SQL = `
 WITH M AS (
     SELECT CAST(mt.SubmitDateTime AS DATE) AS d,
            mt.CustomerConnectionId, mt.TerminatedSenderId, mt.PartsSent, mt.MtVendorConnectionId
     FROM SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
-    WHERE mt.SubmitDateTime >= CAST(DATEADD(day, -${HISTORY_DAYS}, CAST(GETUTCDATE() AS DATE)) AS DATETIME)
+    WHERE mt.SubmitDateTime >= '{{LOOKBACK_DATE}}'
       AND mt.SubmitDateTime <  CAST(CAST(GETUTCDATE() AS DATE) AS DATETIME)
       AND mt.MccMnc = '${MCCMNC}'
     UNION ALL
     SELECT CAST(mt.SubmitDateTime AS DATE),
            mt.CustomerConnectionId, mt.TerminatedSenderId, mt.PartsSent, mt.MtVendorConnectionId
     FROM SMSCArchiveEdr.dbo.ArchiveMtEdr mt WITH(NOLOCK)
-    WHERE mt.SubmitDateTime >= CAST(DATEADD(day, -${HISTORY_DAYS}, CAST(GETUTCDATE() AS DATE)) AS DATETIME)
+    WHERE mt.SubmitDateTime >= '{{LOOKBACK_DATE}}'
       AND mt.SubmitDateTime <  CAST(CAST(GETUTCDATE() AS DATE) AS DATETIME)
       AND mt.MccMnc = '${MCCMNC}'
 )
 SELECT
-    m.d                     AS [day],
+    m.d                     AS [date],
     comp.Name               AS [client],
     m.TerminatedSenderId    AS [sender_id],
     SUM(m.PartsSent)        AS [volume]
@@ -63,7 +67,7 @@ GROUP BY m.d, comp.Name, m.TerminatedSenderId
 ORDER BY SUM(m.PartsSent) DESC`;
 
 const SEED_COLUMNS = [
-  { key: 'day',       label: 'Day',       type: 'date',    description: `UTC calendar date of the traffic (message submit time, stored in UTC by aSMSC); the stage keeps the last ${HISTORY_DAYS} whole UTC days.` },
+  { key: 'date',      label: 'Day',       type: 'date',    description: `UTC calendar date of the traffic (message submit time, stored in UTC by aSMSC); history kept from ${START_DATE}, one new day appended daily.` },
   { key: 'client',    label: 'Client',    type: 'text',    description: 'Customer company that sent the traffic.' },
   { key: 'sender_id', label: 'SenderId',  type: 'text',    description: 'Terminated sender ID the messages were delivered under.' },
   { key: 'volume',    label: 'Volume',    type: 'numeric', description: `Message parts sent via ${VENDOR_NAME} to MCC/MNC ${MCCMNC}; SUM(PartsSent).` },
@@ -109,13 +113,17 @@ export class InnovatioTrafficService implements OnModuleInit {
       this._datasetId = existing.id;
       const sqlChanged  = existing.sqlQuery !== SEED_SQL;
       const metaChanged = JSON.stringify(existing.columnMetadata) !== JSON.stringify(SEED_COLUMNS);
-      if (sqlChanged || metaChanged || existing.name !== DATASET_NAME) {
+      const incrChanged = existing.incrementalLookbackDays !== LOOKBACK_DAYS
+        || existing.incrementalInitialDate !== START_DATE;
+      if (sqlChanged || metaChanged || incrChanged || existing.name !== DATASET_NAME) {
         await this.datasetRepo.update(existing.id, {
-          name:           DATASET_NAME,
-          sqlQuery:       SEED_SQL,
-          columnMetadata: SEED_COLUMNS as any,
+          name:                    DATASET_NAME,
+          sqlQuery:                SEED_SQL,
+          columnMetadata:          SEED_COLUMNS as any,
+          incrementalLookbackDays: LOOKBACK_DAYS,
+          incrementalInitialDate:  START_DATE,
         });
-        this.logger.log('Updated Innovatio Traffic Report dataset SQL and column metadata');
+        this.logger.log('Updated Innovatio Traffic Report dataset SQL, column metadata and incremental config');
       }
       // One-time migration off older seeded defaults (see LEGACY_CRONS) to the UTC-aligned schedule.
       // Only rewrites known old defaults, never a user-customised schedule.
@@ -134,16 +142,18 @@ export class InnovatioTrafficService implements OnModuleInit {
 
     const saved = await this.datasetRepo.save(
       this.datasetRepo.create({
-        name:           DATASET_NAME,
-        description:    `SMS traffic terminated via supplier ${VENDOR_NAME} to MCC/MNC ${MCCMNC} — last ${HISTORY_DAYS} days, per day / client / sender ID.`,
-        sourceDb:       'mssql',
-        dataSourceId:   asmsc.id,
-        sqlQuery:       SEED_SQL,
-        stageTableName: STAGE,
-        columnMetadata: SEED_COLUMNS as any,
-        scheduleCron:   SCHEDULE_CRON, // daily, after the aSMSC server-local day closes; user-adjustable in the UI
-        isActive:       true,
-        createdBy:      null,
+        name:                    DATASET_NAME,
+        description:             `SMS traffic terminated via supplier ${VENDOR_NAME} to MCC/MNC ${MCCMNC} — whole UTC days from ${START_DATE}, one day appended daily; per day / client / sender ID.`,
+        sourceDb:                'mssql',
+        dataSourceId:            asmsc.id,
+        sqlQuery:                SEED_SQL,
+        stageTableName:          STAGE,
+        columnMetadata:          SEED_COLUMNS as any,
+        scheduleCron:            SCHEDULE_CRON, // daily at 00:30 UTC, right after the UTC day closes; user-adjustable in the UI
+        isActive:                true,
+        createdBy:               null,
+        incrementalLookbackDays: LOOKBACK_DAYS,
+        incrementalInitialDate:  START_DATE,
       }),
     );
     this._datasetId = saved.id;
@@ -152,6 +162,19 @@ export class InnovatioTrafficService implements OnModuleInit {
 
   private async ensureStageTable(): Promise<void> {
     const typeMap: Record<string, string> = { numeric: 'NUMERIC', date: 'DATE', text: 'TEXT' };
+
+    // Legacy migration: the original schema named the day column "day", but StageService's
+    // incremental delete is keyed to a column literally named "date" — so the old table must go.
+    // It only holds derived data; the next (initial) incremental load rebuilds it from START_DATE.
+    const legacy = await this.dataSource.query(
+      `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = 'day'`,
+      [STAGE],
+    );
+    if (legacy.length) {
+      await this.dataSource.query(`DROP TABLE IF EXISTS ${STAGE}`);
+      this.logger.warn(`Dropped legacy ${STAGE} ("day" column schema) — rebuilt as "date" for incremental mode`);
+    }
+
     const [row] = await this.dataSource.query(
       `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1) AS exists`,
       [STAGE],
@@ -169,7 +192,7 @@ export class InnovatioTrafficService implements OnModuleInit {
         `CREATE INDEX IF NOT EXISTS idx_${STAGE}_refreshed ON ${STAGE} (refreshed_at DESC)`,
       );
       await this.dataSource.query(
-        `CREATE INDEX IF NOT EXISTS idx_${STAGE}_day ON ${STAGE} (day DESC)`,
+        `CREATE INDEX IF NOT EXISTS idx_${STAGE}_date ON ${STAGE} ("date" DESC)`,
       );
       this.logger.log(`Stage table ${STAGE} created`);
       return;
@@ -187,16 +210,17 @@ export class InnovatioTrafficService implements OnModuleInit {
       }
     }
     await this.dataSource.query(
-      `CREATE INDEX IF NOT EXISTS idx_${STAGE}_day ON ${STAGE} (day DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_${STAGE}_date ON ${STAGE} ("date" DESC)`,
     );
   }
 
   /** Report payload for one selected day (default: the newest loaded day). */
   async getData(day?: string): Promise<any> {
     try {
-      // Day picker options: every day present in the stage, newest first.
+      // Day picker options: every UTC day present in the stage, newest first. (The stage column is
+      // named "date" for StageService's incremental delete; the API keeps exposing day/days.)
       const dayRows: any[] = await this.dataSource.query(
-        `SELECT DISTINCT day FROM ${STAGE} WHERE day IS NOT NULL ORDER BY day DESC`,
+        `SELECT DISTINCT "date" AS day FROM ${STAGE} WHERE "date" IS NOT NULL ORDER BY "date" DESC`,
       );
       const days = dayRows.map((r) => toYMD(r.day));
       if (!days.length) {
@@ -207,14 +231,14 @@ export class InnovatioTrafficService implements OnModuleInit {
 
       const [stageRows, byClient, bySender, [refreshRow]] = await Promise.all([
         this.dataSource.query(
-          `SELECT day, client, sender_id, volume FROM ${STAGE}
-            WHERE day = $1::date ORDER BY volume DESC NULLS LAST, client ASC`, [wanted]),
+          `SELECT "date" AS day, client, sender_id, volume FROM ${STAGE}
+            WHERE "date" = $1::date ORDER BY volume DESC NULLS LAST, client ASC`, [wanted]),
         this.dataSource.query(
           `SELECT client, SUM(volume)::bigint AS volume FROM ${STAGE}
-            WHERE day = $1::date GROUP BY client ORDER BY SUM(volume) DESC, client ASC`, [wanted]),
+            WHERE "date" = $1::date GROUP BY client ORDER BY SUM(volume) DESC, client ASC`, [wanted]),
         this.dataSource.query(
           `SELECT sender_id, SUM(volume)::bigint AS volume FROM ${STAGE}
-            WHERE day = $1::date GROUP BY sender_id ORDER BY SUM(volume) DESC, sender_id ASC`, [wanted]),
+            WHERE "date" = $1::date GROUP BY sender_id ORDER BY SUM(volume) DESC, sender_id ASC`, [wanted]),
         this.dataSource.query(`SELECT MAX(refreshed_at) AS last_refreshed FROM ${STAGE}`),
       ]);
 
