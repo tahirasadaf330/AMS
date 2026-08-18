@@ -13,6 +13,12 @@ const ASMSC_DATASOURCE_NAME = 'ASMSC';
 const VENDOR_NAME = 'Innovatio';
 const MCCMNC = '614004'; // Niger — Airtel
 
+// "Yesterday" is computed from GETDATE() — the aSMSC SERVER-LOCAL clock, which runs Pacific time
+// (UTC-7 in summer, UTC-8 in winter). The refresh must therefore run AFTER server-local midnight
+// (07:00/08:00 UTC), or "yesterday" resolves a day too early. 09:30 UTC = 01:30/02:30 server-local,
+// safely past midnight year-round.
+const SCHEDULE_CRON = '30 9 * * *';
+
 // Whole-yesterday snapshot, refreshed daily after the day closes (full-replace by the generic
 // StageService — no incremental columns). MTEdr keeps only ~2-3 days live, so the archive UNION
 // covers retention boundaries. Volume = SUM(PartsSent), same convention as the SMS Report.
@@ -101,6 +107,14 @@ export class InnovatioTrafficService implements OnModuleInit {
         });
         this.logger.log('Updated Innovatio Traffic Report dataset SQL and column metadata');
       }
+      // One-time migration off the original 01:30 UTC default: the aSMSC server clock is Pacific
+      // (UTC-7/-8), so at 01:30 UTC GETDATE() is still on the PREVIOUS server day and "yesterday"
+      // resolved a day too early (report stuck on two-days-ago). Only rewrites the known-bad default,
+      // never a user-customised schedule.
+      if (existing.scheduleCron === '30 1 * * *') {
+        await this.datasetRepo.update(existing.id, { scheduleCron: SCHEDULE_CRON });
+        this.logger.log(`Migrated Innovatio Traffic Report schedule to ${SCHEDULE_CRON} (aSMSC is Pacific time)`);
+      }
       return;
     }
 
@@ -119,7 +133,7 @@ export class InnovatioTrafficService implements OnModuleInit {
         sqlQuery:       SEED_SQL,
         stageTableName: STAGE,
         columnMetadata: SEED_COLUMNS as any,
-        scheduleCron:   '30 1 * * *', // daily, after yesterday closes; user-adjustable in the UI
+        scheduleCron:   SCHEDULE_CRON, // daily, after the aSMSC server-local day closes; user-adjustable in the UI
         isActive:       true,
         createdBy:      null,
       }),
