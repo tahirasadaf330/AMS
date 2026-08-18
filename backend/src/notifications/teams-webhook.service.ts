@@ -72,72 +72,71 @@ export class TeamsWebhookService {
 
     // Voice group alerts show ONLY the Account + Destination totals — skip the
     // per-row (per-vendor) cards. Datasets without totals keep one card per row.
+    // Post ONE consolidated card (capped), not one card per row/total. High-volume
+    // alerts (hundreds of rows) previously fired hundreds of sequential posts 1s apart
+    // → 10+ minutes, Teams rate-limiting, and the send never completing (log stuck
+    // 'pending'). A single card delivers instantly and mirrors the single alert email.
+    const MAX_ITEMS = 20;
+
+    const header = {
+      activityTitle:    `**AMS Alert:** ${params.conditionName}`,
+      activitySubtitle: `${params.datasetName} · ${timeLabel} · ${params.matchedCount} row(s) matched`,
+      markdown: true,
+    };
+
+    let itemSections: Array<Record<string, unknown>>;
     if (totals.length === 0) {
-      // One MessageCard per row — same proven format as the Python webhook script
-      for (let i = 0; i < params.matchedRows.length; i++) {
-        const row = params.matchedRows[i];
-
-        const card = {
-          '@type':    'MessageCard',
-          '@context': 'https://schema.org/extensions',
-          themeColor,
-          summary: `AMS Alert: ${params.conditionName}`,
-          sections: [
-            {
-              activityTitle:    `**AMS Alert:** ${params.conditionName}`,
-              activitySubtitle: `${params.datasetName} · ${timeLabel} · Row ${i + 1} of ${params.matchedCount}`,
-              facts: columns.map((col) => ({
-                name:  col.replace(/_/g, ' '),
-                value: this.formatValue(row[col]),
-              })),
-              markdown: true,
-            },
-          ],
-        };
-
-        await axios.post(webhookUrl, card, {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 15000,
+      // One section per row (capped) — same facts format as before.
+      itemSections = params.matchedRows.slice(0, MAX_ITEMS).map((row, i) => ({
+        activityTitle: `Row ${i + 1} of ${params.matchedCount}`,
+        facts: columns.map((col) => ({
+          name:  col.replace(/_/g, ' '),
+          value: this.formatValue(row[col]),
+        })),
+        markdown: true,
+      }));
+      const extra = params.matchedRows.length - Math.min(params.matchedRows.length, MAX_ITEMS);
+      if (extra > 0) {
+        itemSections.push({
+          text: `_…and ${extra} more row(s). See the full report or the alert email for the complete list._`,
+          markdown: true,
         });
-
-        // Avoid Teams 403 rate limiting between cards
-        if (i < params.matchedRows.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
+      }
+    } else {
+      // One section per Account + Destination total (capped).
+      itemSections = totals.slice(0, MAX_ITEMS).map((t) => ({
+        activityTitle: `Total for ${t.account || '—'} / ${t.destination || '—'}`,
+        facts: [
+          { name: 'Account',        value: t.account || '—' },
+          { name: 'Destination',    value: t.destination || '—' },
+          { name: 'Vendor',         value: t.vendor || '—' },
+          { name: 'Attempts',       value: String(t.attempts) },
+          { name: 'ACD',            value: t.acd == null ? '—' : t.acd.toFixed(2) },
+          { name: 'ASR',            value: t.asr == null ? '—' : `${t.asr.toFixed(2)}%` },
+          { name: 'Failed Calls',   value: String(t.failed_calls) },
+          { name: 'Volume',         value: t.volume.toFixed(2) },
+          { name: 'Answered Calls', value: String(t.answered_calls) },
+        ],
+        markdown: true,
+      }));
+      const extra = totals.length - Math.min(totals.length, MAX_ITEMS);
+      if (extra > 0) {
+        itemSections.push({ text: `_…and ${extra} more group(s)._`, markdown: true });
       }
     }
 
-    for (const t of totals) {
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // pace vs Teams rate limit
-      const card = {
-        '@type':    'MessageCard',
-        '@context': 'https://schema.org/extensions',
-        themeColor,
-        summary: `AMS Alert Totals: ${params.conditionName}`,
-        sections: [
-          {
-            activityTitle:    `**AMS Alert — Total:** ${params.conditionName}`,
-            activitySubtitle: `${params.datasetName} · ${timeLabel} · Total for ${t.account || '—'} / ${t.destination || '—'}`,
-            facts: [
-              { name: 'Account',        value: t.account || '—' },
-              { name: 'Destination',    value: t.destination || '—' },
-              { name: 'Vendor',         value: t.vendor || '—' },
-              { name: 'Attempts',       value: String(t.attempts) },
-              { name: 'ACD',            value: t.acd == null ? '—' : t.acd.toFixed(2) },
-              { name: 'ASR',            value: t.asr == null ? '—' : `${t.asr.toFixed(2)}%` },
-              { name: 'Failed Calls',   value: String(t.failed_calls) },
-              { name: 'Volume',         value: t.volume.toFixed(2) },
-              { name: 'Answered Calls', value: String(t.answered_calls) },
-            ],
-            markdown: true,
-          },
-        ],
-      };
-      await axios.post(webhookUrl, card, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 15000,
-      });
-    }
+    const card = {
+      '@type':    'MessageCard',
+      '@context': 'https://schema.org/extensions',
+      themeColor,
+      summary: `AMS Alert: ${params.conditionName} — ${params.matchedCount} matched`,
+      sections: [header, ...itemSections],
+    };
+
+    await axios.post(webhookUrl, card, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 15000,
+    });
   }
 
   async testWebhook(webhookUrl?: string): Promise<boolean> {

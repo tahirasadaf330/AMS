@@ -40,6 +40,10 @@ const CSS = `
 .edr-inp{height:33px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--ink);font-size:.8rem;padding:0 10px;outline:none;width:230px;color-scheme:light}
 .dark .edr-inp{color-scheme:dark}
 .edr-inp:focus{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.15)}
+.edr-sel{height:33px;max-width:190px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--ink);font-size:.78rem;padding:0 8px;outline:none;cursor:pointer;color-scheme:light}
+.dark .edr-sel{color-scheme:dark}
+.edr-sel:focus{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.15)}
+.edr-sel.on{border-color:rgba(37,99,235,.45);color:#2563eb;font-weight:600}
 .edr-tbtn{height:33px;padding:0 12px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--inks);font-size:.78rem;font-weight:500;cursor:pointer;white-space:nowrap;transition:border-color .12s}
 .edr-tbtn:hover{border-color:#94a3b8}
 .edr-tbtn.an{background:var(--danger-bg);border-color:var(--danger-bd);color:var(--danger);font-weight:700}
@@ -78,6 +82,12 @@ const fProfit = (n: any) => n != null ? Number(n).toLocaleString('en-US', { mini
 
 type SortDir = 'asc' | 'desc' | null;
 
+// Columns backed by PostgreSQL `numeric` — node-postgres returns these as STRINGS
+// (to preserve precision), so they must be sorted as numbers, not lexicographically.
+// Without this, "-9.5" sorts above "-53.8988" (char '9' > '5') and the biggest loss
+// never reaches the top.
+const NUMERIC_KEYS = new Set(['orig_rate', 'term_rate', 'negative_margin', 'profit']);
+
 // Column definitions — percentage widths sum to 100% so the table fits one sheet.
 const COLS: { key: string; label: string; left?: boolean; w: string }[] = [
   { key: 'orig_account',       label: 'Orig Account',       left: true, w: '14%' },
@@ -98,15 +108,21 @@ export default function NegativeMarginPage() {
   const [search, setSearch]       = React.useState('');
   const [filterNeg, setFilterNeg] = React.useState(false);
   const [cats, setCats]           = React.useState<string[]>([]); // selected account-type categories
+  const [client, setClient]       = React.useState('');           // Orig Account
+  const [destination, setDest]    = React.useState('');           // Orig/Term Dst Code Name
+  const [vendor, setVendor]       = React.useState('');           // Term Account
   const [sort, setSort]           = React.useState<{ key: string | null; dir: SortDir }>({ key: 'negative_margin', dir: 'asc' });
 
   const toggleCat = (c: string) =>
     setCats((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
 
+  // Two-state toggle: first click on a column sorts ascending, next click descending,
+  // then back to ascending. (Previously cycled asc→desc→null and started on desc, so a
+  // column took up to 3 clicks to reach ascending.)
   const onSort = React.useCallback((key: string) => {
     setSort((s) => ({
       key,
-      dir: s.key === key ? (s.dir === 'asc' ? 'desc' : s.dir === 'desc' ? null : 'asc') : 'desc',
+      dir: s.key === key ? (s.dir === 'asc' ? 'desc' : 'asc') : 'asc',
     }));
   }, []);
 
@@ -121,6 +137,21 @@ export default function NegativeMarginPage() {
   React.useEffect(() => { load(); }, [load]);
   useDatasetSocket(datasetId, load);
 
+  // Distinct, sorted option lists for the Client / Destination / Vendor filter dropdowns,
+  // derived from the loaded rows. Destination pools both orig- and term-side names.
+  const options = React.useMemo(() => {
+    const all: any[] = data?.rows ?? [];
+    const uniq = (vals: any[]) =>
+      Array.from(new Set(vals.filter((v) => v != null && v !== ''))).sort((a, b) =>
+        String(a).localeCompare(String(b)),
+      ) as string[];
+    return {
+      clients:      uniq(all.map((r) => r.orig_account)),
+      destinations: uniq(all.flatMap((r) => [r.orig_dst_code_name, r.term_dst_code_name])),
+      vendors:      uniq(all.map((r) => r.term_account)),
+    };
+  }, [data]);
+
   const rows: any[] = React.useMemo(() => {
     if (!data?.rows) return [];
     let f: any[] = data.rows;
@@ -132,19 +163,25 @@ export default function NegativeMarginPage() {
         (r.orig_dst_code_name ?? '').toLowerCase().includes(q) ||
         (r.term_dst_code_name ?? '').toLowerCase().includes(q));
     }
+    // Client / Destination / Vendor filters (exact match). Destination matches either side.
+    if (client)      f = f.filter((r: any) => r.orig_account === client);
+    if (vendor)      f = f.filter((r: any) => r.term_account === vendor);
+    if (destination) f = f.filter((r: any) => r.orig_dst_code_name === destination || r.term_dst_code_name === destination);
     if (filterNeg) f = f.filter((r: any) => (r.negative_margin ?? 0) < 0);
     if (cats.length) f = f.filter((r: any) => cats.includes(r.account_type));
-    if (!sort.key || !sort.dir) return f;
     const { key, dir } = sort;
+    if (!key || !dir) return f;
     return [...f].sort((a, b) => {
       const av = a[key], bv = b[key];
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
       if (bv == null) return -1;
-      const cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv));
+      const cmp = NUMERIC_KEYS.has(key)
+        ? Number(av) - Number(bv)                       // numeric columns arrive as strings — compare as numbers
+        : String(av).localeCompare(String(bv));
       return dir === 'asc' ? cmp : -cmp;
     });
-  }, [data, search, filterNeg, cats, sort]);
+  }, [data, search, client, destination, vendor, filterNeg, cats, sort]);
 
   // Derive summary numbers directly from the rows we already have, so the cards
   // always match the table (independent of the backend `summary` payload shape).
@@ -160,7 +197,7 @@ export default function NegativeMarginPage() {
 
   const lastRefreshed: string | null = data?.lastRefreshed ?? null;
   const totalRows = stats.totalRows;
-  const hasFilter = search || filterNeg || cats.length > 0;
+  const hasFilter = search || filterNeg || cats.length > 0 || client || destination || vendor;
 
   const Th = ({ col }: { col: typeof COLS[number] }) => {
     const active = sort.key === col.key;
@@ -214,12 +251,25 @@ export default function NegativeMarginPage() {
 
           <div className="edr-filt">
             <input className="edr-inp" placeholder="Search account / destination…" value={search} onChange={e => setSearch(e.target.value)} />
+            <select className={`edr-sel${client ? ' on' : ''}`} value={client} onChange={e => setClient(e.target.value)} title="Filter by Client (Orig Account)">
+              <option value="">All Clients</option>
+              {options.clients.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select className={`edr-sel${destination ? ' on' : ''}`} value={destination} onChange={e => setDest(e.target.value)} title="Filter by Destination">
+              <option value="">All Destinations</option>
+              {options.destinations.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select className={`edr-sel${vendor ? ' on' : ''}`} value={vendor} onChange={e => setVendor(e.target.value)} title="Filter by Vendor (Term Account)">
+              <option value="">All Vendors</option>
+              {options.vendors.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+            <span className="edr-sep" />
             <button className={`edr-tbtn${filterNeg ? ' an' : ''}`} onClick={() => setFilterNeg(v => !v)}>Negative Margin</button>
             <span className="edr-sep" />
             {['NOC', 'TID-ORIG', 'TID-CN-CUST'].map((c) => (
               <button key={c} className={`edr-tbtn${cats.includes(c) ? ' ac' : ''}`} onClick={() => toggleCat(c)}>{c}</button>
             ))}
-            {hasFilter && <button className="edr-clr" onClick={() => { setSearch(''); setFilterNeg(false); setCats([]); }}>Clear filters</button>}
+            {hasFilter && <button className="edr-clr" onClick={() => { setSearch(''); setFilterNeg(false); setCats([]); setClient(''); setDest(''); setVendor(''); }}>Clear filters</button>}
           </div>
 
           <div className="edr-tbl-wrap">

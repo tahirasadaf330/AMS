@@ -238,6 +238,9 @@ export class DatasourceExecutorService implements OnModuleDestroy {
         pool: { max: 1, min: 0, idleTimeoutMillis: 1000 },
       };
       const pool = new mssql.ConnectionPool(poolCfg);
+      // Guard against an 'error' event crashing the process during the short-lived test pool
+      // (same reason as createPool's handler).
+      pool.on('error', (err) => this.logger.error('MSSQL test-connection pool error', err));
       try {
         await pool.connect();
       } finally {
@@ -433,6 +436,15 @@ export class DatasourceExecutorService implements OnModuleDestroy {
         pool: { max: 5, min: 0, idleTimeoutMillis: 30000 },
       };
       const pool = new mssql.ConnectionPool(poolCfg);
+      // MSSQL ConnectionPool is an EventEmitter — when its underlying tedious socket drops
+      // (a network blip, or the server closing an idle connection after a long-running refresh)
+      // it emits 'error' on the pool. With no listener, Node treats it as an unhandled 'error'
+      // event and crashes the ENTIRE backend process (observed: "No event 'socketError' in state
+      // 'Final'" right after a Special Routes Monitoring refresh). Log it and keep the process
+      // alive — the next query lazily reconnects. Mirrors the pg pools' error handlers above.
+      pool.on('error', (err) => {
+        this.logger.error(`MSSQL pool error for data source ${ds.id}`, err);
+      });
       await pool.connect();
       return { pool, type: 'mssql', fingerprint };
     }

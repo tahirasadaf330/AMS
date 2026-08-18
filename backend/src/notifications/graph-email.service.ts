@@ -410,12 +410,26 @@ export class GraphEmailService {
       .map((c) => `<th style="padding:8px 12px;text-align:left;font-weight:600;white-space:nowrap;background:#dce6f1;color:#1f3864;font-size:12px;border-bottom:2px solid #b8cce4;">${this.escapeHtml(c.label)}</th>`)
       .join('');
 
+    // Match the on-screen report's numeric precision in the Voice Negative Margin alert email —
+    // rates/margin at 4–6 dp, profit at 4 dp — instead of the generic 2 dp that rounded
+    // 0.0450→0.05, -0.0075→-0.01 and -0.7276→-0.73. Scoped by stage table so every other
+    // dataset's email formatting is untouched (mirrors the respectColumnTypes scoping above).
+    const nmDecimals: Record<string, { min: number; max: number }> =
+      params.stageTableName === 'stage_negative_margin'
+        ? {
+            orig_rate:       { min: 4, max: 6 },
+            term_rate:       { min: 4, max: 6 },
+            negative_margin: { min: 4, max: 6 },
+            profit:          { min: 4, max: 4 },
+          }
+        : {};
+
     const allDataRows = params.matchedRows
       .map((row, idx) => {
         const bg = idx % 2 === 0 ? '#ffffff' : '#f5f8fc';
         const cells = colDefs.map((c) => {
           const val = row[c.key];
-          const formatted = this.formatCellValue(val, c.type);
+          const formatted = this.formatCellValue(val, c.type, nmDecimals[c.key]);
           const style = this.getCellStyle(val, c.type);
           return `<td style="padding:6px 12px;border-bottom:1px solid #e8edf5;white-space:nowrap;font-size:13px;${style}">${formatted}</td>`;
         }).join('');
@@ -523,7 +537,7 @@ export class GraphEmailService {
 </html>`;
   }
 
-  private formatCellValue(val: unknown, type?: string): string {
+  private formatCellValue(val: unknown, type?: string, decimals?: { min: number; max: number }): string {
     if (val === null || val === undefined || val === '') return '<span style="color:#bbb;">&mdash;</span>';
     // Identifier / text columns render verbatim — a phone number must never be comma/decimal
     // formatted like a metric. Only reached when a non-numeric type is explicitly supplied (scoped
@@ -533,9 +547,14 @@ export class GraphEmailService {
       if (type === 'date' || /^\d{4}-\d{2}-\d{2}(T|\s|Z|$)/.test(s)) return this.escapeHtml(s.slice(0, 10));
       return this.escapeHtml(s);
     }
+    // Numeric precision: default 2 dp, or the caller-supplied min/max (used to match the report's
+    // rate/profit precision — see nmDecimals in buildHtml).
+    const minFd = decimals?.min ?? 2;
+    const maxFd = decimals?.max ?? 2;
+    const fmtNum = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: minFd, maximumFractionDigits: maxFd });
     if (typeof val === 'number') {
-      if (val === 0) return '<span style="color:#bbb;">0.00</span>';
-      const formatted = val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      if (val === 0) return `<span style="color:#bbb;">${fmtNum(0)}</span>`;
+      const formatted = fmtNum(val);
       if (val < 0) return `<span style="color:#c00000;">${formatted}</span>`;
       return formatted;
     }
@@ -546,8 +565,8 @@ export class GraphEmailService {
     }
     const numVal = parseFloat(strVal);
     if (!isNaN(numVal) && strVal.trim() !== '' && /^-?\d/.test(strVal.trim())) {
-      if (numVal === 0) return '<span style="color:#bbb;">0.00</span>';
-      const formatted = numVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      if (numVal === 0) return `<span style="color:#bbb;">${fmtNum(0)}</span>`;
+      const formatted = fmtNum(numVal);
       if (numVal < 0) return `<span style="color:#c00000;">${formatted}</span>`;
       return formatted;
     }
