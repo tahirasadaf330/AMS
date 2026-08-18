@@ -522,6 +522,12 @@ export const specialRoutesApi = {
   getData: () => api.get('/reports/special-routes-monitoring/data'),
 };
 
+// ── COST CHANGES REPORT ───────────────────────────────────────
+export const costChangesApi = {
+  // month = 'YYYY-MM' (omitted → current month); days = last-N-days quick range, wins over month.
+  getData: (params?: { month?: string; days?: number }) => api.get('/reports/cost-changes/data', { params }),
+};
+
 // ── PRE-PAYMENT CL REPORT ─────────────────────────────────────
 export const prepaymentClApi = {
   getData: () => api.get('/reports/prepayment-cl/data'),

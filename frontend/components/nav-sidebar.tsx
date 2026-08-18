@@ -42,6 +42,7 @@ interface NavItem {
 type ReportLink = { slug: string; href: string; label: string; section: 'sms' | 'voice' };
 const REPORT_LINKS: ReportLink[] = ([
   { slug: 'apple-traffic', href: '/reports/apple-traffic', label: 'Apple Traffic', section: 'sms' },
+  { slug: 'cost-changes', href: '/reports/cost-changes', label: 'Cost Changes Report', section: 'sms' },
   { slug: 'deals-automation', href: '/reports/deals-automation', label: 'Deals Automation', section: 'voice' },
   { slug: 'google_mo', href: '/reports/google-mo-traffic', label: 'Google MO Traffic', section: 'sms' },
   { slug: 'mt-edr', href: '/reports/mt-edr-monitoring', label: 'MT EDR Monitoring', section: 'sms' },
