@@ -305,7 +305,7 @@ export const voiceOutliersApi = {
 
 // ── REPORT — INNOVATIO TRAFFIC ───────────────────────────────────
 export const innovatioTrafficApi = {
-  getData: () => api.get('/reports/innovatio-traffic/data'),
+  getData: (day?: string) => api.get('/reports/innovatio-traffic/data', { params: day ? { day } : {} }),
 };
 
 // ── ADMIN — DATASETS ──────────────────────────────────────────

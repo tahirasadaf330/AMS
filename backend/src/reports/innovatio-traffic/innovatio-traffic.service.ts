@@ -13,28 +13,33 @@ const ASMSC_DATASOURCE_NAME = 'ASMSC';
 const VENDOR_NAME = 'Innovatio';
 const MCCMNC = '614004'; // Niger — Airtel
 
-// "Yesterday" is computed from GETDATE() — the aSMSC SERVER-LOCAL clock, which runs Pacific time
+// Days of history kept in the stage table (the UI day-filter range). Volume is tiny (~45 grouped
+// rows/day), so a 30-day full-replace stays a cheap query.
+const HISTORY_DAYS = 30;
+
+// Day bounds are computed from GETDATE() — the aSMSC SERVER-LOCAL clock, which runs Pacific time
 // (UTC-7 in summer, UTC-8 in winter). The refresh must therefore run AFTER server-local midnight
-// (07:00/08:00 UTC), or "yesterday" resolves a day too early. 09:30 UTC = 01:30/02:30 server-local,
-// safely past midnight year-round.
+// (07:00/08:00 UTC), or the newest day resolves a day too early. 09:30 UTC = 01:30/02:30
+// server-local, safely past midnight year-round.
 const SCHEDULE_CRON = '30 9 * * *';
 
-// Whole-yesterday snapshot, refreshed daily after the day closes (full-replace by the generic
-// StageService — no incremental columns). MTEdr keeps only ~2-3 days live, so the archive UNION
-// covers retention boundaries. Volume = SUM(PartsSent), same convention as the SMS Report.
+// Last HISTORY_DAYS whole days (server-local), refreshed daily after the newest day closes
+// (full-replace by the generic StageService — no incremental columns). MTEdr keeps only ~2-3 days
+// live, so the archive UNION covers the rest. Volume = SUM(PartsSent), same convention as the
+// SMS Report. The UI filters by day and aggregates by client / sender ID.
 const SEED_SQL = `
 WITH M AS (
     SELECT CAST(mt.SubmitDateTime AS DATE) AS d,
            mt.CustomerConnectionId, mt.TerminatedSenderId, mt.PartsSent, mt.MtVendorConnectionId
     FROM SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
-    WHERE mt.SubmitDateTime >= CAST(DATEADD(day, -1, CAST(GETDATE() AS DATE)) AS DATETIME)
+    WHERE mt.SubmitDateTime >= CAST(DATEADD(day, -${HISTORY_DAYS}, CAST(GETDATE() AS DATE)) AS DATETIME)
       AND mt.SubmitDateTime <  CAST(CAST(GETDATE() AS DATE) AS DATETIME)
       AND mt.MccMnc = '${MCCMNC}'
     UNION ALL
     SELECT CAST(mt.SubmitDateTime AS DATE),
            mt.CustomerConnectionId, mt.TerminatedSenderId, mt.PartsSent, mt.MtVendorConnectionId
     FROM SMSCArchiveEdr.dbo.ArchiveMtEdr mt WITH(NOLOCK)
-    WHERE mt.SubmitDateTime >= CAST(DATEADD(day, -1, CAST(GETDATE() AS DATE)) AS DATETIME)
+    WHERE mt.SubmitDateTime >= CAST(DATEADD(day, -${HISTORY_DAYS}, CAST(GETDATE() AS DATE)) AS DATETIME)
       AND mt.SubmitDateTime <  CAST(CAST(GETDATE() AS DATE) AS DATETIME)
       AND mt.MccMnc = '${MCCMNC}'
 )
@@ -53,7 +58,7 @@ GROUP BY m.d, comp.Name, m.TerminatedSenderId
 ORDER BY SUM(m.PartsSent) DESC`;
 
 const SEED_COLUMNS = [
-  { key: 'day',       label: 'Day',       type: 'date',    description: 'Calendar date of the traffic (message submit date); the report covers the whole of yesterday.' },
+  { key: 'day',       label: 'Day',       type: 'date',    description: `Calendar date of the traffic (message submit date); the stage keeps the last ${HISTORY_DAYS} whole days.` },
   { key: 'client',    label: 'Client',    type: 'text',    description: 'Customer company that sent the traffic.' },
   { key: 'sender_id', label: 'SenderId',  type: 'text',    description: 'Terminated sender ID the messages were delivered under.' },
   { key: 'volume',    label: 'Volume',    type: 'numeric', description: `Message parts sent via ${VENDOR_NAME} to MCC/MNC ${MCCMNC}; SUM(PartsSent).` },
@@ -127,7 +132,7 @@ export class InnovatioTrafficService implements OnModuleInit {
     const saved = await this.datasetRepo.save(
       this.datasetRepo.create({
         name:           DATASET_NAME,
-        description:    `Yesterday's SMS traffic terminated via supplier ${VENDOR_NAME} to MCC/MNC ${MCCMNC}, per client and sender ID.`,
+        description:    `SMS traffic terminated via supplier ${VENDOR_NAME} to MCC/MNC ${MCCMNC} — last ${HISTORY_DAYS} days, per day / client / sender ID.`,
         sourceDb:       'mssql',
         dataSourceId:   asmsc.id,
         sqlQuery:       SEED_SQL,
@@ -160,6 +165,9 @@ export class InnovatioTrafficService implements OnModuleInit {
       await this.dataSource.query(
         `CREATE INDEX IF NOT EXISTS idx_${STAGE}_refreshed ON ${STAGE} (refreshed_at DESC)`,
       );
+      await this.dataSource.query(
+        `CREATE INDEX IF NOT EXISTS idx_${STAGE}_day ON ${STAGE} (day DESC)`,
+      );
       this.logger.log(`Stage table ${STAGE} created`);
       return;
     }
@@ -175,39 +183,67 @@ export class InnovatioTrafficService implements OnModuleInit {
         );
       }
     }
+    await this.dataSource.query(
+      `CREATE INDEX IF NOT EXISTS idx_${STAGE}_day ON ${STAGE} (day DESC)`,
+    );
   }
 
-  async getData(): Promise<any> {
-    const stageRows: any[] = await this.dataSource
-      .query(`SELECT day, client, sender_id, volume, refreshed_at FROM ${STAGE} ORDER BY volume DESC NULLS LAST, client ASC`)
-      .catch((err: Error) => {
-        this.logger.error(`Failed to read ${STAGE}: ${err.message}`);
-        return [];
-      });
+  /** Report payload for one selected day (default: the newest loaded day). */
+  async getData(day?: string): Promise<any> {
+    try {
+      // Day picker options: every day present in the stage, newest first.
+      const dayRows: any[] = await this.dataSource.query(
+        `SELECT DISTINCT day FROM ${STAGE} WHERE day IS NOT NULL ORDER BY day DESC`,
+      );
+      const days = dayRows.map((r) => toYMD(r.day));
+      if (!days.length) {
+        return { datasetId: this._datasetId, day: null, days: [], rows: [], byClient: [], bySender: [],
+                 lastRefreshed: null, summary: this.emptySummary(), scope: { vendor: VENDOR_NAME, mccmnc: MCCMNC } };
+      }
+      const wanted = day && /^\d{4}-\d{2}-\d{2}$/.test(day) && days.includes(day) ? day : days[0];
 
-    let lastRefreshed: string | null = null;
-    const rows = stageRows.map((r: any) => {
-      if (r.refreshed_at && (!lastRefreshed || r.refreshed_at > lastRefreshed)) lastRefreshed = r.refreshed_at;
+      const [stageRows, byClient, bySender, [refreshRow]] = await Promise.all([
+        this.dataSource.query(
+          `SELECT day, client, sender_id, volume FROM ${STAGE}
+            WHERE day = $1::date ORDER BY volume DESC NULLS LAST, client ASC`, [wanted]),
+        this.dataSource.query(
+          `SELECT client, SUM(volume)::bigint AS volume FROM ${STAGE}
+            WHERE day = $1::date GROUP BY client ORDER BY SUM(volume) DESC, client ASC`, [wanted]),
+        this.dataSource.query(
+          `SELECT sender_id, SUM(volume)::bigint AS volume FROM ${STAGE}
+            WHERE day = $1::date GROUP BY sender_id ORDER BY SUM(volume) DESC, sender_id ASC`, [wanted]),
+        this.dataSource.query(`SELECT MAX(refreshed_at) AS last_refreshed FROM ${STAGE}`),
+      ]);
+
+      const rows = (stageRows as any[]).map((r: any) => ({
+        day: toYMD(r.day), client: r.client ?? null, sender_id: r.sender_id ?? null, volume: Number(r.volume ?? 0),
+      }));
+
       return {
-        day:       toYMD(r.day),
-        client:    r.client ?? null,
-        sender_id: r.sender_id ?? null,
-        volume:    Number(r.volume ?? 0),
+        datasetId: this._datasetId,
+        day: wanted,
+        days,
+        rows,
+        byClient: (byClient as any[]).map((r: any) => ({ client: r.client ?? null, volume: Number(r.volume ?? 0) })),
+        bySender: (bySender as any[]).map((r: any) => ({ sender_id: r.sender_id ?? null, volume: Number(r.volume ?? 0) })),
+        lastRefreshed: refreshRow?.last_refreshed ?? null,
+        summary: {
+          day:         wanted,
+          totalVolume: rows.reduce((a, r) => a + r.volume, 0),
+          clients:     new Set(rows.map((r) => r.client)).size,
+          senders:     new Set(rows.map((r) => r.sender_id)).size,
+          rowsCount:   rows.length,
+        },
+        scope: { vendor: VENDOR_NAME, mccmnc: MCCMNC },
       };
-    });
+    } catch (err) {
+      this.logger.error(`Failed to read ${STAGE}: ${(err as Error).message}`);
+      return { datasetId: this._datasetId, day: null, days: [], rows: [], byClient: [], bySender: [],
+               lastRefreshed: null, summary: this.emptySummary(), scope: { vendor: VENDOR_NAME, mccmnc: MCCMNC } };
+    }
+  }
 
-    return {
-      datasetId: this._datasetId,
-      rows,
-      lastRefreshed,
-      summary: {
-        day:         rows[0]?.day ?? null,
-        totalVolume: rows.reduce((a, r) => a + r.volume, 0),
-        clients:     new Set(rows.map((r) => r.client)).size,
-        senders:     new Set(rows.map((r) => r.sender_id)).size,
-        rowsCount:   rows.length,
-      },
-      scope: { vendor: VENDOR_NAME, mccmnc: MCCMNC },
-    };
+  private emptySummary() {
+    return { day: null, totalVolume: 0, clients: 0, senders: 0, rowsCount: 0 };
   }
 }
