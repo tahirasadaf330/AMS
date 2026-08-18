@@ -40,10 +40,28 @@ const CSS = `
 .edr-inp{height:33px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--ink);font-size:.8rem;padding:0 10px;outline:none;width:230px;color-scheme:light}
 .dark .edr-inp{color-scheme:dark}
 .edr-inp:focus{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.15)}
-.edr-sel{height:33px;max-width:190px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--ink);font-size:.78rem;padding:0 8px;outline:none;cursor:pointer;color-scheme:light}
-.dark .edr-sel{color-scheme:dark}
-.edr-sel:focus{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.15)}
-.edr-sel.on{border-color:rgba(37,99,235,.45);color:#2563eb;font-weight:600}
+/* Searchable multi-select filter (Client / Destination / Vendor) — app-themed dropdown
+   with a search box and a checkbox list, instead of a native <select>/<datalist>. */
+.edr-pick{position:relative}
+.edr-pick-btn{height:33px;min-width:150px;max-width:190px;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 10px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--mu);font-size:.78rem;cursor:pointer;white-space:nowrap}
+.edr-pick-btn:hover{border-color:#94a3b8}
+.edr-pick-btn.on{border-color:rgba(37,99,235,.45);background:rgba(37,99,235,.08);color:#2563eb;font-weight:600}
+.edr-pick-lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.edr-pick-chev{opacity:.5;font-size:.6rem;flex-shrink:0}
+.edr-pick-pop{position:absolute;left:0;top:calc(100% + 4px);z-index:50;width:235px;background:var(--sf);border:1px solid var(--lns);border-radius:9px;box-shadow:0 12px 30px rgba(0,0,0,.25)}
+.edr-pick-search{padding:8px;border-bottom:1px solid var(--ln)}
+.edr-pick-search input{width:100%;height:29px;padding:0 8px;border:1px solid var(--lns);border-radius:6px;background:var(--sf2);color:var(--ink);font-size:.78rem;outline:none}
+.edr-pick-search input:focus{border-color:#2563eb}
+.edr-pick-list{max-height:230px;overflow-y:auto;padding:4px 0}
+.edr-pick-item{display:flex;align-items:center;gap:9px;width:100%;padding:6px 12px;border:none;background:transparent;color:var(--ink);font-size:.78rem;text-align:left;cursor:pointer}
+.edr-pick-item:hover{background:var(--sf2)}
+.edr-pick-cb{width:14px;height:14px;flex-shrink:0;border:1px solid var(--lns);border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:.62rem;line-height:1;color:#fff}
+.edr-pick-cb.ck{background:#2563eb;border-color:#2563eb}
+.edr-pick-txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.edr-pick-none{padding:8px 12px;color:var(--mu);font-size:.78rem}
+.edr-pick-foot{padding:7px 10px;border-top:1px solid var(--ln)}
+.edr-pick-clr{background:none;border:none;color:var(--mu);font-size:.72rem;cursor:pointer}
+.edr-pick-clr:hover{color:var(--ink)}
 .edr-tbtn{height:33px;padding:0 12px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--inks);font-size:.78rem;font-weight:500;cursor:pointer;white-space:nowrap;transition:border-color .12s}
 .edr-tbtn:hover{border-color:#94a3b8}
 .edr-tbtn.an{background:var(--danger-bg);border-color:var(--danger-bd);color:var(--danger);font-weight:700}
@@ -100,6 +118,74 @@ const COLS: { key: string; label: string; left?: boolean; w: string }[] = [
   { key: 'profit',             label: 'Profit (abs)',       w: '12%' },
 ];
 
+// Searchable multi-select dropdown for the Client / Destination / Vendor filters:
+// a button that opens a themed panel with a "Search values…" box and a checkbox list.
+function PickFilter({ label, options, selected, onChange }: {
+  label: string;
+  options: string[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [q, setQ]       = React.useState('');
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  // Close when clicking outside the dropdown.
+  React.useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  const selSet = new Set(selected);
+  const ordered = [...selected, ...options.filter((o) => !selSet.has(o))]; // selected pinned to top
+  const filtered = ordered.filter((o) => o.toLowerCase().includes(q.toLowerCase()));
+  const has = selected.length > 0;
+  const toggle = (v: string) =>
+    onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
+
+  return (
+    <div className="edr-pick" ref={ref}>
+      <button
+        type="button"
+        className={`edr-pick-btn${has ? ' on' : ''}`}
+        onClick={() => setOpen((o) => !o)}
+        title={has ? selected.join(', ') : label}
+      >
+        <span className="edr-pick-lbl">{has ? `${selected.length} selected` : label}</span>
+        <span className="edr-pick-chev">▼</span>
+      </button>
+      {open && (
+        <div className="edr-pick-pop">
+          <div className="edr-pick-search">
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search values…" />
+          </div>
+          <div className="edr-pick-list">
+            {filtered.length === 0 ? (
+              <div className="edr-pick-none">No values</div>
+            ) : (
+              filtered.map((v) => (
+                <button key={v} type="button" className="edr-pick-item" onClick={() => toggle(v)}>
+                  <span className={`edr-pick-cb${selected.includes(v) ? ' ck' : ''}`}>{selected.includes(v) ? '✓' : ''}</span>
+                  <span className="edr-pick-txt" title={v}>{v}</span>
+                </button>
+              ))
+            )}
+          </div>
+          {has && (
+            <div className="edr-pick-foot">
+              <button type="button" className="edr-pick-clr" onClick={() => onChange([])}>Clear selection</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function NegativeMarginPage() {
   const [data, setData]           = React.useState<any>(null);
   const [datasetId, setDatasetId] = React.useState<string | null>(null);
@@ -108,9 +194,9 @@ export default function NegativeMarginPage() {
   const [search, setSearch]       = React.useState('');
   const [filterNeg, setFilterNeg] = React.useState(false);
   const [cats, setCats]           = React.useState<string[]>([]); // selected account-type categories
-  const [client, setClient]       = React.useState('');           // Orig Account
-  const [destination, setDest]    = React.useState('');           // Orig/Term Dst Code Name
-  const [vendor, setVendor]       = React.useState('');           // Term Account
+  const [clientSel, setClientSel] = React.useState<string[]>([]); // Orig Account
+  const [destSel, setDestSel]     = React.useState<string[]>([]); // Orig/Term Dst Code Name
+  const [vendorSel, setVendorSel] = React.useState<string[]>([]); // Term Account
   const [sort, setSort]           = React.useState<{ key: string | null; dir: SortDir }>({ key: 'negative_margin', dir: 'asc' });
 
   const toggleCat = (c: string) =>
@@ -163,10 +249,11 @@ export default function NegativeMarginPage() {
         (r.orig_dst_code_name ?? '').toLowerCase().includes(q) ||
         (r.term_dst_code_name ?? '').toLowerCase().includes(q));
     }
-    // Client / Destination / Vendor filters (exact match). Destination matches either side.
-    if (client)      f = f.filter((r: any) => r.orig_account === client);
-    if (vendor)      f = f.filter((r: any) => r.term_account === vendor);
-    if (destination) f = f.filter((r: any) => r.orig_dst_code_name === destination || r.term_dst_code_name === destination);
+    // Client / Destination / Vendor filters — multi-select: a row matches if its value is one of
+    // the selected values. Destination matches either the orig- or term-side name.
+    if (clientSel.length) { const s = new Set(clientSel); f = f.filter((r: any) => s.has(r.orig_account)); }
+    if (vendorSel.length) { const s = new Set(vendorSel); f = f.filter((r: any) => s.has(r.term_account)); }
+    if (destSel.length)   { const s = new Set(destSel);   f = f.filter((r: any) => s.has(r.orig_dst_code_name) || s.has(r.term_dst_code_name)); }
     if (filterNeg) f = f.filter((r: any) => (r.negative_margin ?? 0) < 0);
     if (cats.length) f = f.filter((r: any) => cats.includes(r.account_type));
     const { key, dir } = sort;
@@ -181,7 +268,7 @@ export default function NegativeMarginPage() {
         : String(av).localeCompare(String(bv));
       return dir === 'asc' ? cmp : -cmp;
     });
-  }, [data, search, client, destination, vendor, filterNeg, cats, sort]);
+  }, [data, search, clientSel, destSel, vendorSel, filterNeg, cats, sort]);
 
   // Derive summary numbers directly from the rows we already have, so the cards
   // always match the table (independent of the backend `summary` payload shape).
@@ -197,7 +284,7 @@ export default function NegativeMarginPage() {
 
   const lastRefreshed: string | null = data?.lastRefreshed ?? null;
   const totalRows = stats.totalRows;
-  const hasFilter = search || filterNeg || cats.length > 0 || client || destination || vendor;
+  const hasFilter = search || filterNeg || cats.length > 0 || clientSel.length > 0 || destSel.length > 0 || vendorSel.length > 0;
 
   const Th = ({ col }: { col: typeof COLS[number] }) => {
     const active = sort.key === col.key;
@@ -251,25 +338,16 @@ export default function NegativeMarginPage() {
 
           <div className="edr-filt">
             <input className="edr-inp" placeholder="Search account / destination…" value={search} onChange={e => setSearch(e.target.value)} />
-            <select className={`edr-sel${client ? ' on' : ''}`} value={client} onChange={e => setClient(e.target.value)} title="Filter by Client (Orig Account)">
-              <option value="">All Clients</option>
-              {options.clients.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select className={`edr-sel${destination ? ' on' : ''}`} value={destination} onChange={e => setDest(e.target.value)} title="Filter by Destination">
-              <option value="">All Destinations</option>
-              {options.destinations.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <select className={`edr-sel${vendor ? ' on' : ''}`} value={vendor} onChange={e => setVendor(e.target.value)} title="Filter by Vendor (Term Account)">
-              <option value="">All Vendors</option>
-              {options.vendors.map((v) => <option key={v} value={v}>{v}</option>)}
-            </select>
+            <PickFilter label="Client…"      options={options.clients}      selected={clientSel} onChange={setClientSel} />
+            <PickFilter label="Destination…" options={options.destinations} selected={destSel}   onChange={setDestSel} />
+            <PickFilter label="Vendor…"      options={options.vendors}      selected={vendorSel} onChange={setVendorSel} />
             <span className="edr-sep" />
             <button className={`edr-tbtn${filterNeg ? ' an' : ''}`} onClick={() => setFilterNeg(v => !v)}>Negative Margin</button>
             <span className="edr-sep" />
             {['NOC', 'TID-ORIG', 'TID-CN-CUST'].map((c) => (
               <button key={c} className={`edr-tbtn${cats.includes(c) ? ' ac' : ''}`} onClick={() => toggleCat(c)}>{c}</button>
             ))}
-            {hasFilter && <button className="edr-clr" onClick={() => { setSearch(''); setFilterNeg(false); setCats([]); setClient(''); setDest(''); setVendor(''); }}>Clear filters</button>}
+            {hasFilter && <button className="edr-clr" onClick={() => { setSearch(''); setFilterNeg(false); setCats([]); setClientSel([]); setDestSel([]); setVendorSel([]); }}>Clear filters</button>}
           </div>
 
           <div className="edr-tbl-wrap">
