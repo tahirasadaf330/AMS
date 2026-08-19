@@ -73,13 +73,14 @@ type SortDir = 'asc' | 'desc' | null;
 
 // Column widths sum to 100% so the table fits without horizontal scroll.
 const COLS: { key: string; label: string; left?: boolean; w: string }[] = [
-  { key: 'date',             label: 'Date',             left: true, w: '10%' },
-  { key: 'supplier_account', label: 'Supplier Account', left: true, w: '21%' },
-  { key: 'country',          label: 'Country',          left: true, w: '15%' },
-  { key: 'network',          label: 'Network',          left: true, w: '19%' },
-  { key: 'currency',         label: 'Currency',         w: '9%'  },
-  { key: 'old_rate',         label: 'Old Rate',         w: '13%' },
-  { key: 'new_rate',         label: 'New Rate',         w: '13%' },
+  { key: 'date',                label: 'Date',                left: true, w: '10%' },
+  { key: 'supplier_account',    label: 'Supplier Account',    left: true, w: '16%' },
+  { key: 'customer_connection', label: 'Customer Connection', left: true, w: '14%' },
+  { key: 'country',             label: 'Country',             left: true, w: '12%' },
+  { key: 'network',             label: 'Network',             left: true, w: '16%' },
+  { key: 'currency',            label: 'Currency',            w: '8%'  },
+  { key: 'old_rate',            label: 'Old Rate',            w: '12%' },
+  { key: 'new_rate',            label: 'New Rate',            w: '12%' },
 ];
 
 const fMonth = (m: string) =>
@@ -281,6 +282,7 @@ export default function CostChangesPage() {
                     <tr key={`${r.date}|${r.supplier_account}|${r.network}|${i}`}>
                       <td className="l mono">{r.date ?? '—'}</td>
                       <td className="l" style={{ fontWeight: 600 }} title={r.supplier_account ?? ''}>{r.supplier_account ?? '—'}</td>
+                      <td className="l" title={r.customer_connection ?? ''}>{r.customer_connection ?? '—'}</td>
                       <td className="l" title={r.country ?? ''}>{r.country ?? '—'}</td>
                       <td className="l" title={r.network ?? ''}>{r.network ?? '—'}</td>
                       <td className="mono">{r.currency ?? '—'}</td>

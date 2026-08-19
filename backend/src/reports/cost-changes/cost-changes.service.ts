@@ -35,13 +35,13 @@ const RETENTION_DAYS = 92;          // keep ~3 months of history, pruned by Stag
 // Network falls back to the raw MCC-MNC code when MccMncDb has no OperatorName for it.
 const SEED_SQL = `
 WITH edrs AS (
-    SELECT mt.MtVendorConnectionId, mt.MccMnc, mt.MtVendorRate, mt.SubmitDateTime
+    SELECT mt.MtVendorConnectionId, mt.MccMnc, mt.MtVendorRate, mt.SubmitDateTime, mt.CustomerConnectionId
     FROM SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
     WHERE mt.SubmitDateTime >= DATEADD(DAY, -1, CAST('{{LOOKBACK_DATE}}' AS DATE))
       AND mt.MtVendorConnectionId IS NOT NULL
       AND mt.MtVendorRate IS NOT NULL
     UNION ALL
-    SELECT amt.MtVendorConnectionId, amt.MccMnc, amt.MtVendorRate, amt.SubmitDateTime
+    SELECT amt.MtVendorConnectionId, amt.MccMnc, amt.MtVendorRate, amt.SubmitDateTime, amt.CustomerConnectionId
     FROM SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK)
     WHERE amt.SubmitDateTime >= DATEADD(DAY, -1, CAST('{{LOOKBACK_DATE}}' AS DATE))
       AND amt.MtVendorConnectionId IS NOT NULL
@@ -53,6 +53,7 @@ daily_ranked AS (
         e.MccMnc,
         CAST(e.SubmitDateTime AS DATE) AS edr_date,
         e.MtVendorRate,
+        e.CustomerConnectionId,
         ROW_NUMBER() OVER (
             PARTITION BY e.MtVendorConnectionId, e.MccMnc, CAST(e.SubmitDateTime AS DATE)
             ORDER BY e.SubmitDateTime DESC
@@ -60,7 +61,7 @@ daily_ranked AS (
     FROM edrs e
 ),
 daily_latest AS (
-    SELECT MtVendorConnectionId, MccMnc, edr_date, MtVendorRate
+    SELECT MtVendorConnectionId, MccMnc, edr_date, MtVendorRate, CustomerConnectionId
     FROM daily_ranked
     WHERE rn = 1
 ),
@@ -69,8 +70,9 @@ changes AS (
         dl_new.MtVendorConnectionId,
         dl_new.MccMnc,
         dl_new.edr_date,
-        dl_old.MtVendorRate AS old_rate,
-        dl_new.MtVendorRate AS new_rate
+        dl_old.MtVendorRate         AS old_rate,
+        dl_new.MtVendorRate         AS new_rate,
+        dl_new.CustomerConnectionId AS CustomerConnectionId
     FROM daily_latest dl_new
     JOIN daily_latest dl_old
       ON  dl_old.MtVendorConnectionId = dl_new.MtVendorConnectionId
@@ -82,6 +84,7 @@ changes AS (
 SELECT
     c.edr_date                                                 AS [date],
     mvc.Name                                                   AS supplier_account,
+    cc.Name                                                    AS customer_connection,
     COALESCE(co.CountryName, 'UNKNOWN')                        AS country,
     COALESCE(mmd.OperatorName, CAST(c.MccMnc AS VARCHAR(32)))  AS network,
     cur.CurrencyCode                                           AS currency,
@@ -89,6 +92,7 @@ SELECT
     c.new_rate                                                 AS new_rate
 FROM changes c
 JOIN SMSCPhoenix.dbo.MtVendorConnection mvc WITH(NOLOCK) ON mvc.MtVendorConnectionId = c.MtVendorConnectionId
+LEFT JOIN SMSCPhoenix.dbo.CustomerConnections cc WITH(NOLOCK) ON cc.CustomerConnectionId = c.CustomerConnectionId
 LEFT JOIN SMSCPhoenix.dbo.Company vcomp     WITH(NOLOCK) ON vcomp.CompanyId = mvc.CompanyId
 LEFT JOIN SMSCPhoenix.dbo.Currency cur      WITH(NOLOCK) ON cur.CurrencyId  = vcomp.CurrencyId
 LEFT JOIN SMSCPhoenix.dbo.MccMncDb mmd      WITH(NOLOCK) ON mmd.MccMnc      = c.MccMnc
@@ -98,7 +102,8 @@ ORDER BY c.edr_date, mvc.Name, COALESCE(co.CountryName, 'UNKNOWN')
 
 const SEED_COLUMNS = [
   { key: 'date',             label: 'Date',             type: 'date',    description: 'UTC calendar day the new rate was observed on (compared with the previous day).' },
-  { key: 'supplier_account', label: 'Supplier Account', type: 'text',    description: 'SMS supplier (MT vendor connection) name.' },
+  { key: 'supplier_account',    label: 'Supplier Account',    type: 'text', description: 'SMS supplier (MT vendor connection) name.' },
+  { key: 'customer_connection', label: 'Customer Connection', type: 'text', description: "Customer connection of the day's latest message — the message that set the new rate." },
   { key: 'country',          label: 'Country',          type: 'text',    description: 'Destination country resolved from the MCC-MNC; UNKNOWN when the code is not in MccMncDb.' },
   { key: 'network',          label: 'Network',          type: 'text',    description: 'Destination operator (network) name from MccMncDb; falls back to the raw MCC-MNC code.' },
   { key: 'currency',         label: 'Currency',         type: 'text',    description: "Supplier company's billing currency (ISO code) that both rates are expressed in." },
@@ -253,13 +258,22 @@ export class CostChangesService implements OnModuleInit {
       [STAGE],
     );
     const existingSet = new Set(existing.map((r) => r.column_name));
+    let addedDataColumn = false;
     for (const col of SEED_COLUMNS) {
       if (!existingSet.has(col.key)) {
         await this.dataSource.query(
           `ALTER TABLE ${STAGE} ADD COLUMN IF NOT EXISTS "${col.key}" ${typeMap[col.type] ?? 'TEXT'}`,
         );
         this.logger.log(`Added missing column "${col.key}" to ${STAGE}`);
+        addedDataColumn = true;
       }
+    }
+    // A newly added column is NULL for all history rows and incremental refreshes never revisit
+    // old days — wipe once so the next refresh re-backfills from incremental_initial_date with
+    // the new column populated. One-time: the column exists on every later boot.
+    if (addedDataColumn) {
+      await this.dataSource.query(`DELETE FROM ${STAGE}`);
+      this.logger.log(`${STAGE} wiped after schema change — next refresh will re-backfill history`);
     }
     await this.dataSource.query(
       `CREATE INDEX IF NOT EXISTS idx_${STAGE}_date ON ${STAGE} ("date" DESC)`,
@@ -281,14 +295,14 @@ export class CostChangesService implements OnModuleInit {
     // "date"::text sidesteps the pg DATE → JS Date UTC day-shift.
     const stageRows: any[] = await (daysNum !== null
       ? this.dataSource.query(
-          `SELECT "date"::text AS date, supplier_account, country, network, currency, old_rate, new_rate
+          `SELECT "date"::text AS date, supplier_account, customer_connection, country, network, currency, old_rate, new_rate
            FROM ${STAGE}
            WHERE "date" >= ((now() AT TIME ZONE 'UTC')::date - ($1::int - 1))
            ORDER BY "date" DESC, supplier_account ASC, country ASC, network ASC`,
           [daysNum],
         )
       : this.dataSource.query(
-          `SELECT "date"::text AS date, supplier_account, country, network, currency, old_rate, new_rate
+          `SELECT "date"::text AS date, supplier_account, customer_connection, country, network, currency, old_rate, new_rate
            FROM ${STAGE}
            WHERE "date" >= $1::date AND "date" < ($1::date + INTERVAL '1 month')
            ORDER BY "date" DESC, supplier_account ASC, country ASC, network ASC`,
@@ -311,9 +325,10 @@ export class CostChangesService implements OnModuleInit {
     ).catch(() => [null]);
 
     const rows = stageRows.map((r: any) => ({
-      date:             r.date ?? null,
-      supplier_account: r.supplier_account ?? null,
-      country:          r.country ?? null,
+      date:                r.date ?? null,
+      supplier_account:    r.supplier_account ?? null,
+      customer_connection: r.customer_connection ?? null,
+      country:             r.country ?? null,
       network:          r.network ?? null,
       currency:         r.currency ?? null,
       old_rate:         r.old_rate != null ? Number(r.old_rate) : null,
