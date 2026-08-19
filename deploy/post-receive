@@ -1,0 +1,88 @@
+#!/bin/bash
+# AMS push-to-deploy hook. Lives in the BARE repo (/srv/ams.git/hooks/post-receive) and is
+# installed by deploy/setup-push-deploy.sh. Deploying is then just:
+#
+#     git push production main
+#
+# Only pushes to the deploy branch act; anything else is accepted and ignored, so feature
+# branches can be shared through this remote without triggering a deploy.
+#
+# Why this beats running deploy/deploy.sh by hand: the hook executes from the bare repo, so
+# updating the work tree cannot swap the script out from under the running shell — the failure
+# mode deploy.sh has, where `git pull` replaces the file bash is still reading.
+#
+# DRY_RUN=1 validates the wiring (checkout target, migrations list, compose services) without
+# deploying anything.
+set -euo pipefail
+
+# Per-VM paths, written next to the hook by setup-push-deploy.sh. Anything already exported
+# (e.g. DRY_RUN=1 for a manual validation run) wins over the file.
+HOOK_ENV="$(dirname "$0")/post-receive.env"
+if [ -f "$HOOK_ENV" ]; then
+  while IFS='=' read -r k v; do
+    case "$k" in APP_DIR|GIT_DIR_BARE|DEPLOY_BRANCH) [ -z "${!k:-}" ] && export "$k=$v" ;; esac
+  done < "$HOOK_ENV"
+fi
+
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
+APP_DIR="${APP_DIR:-/var/www/AMS}"
+GIT_DIR_BARE="${GIT_DIR_BARE:-/srv/ams.git}"
+DRY_RUN="${DRY_RUN:-0}"
+
+log() { echo "[deploy] $*"; }
+
+deploy() {
+  local newrev="$1"
+
+  log "target $APP_DIR at ${newrev:0:8} (branch $DEPLOY_BRANCH)"
+  [ -d "$APP_DIR" ] || { echo "[deploy] ERROR: $APP_DIR missing" >&2; exit 1; }
+
+  if [ "$DRY_RUN" = "1" ]; then
+    log "DRY RUN — would checkout, migrate, then build+up"
+    log "  compose services: $( (cd "$APP_DIR" && docker compose config --services 2>/dev/null | tr '\n' ' ') )"
+    log "  migrate.sh: $([ -x "$APP_DIR/deploy/migrate.sh" ] || [ -f "$APP_DIR/deploy/migrate.sh" ] && echo present || echo MISSING)"
+    log "DRY RUN complete — nothing changed."
+    return 0
+  fi
+
+  # Untracked files (backend/.env, frontend/.env.local) are left alone by checkout -f; tracked
+  # local edits are discarded on purpose so the work tree matches the pushed commit exactly.
+  log "checking out"
+  git --git-dir="$GIT_DIR_BARE" --work-tree="$APP_DIR" checkout -f "$DEPLOY_BRANCH"
+
+  log "migrations"
+  APP_DIR="$APP_DIR" bash "$APP_DIR/deploy/migrate.sh"
+
+  log "build + up"
+  ( cd "$APP_DIR" && docker compose up -d --build )
+
+  ( cd "$APP_DIR" && docker image prune -f >/dev/null 2>&1 || true )
+
+  log "health"
+  ok=0
+  for _ in $(seq 1 20); do
+    if curl -fsS -m 5 http://127.0.0.1:3001/system/health >/dev/null 2>&1; then ok=1; break; fi
+    sleep 3
+  done
+  if [ "$ok" -eq 1 ]; then
+    log "healthy — deploy complete"
+  else
+    echo "[deploy] ERROR: backend did not become healthy; check 'docker compose logs backend'" >&2
+    exit 1
+  fi
+}
+
+while read -r _oldrev newrev refname; do
+  case "$refname" in
+    "refs/heads/$DEPLOY_BRANCH")
+      if [ "$newrev" = "0000000000000000000000000000000000000000" ]; then
+        log "$DEPLOY_BRANCH deleted — nothing to deploy"
+      else
+        deploy "$newrev"
+      fi
+      ;;
+    *)
+      log "ignoring ${refname#refs/heads/} (only $DEPLOY_BRANCH deploys)"
+      ;;
+  esac
+done
