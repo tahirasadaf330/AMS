@@ -52,17 +52,29 @@ import { ConditionSchedulerService } from '../../conditions/condition-scheduler.
  * term_enabled = false accounts are excluded — they are switched off in Jerasoft by
  * configuration and can never carry traffic, so they would alert forever.
  *
+ * GRANULARITY — per (TERM ACCOUNT × DESTINATION), not per account. Operations asked for the
+ * destination on the row so a failing vendor+destination pair can be escalated without further
+ * digging, and it also makes the check strictly sharper: a vendor answering calls to one
+ * destination while failing every call to another used to read as healthy, because the account's
+ * own ASR was above zero. Measured live on TID-TERM-TALK TO ME-IMT-TDM — 1,035 attempts with 12
+ * connected, so the account-level check cleared it, while NIGERIA MOBILE MTN (438 attempts),
+ * NIGERIA MOBILE AIRTEL (262) and ECUADOR MOBILE CLARO (12) had connected nothing at all.
+ * Destination names match the Special Routes Monitoring report exactly — same HY-DEFAULT code
+ * deck, same longest-prefix method — so the two never disagree.
+ *
  * WHAT COUNTS AS A FAULT — exactly one rule, applied within the bucket:
  *
  *     successful = 0     (i.e. ASR is exactly 0%, whether or not any attempt was made)
  *
- * Any successful call at all clears the account, however few: 3 attempts with 1 connected is
+ * Any successful call at all clears that destination, however few: 3 attempts with 1 connected is
  * ASR 33.33% and is NOT reported. There is no minimum-attempts floor — 1 attempt with 0
  * connected is reported, and so is 0 attempts, because zero attempts also means zero connected.
  *
  * The email splits these into two tables because they point at different causes, but BOTH alert:
- *   - attempts > 0, none connected → the vendor is rejecting or failing every call
- *   - attempts = 0                 → nothing is being routed to the account at all
+ *   - attempts > 0, none connected → the vendor is rejecting or failing every call to that
+ *                                    destination; the row names the destination
+ *   - attempts = 0                 → nothing is being routed to the account at all, on any
+ *                                    destination, so there is no destination to name
  *
  * BEWARE the interaction with the incremental window: most of the 54 in-scope accounts are idle
  * by design (the -VOS softswitch mirrors, the G711/QATAR/IDENTIDAD variants) and only receive
@@ -106,6 +118,11 @@ JERA_TIMEOUT_MS      = 240000 # never let the Jerasoft read pile up
 HARVEST_LABEL      = "Harvest = Telko MS Tdm"
 HARVEST_START_HOUR = 7
 HARVEST_END_HOUR   = 21
+
+# Destination names come from the HY-DEFAULT code deck, the same deck and the same longest-prefix
+# method the Special Routes Monitoring report uses, so the alert and the report name a destination
+# identically and Operations never has to reconcile the two.
+CODE_DECK_ID = 19
 
 STATE_TABLE  = "special_routes_zero_asr_state"
 CURSOR_TABLE = "special_routes_zero_asr_cursor"
@@ -219,20 +236,47 @@ def wrap(title, intro, inner):
 
 
 def traffic_sql(lo, hi):
-    # Window bounds MUST stay inline literals - xdrs/xdrs_billed are partitioned on time and
-    # moving these into a CTE, join or bind parameter kills partition pruning (seconds -> timeout).
+    # Per (term account x DESTINATION) within the window. Operations needs the destination on the
+    # row - "ABC Vendor / MOROCCO MOBILE MAROC" - so a failing vendor+destination pair can be
+    # escalated without further digging.
+    #
+    # The window bounds MUST stay inline literals in the scan predicate: xdrs/xdrs_billed are
+    # partitioned on time, and turning them into bind parameters kills partition pruning
+    # (seconds -> timeout). Keeping them literal inside the legs CTE preserves it - measured 1.9s
+    # over a 2-hour window across all 13 routes, and this alert only ever reads 20 minutes.
     # Half-open [lo, hi) so a call on a bucket boundary is counted in exactly one bucket.
-    return ("SELECT b.accounts_id, "
+    #
+    # Destination resolves off the TERM leg's own rate code rather than by pairing the orig and
+    # term legs the way the report does. That is far cheaper - one lookup per DISTINCT rate instead
+    # of a session_id self-join - and, decisively, it still works for FAILED calls: every failed
+    # term leg carries a rates_id (verified 44,954 of 44,954 over two hours), whereas the report's
+    # pairing needs billed volume, which a failed call never produces.
+    return ("WITH legs AS ("
+            "  SELECT b.accounts_id, b.rates_id, x.volume "
+            "    FROM public.xdrs x "
+            "    JOIN public.xdrs_billed b ON b.xdrs_id = x.id "
+            "   WHERE x.origin = 'term' "
+            "     AND x.stop_time >= " + lo + " AND x.stop_time < " + hi + " "
+            "     AND b.dt        >= " + lo + " AND b.dt        < " + hi + " "
+            "     AND b.accounts_id = ANY(%s) "
+            "), rate_name AS ("
+            "  SELECT r.id AS rate_id, "
+            "    (SELECT c.name FROM codes c "
+            "      WHERE c.code_decks_id = " + str(CODE_DECK_ID) + " AND c.name <> '' "
+            "        AND c.code IN (SELECT substring(r.code FROM 1 FOR g) "
+            "                       FROM generate_series(1, length(r.code)) g) "
+            "      ORDER BY length(c.code) DESC LIMIT 1) AS dst "
+            "  FROM (SELECT DISTINCT rates_id AS id FROM legs WHERE rates_id IS NOT NULL) ids "
+            "  JOIN rates r ON r.id = ids.id "
+            ") "
+            "SELECT l.accounts_id, "
+            "       COALESCE(rn.dst, 'UNKNOWN') AS destination, "
             "       count(*) AS attempts, "
-            "       count(*) FILTER (WHERE x.volume > 0) AS success, "
-            "       round(sum(x.volume) / 60.0, 1) AS volume_min "
-            "  FROM public.xdrs x "
-            "  JOIN public.xdrs_billed b ON b.xdrs_id = x.id "
-            " WHERE x.origin = 'term' "
-            "   AND x.stop_time >= " + lo + " AND x.stop_time < " + hi + " "
-            "   AND b.dt        >= " + lo + " AND b.dt        < " + hi + " "
-            "   AND b.accounts_id = ANY(%s) "
-            " GROUP BY b.accounts_id")
+            "       count(*) FILTER (WHERE l.volume > 0) AS success, "
+            "       round(sum(l.volume) / 60.0, 1) AS volume_min "
+            "  FROM legs l "
+            "  LEFT JOIN rate_name rn ON rn.rate_id = l.rates_id "
+            " GROUP BY l.accounts_id, COALESCE(rn.dst, 'UNKNOWN')")
 
 
 try:
@@ -359,17 +403,23 @@ try:
             else:
                 day_ids.append(a[0])
 
-    # ── 4. Read attempts + connected calls per account, within the bucket ───────
-    stats = {}
+    # ── 4. Read attempts + connected calls per account AND destination ──────────
+    # by_acct[account_id] = [(destination, attempts, success, volume_min), ...] - one entry per
+    # destination the account actually carried traffic to in this window.
+    by_acct = {}
+
+    def collect(rows):
+        for r in rows:
+            by_acct.setdefault(r[0], []).append(
+                (r[1], int(r[2]), int(r[3]), float(r[4] or 0)))
+
     if day_ids:
         jcur.execute(traffic_sql(ts(win_start), ts(win_end)), (day_ids,))
-        for r in jcur.fetchall():
-            stats[r[0]] = (int(r[1]), int(r[2]), float(r[3] or 0))
+        collect(jcur.fetchall())
 
     if harvest_ids and harvest_open:
         jcur.execute(traffic_sql(ts(h_lo), ts(h_hi)), (harvest_ids,))
-        for r in jcur.fetchall():
-            stats[r[0]] = (int(r[1]), int(r[2]), float(r[3] or 0))
+        collect(jcur.fetchall())
 
     jera.close()
 
@@ -378,8 +428,10 @@ try:
     # kept apart only because they point at different causes: attempts with no answer is the
     # vendor rejecting or failing calls, while no attempts at all means nothing was routed to the
     # account in the first place.
-    dead = []       # attempts > 0, none connected -> (label, acct, client, wtxt, att, vol, key)
-    silent = []     # attempts = 0, so none connected either -> (label, acct, client, wtxt, key)
+    # dead   -> (label, acct, client, destination, wtxt, att, vol, key)
+    # silent -> (label, acct, client, wtxt, key)   [no traffic, so no destination to name]
+    dead = []       # a vendor+destination that took attempts and connected none
+    silent = []     # an account that took no attempts at all, to any destination
     healthy = 0
     skipped_harvest = 0
 
@@ -395,14 +447,21 @@ try:
             window_txt = win_txt
 
         for a in accts:
-            att, suc, vol = stats.get(a[0], (0, 0, 0.0))
-            if suc > 0:
-                # Any connected call clears the account, however few attempts it took.
-                healthy += 1
-            elif att > 0:
-                dead.append((label, a[1], a[2], window_txt, att, vol, "acct:" + str(a[0])))
-            else:
+            dests = by_acct.get(a[0])
+            if not dests:
+                # Nothing was routed to this account at all, so there is no destination to pin the
+                # failure on - it is reported at account level instead.
                 silent.append((label, a[1], a[2], window_txt, "silent:" + str(a[0])))
+                continue
+            # Judged PER DESTINATION: a vendor answering calls to one destination while failing
+            # every call to another is exactly the case an account-level check hides.
+            for dst, att, suc, vol in dests:
+                if suc > 0:
+                    # Any connected call clears this destination, however few attempts it took.
+                    healthy += 1
+                else:
+                    dead.append((label, a[1], a[2], dst, window_txt, att, vol,
+                                 "acct:" + str(a[0]) + "|dst:" + str(dst)))
 
     # The cursor advances on EVERY run, faults or not. Without this a quiet bucket would never be
     # marked done, so the next run would re-judge it and the window would keep growing.
@@ -429,29 +488,30 @@ try:
         fail(msg)
 
     # ── 6. Keys for the fault record written in step 8 ─────────────────────────
-    keys = ([d[6] for d in dead] + [s[4] for s in silent]
+    keys = ([d[7] for d in dead] + [s[4] for s in silent]
             + ["route-unresolved:" + u[0] for u in unresolved])
 
     # ── 7. Build the email ──────────────────────────────────────────────────────
     inner = ""
 
     if dead:
-        dead.sort(key=lambda d: d[4], reverse=True)
+        dead.sort(key=lambda d: d[5], reverse=True)
         rows = []
-        for label, acct, client, wtxt, att, vol, key in dead:
+        for label, acct, client, dst, wtxt, att, vol, key in dead:
             rows.append([
                 td(esc(label), "left", "font-weight:600;"),
                 td(esc(acct), "left"),
                 td(esc(client), "left", "color:" + NEUTRAL + ";"),
+                td(esc(dst), "left", "font-weight:700;color:" + NAVY + ";"),
                 td(esc(wtxt), "left", "white-space:nowrap;"),
                 td(fi(att), "right"),
                 td('<b style="color:' + RED + ';">0</b>', "right"),
                 td("0.00%", "right", "color:" + RED + ";font-weight:700;"),
             ])
         inner += ('<div style="color:' + NAVY + ';font-size:14px;font-weight:700;margin:0 0 6px;">'
-                  + str(len(dead)) + ' term account(s) took traffic and connected nothing</div>'
-                  + table(["Route", "Term Account", "Client", "Window", "Attempts", "Successful", "ASR"],
-                          ["left", "left", "left", "left", "right", "right", "right"], rows))
+                  + str(len(dead)) + ' vendor + destination route(s) took traffic and connected nothing</div>'
+                  + table(["Route", "Term Account", "Client", "Destination", "Window", "Attempts", "Successful", "ASR"],
+                          ["left", "left", "left", "left", "left", "right", "right", "right"], rows))
 
     if silent:
         silent.sort(key=lambda s: (s[0], s[1]))
@@ -461,15 +521,17 @@ try:
                 td(esc(label), "left", "font-weight:600;"),
                 td(esc(acct), "left"),
                 td(esc(client), "left", "color:" + NEUTRAL + ";"),
+                # No traffic means no destination to name - nothing was routed anywhere.
+                td("&mdash;", "left", "color:" + NEUTRAL + ";"),
                 td(esc(wtxt), "left", "white-space:nowrap;"),
                 td('<b style="color:' + RED + ';">0</b>', "right"),
                 td('<b style="color:' + RED + ';">0</b>', "right"),
             ])
         inner += ('<div style="height:14px"></div>'
                   '<div style="color:' + NAVY + ';font-size:14px;font-weight:700;margin:0 0 6px;">'
-                  + str(len(silent)) + ' term account(s) received no attempts at all &mdash; nothing routed to them</div>'
-                  + table(["Route", "Term Account", "Client", "Window", "Attempts", "Successful"],
-                          ["left", "left", "left", "left", "right", "right"], rows))
+                  + str(len(silent)) + ' term account(s) received no attempts at all &mdash; nothing routed to them, so no destination to name</div>'
+                  + table(["Route", "Term Account", "Client", "Destination", "Window", "Attempts", "Successful"],
+                          ["left", "left", "left", "left", "left", "right", "right"], rows))
 
     if unresolved:
         rows = []
@@ -497,8 +559,8 @@ try:
               + fmt_span(window_min) + " since the previous check, not the whole day. "
               "(Jerasoft clock " + esc(reading_at.strftime("%Y-%m-%d %H:%M:%S %Z") or "") + ".) ")
     if dead:
-        intro += ("<b>" + str(len(dead)) + "</b> term account(s) took attempts in this window and "
-                  "connected no call at all &mdash; ASR 0%. ")
+        intro += ("<b>" + str(len(dead)) + "</b> vendor + destination route(s) took attempts in this "
+                  "window and connected no call at all &mdash; ASR 0%. ")
     if silent:
         intro += ("<b>" + str(len(silent)) + "</b> term account(s) received no attempts at all, so "
                   "they connected nothing either. ")
@@ -506,12 +568,12 @@ try:
         intro += ("<b>" + str(len(unresolved)) + "</b> route(s) no longer resolve to a Jerasoft "
                   "account and are not being watched. ")
     intro += ('<span style="color:' + GREEN + ';">' + str(healthy)
-              + " account(s) connected calls normally in this window.</span>")
+              + " vendor + destination route(s) connected calls normally in this window.</span>")
     if skipped_harvest:
         intro += (' ' + esc(HARVEST_LABEL) + ' was not checked &mdash; this window falls outside its '
                   + "%02d:00" % HARVEST_START_HOUR + "&ndash;" + "%02d:00" % HARVEST_END_HOUR + ' UTC business hours.')
 
-    subject = ("[Special Routes] " + str(problems) + " account(s) with zero successful calls ("
+    subject = ("[Special Routes] " + str(problems) + " route(s) with zero successful calls ("
                + win_txt + ")")
 
     # ── 8. Record this run against each fault, with Jerasoft's clock ────────────
@@ -525,15 +587,17 @@ try:
     acur.execute("DELETE FROM " + STATE_TABLE + " WHERE day < %s::date - 7", (day,))
 
     out_rows = []
-    for label, acct, client, wtxt, att, vol, key in dead:
+    for label, acct, client, dst, wtxt, att, vol, key in dead:
         out_rows.append({
             "check": "zero_success", "route": label, "term_account": acct, "client": client,
+            "destination": dst,
             "window": wtxt, "attempts": att, "successful": 0, "asr": 0, "volume_min": vol,
             "day": str(day), "reading_at": reading_at.isoformat(),
         })
     for label, acct, client, wtxt, key in silent:
         out_rows.append({
             "check": "no_attempts", "route": label, "term_account": acct, "client": client,
+            "destination": None,
             "window": wtxt, "attempts": 0, "successful": 0, "asr": 0, "volume_min": 0,
             "day": str(day), "reading_at": reading_at.isoformat(),
         })
@@ -549,7 +613,7 @@ try:
         "html": wrap("Special Routes - zero successful calls", intro, inner),
         "message": (str(problems) + " fault(s) in " + win_txt + " (" + fmt_span(window_min) + "): "
                     + str(len(dead)) + " with attempts but ASR 0, " + str(len(silent))
-                    + " with no attempts, " + str(len(unresolved)) + " unresolved"
+                    + " account(s) with no attempts, " + str(len(unresolved)) + " unresolved"
                     + ("; " + gap_note if gap_note else "")),
         # reading_at makes every payload unique, so the platform's 24h identical-payload
         # suppression never hides a fault that is still persisting.
