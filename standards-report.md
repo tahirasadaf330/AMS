@@ -1,6 +1,6 @@
 # Standards Review — AMS
 
-- **Ruleset:** v1.3 (2026-08-05)
+- **Ruleset:** v1.3 (2026-08-05) — verified current against engineering-standards@HEAD on 2026-08-19 (repo changelog at v1.5 is tooling-only; rules unchanged)
 - **Date:** 2026-08-19 (third run today; R03/R06/R07 fixed in the morning runs)
 - **Branch:** `feature/zamani-firewall-report` (working tree) · `main` @ `b8ed6c2`
 - **Scope:** branch / working-tree changes + `main` deployables
