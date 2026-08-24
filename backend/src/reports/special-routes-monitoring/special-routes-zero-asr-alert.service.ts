@@ -15,14 +15,20 @@ import { ConditionSchedulerService } from '../../conditions/condition-scheduler.
  * WINDOW — INCREMENTAL. Each run judges only the traffic in one clock-aligned WINDOW_MINUTES
  * bucket, not the day so far:
  *
- *     run at 13:00  judges 12:40:00 → 13:00:00
- *     run at 13:20  judges 13:00:00 → 13:20:00
- *     run at 13:40  judges 13:20:00 → 13:40:00
+ *     run at 13:00  judges 12:50:00 → 13:00:00
+ *     run at 13:10  judges 13:00:00 → 13:10:00
+ *     run at 13:20  judges 13:10:00 → 13:20:00
  *
  * Bounds are half-open [start, end) so a call landing exactly on a boundary is counted once.
- * WINDOW_MINUTES is meant to match the cron interval (every 20 minutes). If the cron is set
+ * WINDOW_MINUTES is meant to match the cron interval (every 10 minutes). If the cron is set
  * faster, the extra runs find the current bucket already processed and skip; if slower, the
  * cursor catches up.
+ *
+ * The bucket was 20 minutes until a real outage slipped through it: Harvest connected nothing
+ * from 09:30 to 09:50 UTC on 2026-08-20, but that dead period straddled a 20-minute boundary, so
+ * BOTH buckets were rescued by successful calls in their other half (09:20-09:40 kept 23 answers
+ * from 09:20-09:30, and 09:40-10:00 kept 54 from 09:50-10:00). Neither hit zero, so nothing was
+ * reported. Halving the bucket halves that blind spot and halves detection latency with it.
  *
  * A CURSOR (special_routes_zero_asr_cursor, one row) holds the end of the last bucket actually
  * processed, so a missed run — backend restart, deploy, outage — is caught up on the next run
@@ -64,24 +70,43 @@ import { ConditionSchedulerService } from '../../conditions/condition-scheduler.
  *
  * WHAT COUNTS AS A FAULT — exactly one rule, applied within the bucket:
  *
- *     successful = 0     (i.e. ASR is exactly 0%, whether or not any attempt was made)
+ *     success rate  =  (successful calls / attempts) x 100  <  MIN_ASR_PCT
  *
- * Any successful call at all clears that destination, however few: 3 attempts with 1 connected is
- * ASR 33.33% and is NOT reported. There is no minimum-attempts floor — 1 attempt with 0
- * connected is reported, and so is 0 attempts, because zero attempts also means zero connected.
+ * This is ASR, with "successful" meaning volume > 0 (real talk time) rather than
+ * result_status = 'success', which also counts zero-duration answers. Same definition the
+ * Special Routes Monitoring report uses, so the two never disagree.
  *
- * The email splits these into two tables because they point at different causes, but BOTH alert:
- *   - attempts > 0, none connected → the vendor is rejecting or failing every call to that
- *                                    destination; the row names the destination
- *   - attempts = 0                 → nothing is being routed to the account at all, on any
- *                                    destination, so there is no destination to name
+ * The threshold replaced a plain "successful = 0" test, which only fired once a route was
+ * COMPLETELY dead and so missed every partial collapse. Harvest on 2026-08-20 is the case that
+ * motivated it: it degraded from 14% ASR to 1.4% over roughly ninety minutes, and the zero rule
+ * stayed silent throughout because a handful of calls kept connecting. At 2% the same data alerts
+ * on the 08:30 bucket — about fifty minutes earlier, and while there was still time to reroute.
  *
- * BEWARE the interaction with the incremental window: most of the 54 in-scope accounts are idle
- * by design (the -VOS softswitch mirrors, the G711/QATAR/IDENTIDAD variants) and only receive
- * traffic when a routing plan selects them, so in any given 20-minute bucket the majority have no
- * attempts and therefore land in the second table on every single run. If that reads as noise,
- * the fix is to apply the zero-attempts rule per ROUTE (all of a route's accounts silent) rather
- * than per account, which is the operationally meaningful version of "this route is dead".
+ * No baseline, no history, no percentiles: the rule is judged entirely on the current bucket.
+ * There is no minimum-attempts floor, so 1 attempt with 0 connected is 0% and is reported. Note
+ * that below ~51 attempts the threshold behaves exactly like the old zero rule anyway, because a
+ * single successful call out of 50 is already 2%.
+ *
+ * The email splits faults into two tables because they point at different causes, but BOTH alert:
+ *   - attempts > 0, ASR < MIN_ASR_PCT → the vendor is rejecting or failing nearly every call to
+ *                                       that destination; the row names the destination and ASR
+ *   - attempts = 0                    → nothing is being routed to the account at all, on any
+ *                                       destination, so there is no ASR and no destination
+ *
+ * BEWARE two things measured over 24h of live traffic (2026-08-24):
+ *
+ * Roughly seven (account x destination) pairs run CHRONICALLY between 0.5% and 1.9% as their
+ * healthy state — Israel mobile and PRM traffic especially, e.g. TALK TO ME-IMT-TDM-ISRAEL MOBILE
+ * at 1.33% and MJD-Philippines Globe-NCLI at 0.48%. A flat threshold treats their normal state as
+ * a fault, so they appear in most emails permanently. Deliberate: a flat 2% was the explicit
+ * requirement. If they become noise, the fix is a per-pair override map rather than moving the
+ * global threshold, which would blind the alert to the routes that genuinely sit near 2%.
+ *
+ * And every one of 143 consecutive buckets produced at least one fault, so this alert emails on
+ * essentially every run. The threshold is not what causes that — the old zero rule fired on
+ * 143/143 too. It is the many pairs sitting permanently at 0%, plus the ~30 idle-by-design
+ * accounts (the -VOS mirrors, the G711/QATAR/IDENTIDAD variants) that land in the second table
+ * every time because a routing plan only feeds them occasionally.
  *
  * A route whose name pattern matches no term-enabled Jerasoft account is reported separately as
  * config drift — otherwise the alert would silently stop watching it.
@@ -98,11 +123,11 @@ const TO: string[] = ['muhammad.sulman@hayo.net', 'mashhood@hayo.net'];
 const CC: string[] = [];
 
 const ALERT_NAME = 'Special Routes — Zero Successful Calls (Jerasoft)';
-const DEFAULT_CRON = '*/20 * * * *'; // every 20 min; user-adjustable in the Alerts UI
-// The first version of this alert seeded */30. Migrate that one value forward so an environment
-// which already ran it picks up the 20-minute schedule, without clobbering a cron the user has
-// since customised to anything else.
-const SUPERSEDED_CRON = '*/30 * * * *';
+const DEFAULT_CRON = '*/10 * * * *'; // every 10 min; user-adjustable in the Alerts UI
+// Earlier versions of this alert seeded */30 and then */20. Migrate those exact values forward so
+// an environment already running one of them picks up the 10-minute schedule, while a cron the
+// user has deliberately customised to anything else is left alone.
+const SUPERSEDED_CRONS = ['*/30 * * * *', '*/20 * * * *'];
 
 const SCRIPT = String.raw`
 import os, sys, json, traceback
@@ -110,7 +135,8 @@ from datetime import timedelta, timezone
 import psycopg2
 
 # ── Tunables ─────────────────────────────────────────────────────────────────────
-WINDOW_MINUTES       = 20     # size of one bucket - keep this equal to the cron interval
+WINDOW_MINUTES       = 10     # size of one bucket - keep this equal to the cron interval
+MIN_ASR_PCT          = 2.0    # a destination below this success rate in its bucket is a fault
 MAX_CATCHUP_MINUTES  = 360    # after an outage, never judge more than this in one go
 JERA_TIMEOUT_MS      = 240000 # never let the Jerasoft read pile up
 
@@ -188,6 +214,13 @@ def hhmm(t):
     return t.strftime("%H:%M")
 
 
+def fpct(v):
+    try:
+        return "%.2f%%" % float(v or 0)
+    except Exception:
+        return "-"
+
+
 def fmt_span(minutes):
     m = int(round(minutes))
     if m < 90:
@@ -229,9 +262,10 @@ def wrap(title, intro, inner):
             '<div style="color:#333;font-size:13px;line-height:1.6;margin-bottom:12px;">' + intro + '</div>'
             + inner +
             '<div style="margin-top:16px;padding-top:10px;border-top:1px solid #e4e9ec;font-size:11px;color:#999;">'
-            'An account is reported when it took attempts in the window shown but connected no '
-            'call at all (successful = volume &gt; 0, so ASR is exactly 0%). Any successful call, '
-            'however few, clears it. Each run judges only its own window, not the whole day. '
+            'A route is reported when its success rate &mdash; (successful calls / attempts) x 100, '
+            'counting a call as successful only when it carried real talk time &mdash; falls below '
+            + fpct(MIN_ASR_PCT) + ' in the window shown, or when it received no attempts at all. '
+            'Each run judges only its own ' + str(WINDOW_MINUTES) + '-minute window, not the whole day. '
             'This alert is generated automatically by AMS (Alert Management System). Please do not reply.</div></div>')
 
 
@@ -428,9 +462,9 @@ try:
     # kept apart only because they point at different causes: attempts with no answer is the
     # vendor rejecting or failing calls, while no attempts at all means nothing was routed to the
     # account in the first place.
-    # dead   -> (label, acct, client, destination, wtxt, att, vol, key)
-    # silent -> (label, acct, client, wtxt, key)   [no traffic, so no destination to name]
-    dead = []       # a vendor+destination that took attempts and connected none
+    # dead   -> (label, acct, client, destination, wtxt, att, suc, asr, vol, key)
+    # silent -> (label, acct, client, wtxt, key)   [no traffic, so no ASR and no destination]
+    dead = []       # a vendor+destination whose success rate fell below MIN_ASR_PCT
     silent = []     # an account that took no attempts at all, to any destination
     healthy = 0
     skipped_harvest = 0
@@ -456,11 +490,13 @@ try:
             # Judged PER DESTINATION: a vendor answering calls to one destination while failing
             # every call to another is exactly the case an account-level check hides.
             for dst, att, suc, vol in dests:
-                if suc > 0:
-                    # Any connected call clears this destination, however few attempts it took.
+                # att is always > 0 here - a row only exists for a destination that took traffic -
+                # so the division is safe and the zero-attempt case never reaches this branch.
+                asr = 100.0 * suc / att
+                if asr >= MIN_ASR_PCT:
                     healthy += 1
                 else:
-                    dead.append((label, a[1], a[2], dst, window_txt, att, vol,
+                    dead.append((label, a[1], a[2], dst, window_txt, att, suc, asr, vol,
                                  "acct:" + str(a[0]) + "|dst:" + str(dst)))
 
     # The cursor advances on EVERY run, faults or not. Without this a quiet bucket would never be
@@ -495,9 +531,11 @@ try:
     inner = ""
 
     if dead:
-        dead.sort(key=lambda d: d[5], reverse=True)
+        # Worst success rate first, then by size - a 0% route matters more than a 1.9% one, and
+        # among equals the one carrying the most traffic is the one to escalate.
+        dead.sort(key=lambda d: (d[7], -d[5]))
         rows = []
-        for label, acct, client, dst, wtxt, att, vol, key in dead:
+        for label, acct, client, dst, wtxt, att, suc, asr, vol, key in dead:
             rows.append([
                 td(esc(label), "left", "font-weight:600;"),
                 td(esc(acct), "left"),
@@ -505,11 +543,12 @@ try:
                 td(esc(dst), "left", "font-weight:700;color:" + NAVY + ";"),
                 td(esc(wtxt), "left", "white-space:nowrap;"),
                 td(fi(att), "right"),
-                td('<b style="color:' + RED + ';">0</b>', "right"),
-                td("0.00%", "right", "color:" + RED + ";font-weight:700;"),
+                td(fi(suc), "right"),
+                td(fpct(asr), "right", "color:" + RED + ";font-weight:700;"),
             ])
         inner += ('<div style="color:' + NAVY + ';font-size:14px;font-weight:700;margin:0 0 6px;">'
-                  + str(len(dead)) + ' vendor + destination route(s) took traffic and connected nothing</div>'
+                  + str(len(dead)) + ' vendor + destination route(s) below ' + fpct(MIN_ASR_PCT)
+                  + ' success rate</div>'
                   + table(["Route", "Term Account", "Client", "Destination", "Window", "Attempts", "Successful", "ASR"],
                           ["left", "left", "left", "left", "left", "right", "right", "right"], rows))
 
@@ -559,8 +598,8 @@ try:
               + fmt_span(window_min) + " since the previous check, not the whole day. "
               "(Jerasoft clock " + esc(reading_at.strftime("%Y-%m-%d %H:%M:%S %Z") or "") + ".) ")
     if dead:
-        intro += ("<b>" + str(len(dead)) + "</b> vendor + destination route(s) took attempts in this "
-                  "window and connected no call at all &mdash; ASR 0%. ")
+        intro += ("<b>" + str(len(dead)) + "</b> vendor + destination route(s) had a success rate "
+                  "below <b>" + fpct(MIN_ASR_PCT) + "</b> in this window. ")
     if silent:
         intro += ("<b>" + str(len(silent)) + "</b> term account(s) received no attempts at all, so "
                   "they connected nothing either. ")
@@ -568,13 +607,14 @@ try:
         intro += ("<b>" + str(len(unresolved)) + "</b> route(s) no longer resolve to a Jerasoft "
                   "account and are not being watched. ")
     intro += ('<span style="color:' + GREEN + ';">' + str(healthy)
-              + " vendor + destination route(s) connected calls normally in this window.</span>")
+              + " vendor + destination route(s) were at or above " + fpct(MIN_ASR_PCT)
+              + " in this window.</span>")
     if skipped_harvest:
         intro += (' ' + esc(HARVEST_LABEL) + ' was not checked &mdash; this window falls outside its '
                   + "%02d:00" % HARVEST_START_HOUR + "&ndash;" + "%02d:00" % HARVEST_END_HOUR + ' UTC business hours.')
 
-    subject = ("[Special Routes] " + str(problems) + " route(s) with zero successful calls ("
-               + win_txt + ")")
+    subject = ("[Special Routes] " + str(problems) + " route(s) below " + fpct(MIN_ASR_PCT)
+               + " success rate (" + win_txt + ")")
 
     # ── 8. Record this run against each fault, with Jerasoft's clock ────────────
     for k in keys:
@@ -587,11 +627,11 @@ try:
     acur.execute("DELETE FROM " + STATE_TABLE + " WHERE day < %s::date - 7", (day,))
 
     out_rows = []
-    for label, acct, client, dst, wtxt, att, vol, key in dead:
+    for label, acct, client, dst, wtxt, att, suc, asr, vol, key in dead:
         out_rows.append({
-            "check": "zero_success", "route": label, "term_account": acct, "client": client,
-            "destination": dst,
-            "window": wtxt, "attempts": att, "successful": 0, "asr": 0, "volume_min": vol,
+            "check": "low_asr", "route": label, "term_account": acct, "client": client,
+            "destination": dst, "window": wtxt, "attempts": att, "successful": suc,
+            "asr": round(asr, 2), "threshold": MIN_ASR_PCT, "volume_min": vol,
             "day": str(day), "reading_at": reading_at.isoformat(),
         })
     for label, acct, client, wtxt, key in silent:
@@ -610,9 +650,9 @@ try:
     emit({
         "triggered": True,
         "subject": subject,
-        "html": wrap("Special Routes - zero successful calls", intro, inner),
+        "html": wrap("Special Routes - low success rate", intro, inner),
         "message": (str(problems) + " fault(s) in " + win_txt + " (" + fmt_span(window_min) + "): "
-                    + str(len(dead)) + " with attempts but ASR 0, " + str(len(silent))
+                    + str(len(dead)) + " below " + fpct(MIN_ASR_PCT) + " ASR, " + str(len(silent))
                     + " account(s) with no attempts, " + str(len(unresolved)) + " unresolved"
                     + ("; " + gap_note if gap_note else "")),
         # reading_at makes every payload unique, so the platform's 24h identical-payload
@@ -672,7 +712,7 @@ export class SpecialRoutesZeroAsrAlertService implements OnModuleInit {
       // the one exception of migrating the superseded */30 default to */20.
       const patch: { pythonScript?: string; channels?: ConditionChannels; triggerCron?: string } = {};
       if (existing.pythonScript !== SCRIPT) patch.pythonScript = SCRIPT;
-      if (existing.triggerCron === SUPERSEDED_CRON) patch.triggerCron = DEFAULT_CRON;
+      if (SUPERSEDED_CRONS.includes(existing.triggerCron ?? '')) patch.triggerCron = DEFAULT_CRON;
 
       const email = existing.channels?.email;
       const curTo = email?.recipients ?? [];
