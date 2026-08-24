@@ -15,7 +15,7 @@ const CSS = `
 .dark .sn{
   --sf:#1e293b;--sf2:#162032;--ink:#e2e8f0;--inks:#94a3b8;--mu:#64748b;--ln:#1e3a5f;--lns:#2d4e6e;
 }
-.sn-body{max-width:1200px;margin:0 auto;padding:22px 20px 48px}
+.sn-body{max-width:1500px;margin:0 auto;padding:22px 20px 48px}
 .sn-hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px;flex-wrap:wrap}
 .sn-title{font-size:1.3rem;font-weight:700;letter-spacing:-.02em}
 .sn-sub{font-size:.74rem;color:var(--mu);margin-top:3px}
