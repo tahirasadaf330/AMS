@@ -368,9 +368,9 @@ export default function DealsAutomationPage() {
                     <TH left w={85}  colKey="end_date"              sort={srt}>End</TH>
                     <TH      w={80}  colKey="days_to_expiry"        sort={srt}>Days Left</TH>
                     <TH      w={110} colKey="committed_volume"      sort={srt}>Volume</TH>
-                    <TH      w={90}  colKey="sell_rate"             sort={srt}>Sell Rate</TH>
+                    <TH      w={90}  colKey="sell_rate"             sort={srt}>{isOut ? 'Netcost Rate' : 'Sell Rate'}</TH>
                     <TH      w={110} colKey="revenue"               sort={srt}>Revenue</TH>
-                    <TH      w={90}  colKey="cost_rate"             sort={srt}>Term Cost</TH>
+                    <TH      w={90}  colKey="cost_rate"             sort={srt}>{isOut ? 'Buy Rate' : 'Term Cost'}</TH>
                     <TH      w={110} colKey="cost"                  sort={srt}>Cost</TH>
                     <TH      w={100} colKey="margin"                sort={srt}>Margin</TH>
                     <TH      w={85}  colKey="margin_pct"            sort={srt}>% Margin</TH>
@@ -399,7 +399,7 @@ export default function DealsAutomationPage() {
                     const days = r.days_to_expiry;
                     const daysColor = days == null ? 'var(--mu)' : days < 0 ? '#e74c3c' : days <= 7 ? '#e67e22' : days <= 30 ? '#d4ac0d' : 'var(--inks)';
                     return (
-                      <tr key={`${r.line_item_id}-${i}`} className={rowCls}>
+                      <tr key={`${r.deal_reference}-${i}`} className={rowCls}>
                         <TD left style={{ fontWeight: 700, color: 'var(--ink)' }}>{r.deal_reference ?? '—'}</TD>
                         <TD left>
                           <span className={`dir-badge ${r.direction === 'OUTBOUND' ? 'dir-out' : 'dir-in'}`}>{r.direction === 'OUTBOUND' ? 'OUT' : 'IN'}</span>

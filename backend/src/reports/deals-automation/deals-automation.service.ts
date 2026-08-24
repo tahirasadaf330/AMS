@@ -10,17 +10,15 @@ const STAGE        = 'stage_deals_automation';
 const DATASET_NAME = 'Deals Automation';
 const DATASOURCE   = 'deals-dashboard';
 
-// Deals Automation alerting feed — v4. One row per (ACTIVE deal, line-item / pool).
+// Deals Automation alerting feed — v5. One row per (ACTIVE deal, line-item / pool).
 // Destinations are collapsed into one comma-joined `destinations` string (×N badges
 // already applied), so the grain is per-pool and no client-side grouping is needed.
 // Read-only SELECT against the `deals-dashboard` PostgreSQL data source. Runtime ~3 min.
 //
-// Two adaptations for the AMS staging pipeline (which only stores numeric/date/text):
+// Adaptation for the AMS staging pipeline (which only stores numeric/date/text):
 //   * start_date / end_date emitted via to_char(...) rather than ::date — the `pg`
 //     driver parses a DATE into a JS Date at LOCAL midnight and StageService then
 //     stringifies via toISOString() (UTC), rolling the date back a day on UTC+ servers.
-//   * destinations_array emitted via to_json(...)::text — a native text[] cannot be
-//     staged safely; JSON text keeps it fully programmatic (frontend JSON.parses it).
 const SEED_SQL = `
 WITH active_deals AS (
     SELECT
@@ -62,9 +60,7 @@ li_dest_summary AS (
                  ELSE destination_name
             END,
             ', ' ORDER BY destination_name
-        )                                                     AS destinations,
-        ARRAY_AGG(destination_name ORDER BY destination_name) AS destinations_array,
-        COUNT(*)                                              AS destination_count
+        )                                                     AS destinations
     FROM li_dest_normalized
     GROUP BY line_item_id
 )
@@ -74,10 +70,7 @@ SELECT
     li.direction,
     c.name                                                  AS account_name,
     am.name                                                 AS account_manager,
-    li.id                                                   AS line_item_id,
     lds.destinations                                        AS destinations,
-    to_json(lds.destinations_array)::text                   AS destinations_array,
-    lds.destination_count                                   AS destination_count,
     t.vendors                                               AS vendors,
     to_char(ad.start_date, 'YYYY-MM-DD')                    AS start_date,
     to_char(ad.end_date,   'YYYY-MM-DD')                    AS end_date,
@@ -100,8 +93,7 @@ SELECT
                 WHEN li.direction = 'OUTBOUND' THEN li.rate  END)::numeric,
         6
     )                                                       AS rate_variance_per_min,
-    (li.paused_at IS NOT NULL)                              AS is_paused,
-    CAST(NULL AS TEXT)                                      AS overrun_action
+    (li.paused_at IS NOT NULL)                              AS is_paused
 FROM active_deals ad
 JOIN customers            c   ON c.id  = ad.customer_id
 LEFT JOIN account_managers am ON am.id = c.account_manager_id
@@ -144,23 +136,19 @@ LEFT JOIN LATERAL (
       -- Matcher-attributed traffic only (prevents cross-deal double-count).
       AND jt.matched_deal_id = ad.deal_id
 ) t ON TRUE
-ORDER BY li.direction, c.name, line_item_id
+ORDER BY li.direction, c.name, li.id
 `;
 
 // Keys must match sanitizeRowKeys output: lowercase, non-alphanum runs → single underscore.
 // is_paused is emitted as a boolean and normalized to 1 (paused) / 0 (not paused) by the
-// sanitizer, so it is stored as NUMERIC. overrun_action is always NULL (not modelled yet).
-// line_item_id is a cuid (text), NOT an integer. destinations_array is JSON text.
+// sanitizer, so it is stored as NUMERIC.
 const SEED_COLUMNS = [
   { key: 'deal_reference',        label: 'Deal Reference',        type: 'text',    description: 'Human-readable deal reference code.' },
   { key: 'deal_status',           label: 'Deal Status',           type: 'text',    description: "Deal status (feed is restricted to 'ACTIVE' deals)." },
   { key: 'direction',             label: 'Direction',             type: 'text',    description: "Traffic direction of the line item: 'INBOUND' or 'OUTBOUND'." },
   { key: 'account_name',          label: 'Account',               type: 'text',    description: 'Customer / counterparty company name on the deal.' },
   { key: 'account_manager',       label: 'Account Manager',       type: 'text',    description: 'Account manager owning the customer.' },
-  { key: 'line_item_id',          label: 'Pool (LI)',             type: 'text',    description: 'Line-item (pool) identifier (a cuid); the per-row grain of this feed.' },
   { key: 'destinations',          label: 'Destinations',          type: 'text',    description: 'Destinations in the pool, comma-joined with (×N) variant badges; precomputed.' },
-  { key: 'destinations_array',    label: 'Destinations (JSON)',   type: 'text',    description: 'JSON-text array of the pool destination names (parsed back to an array by the API); precomputed.' },
-  { key: 'destination_count',     label: 'Destination Count',     type: 'numeric', description: 'Number of distinct destinations in the pool; precomputed COUNT.' },
   { key: 'vendors',               label: 'Vendors',               type: 'text',    description: 'Distinct routed vendors (jera_traffic term_client), "+"-joined; precomputed.' },
   { key: 'start_date',            label: 'Start Date',            type: 'date',    description: 'Deal start date (YYYY-MM-DD).' },
   { key: 'end_date',              label: 'End Date',              type: 'date',    description: 'Deal end date (YYYY-MM-DD).' },
@@ -173,7 +161,6 @@ const SEED_COLUMNS = [
   { key: 'live_rate_per_min',     label: 'Live Rate / Min',       type: 'numeric', description: 'Actual live billed rate per minute from traffic; precomputed (cost ÷ billed minutes).' },
   { key: 'rate_variance_per_min', label: 'Rate Variance / Min',   type: 'numeric', description: 'Live rate minus approved rate per minute (≠0 signals a rate mismatch); precomputed.' },
   { key: 'is_paused',             label: 'Is Paused',             type: 'numeric', description: 'Flag 1/0: 1 when the line item is paused.' },
-  { key: 'overrun_action',        label: 'Overrun Action',        type: 'text',    description: 'Volume-overrun action; not modelled yet, always null.' },
 ];
 
 /**
@@ -190,18 +177,6 @@ function toYMD(v: unknown): string | null {
     return `${y}-${m}-${d}`;
   }
   return String(v).slice(0, 10);
-}
-
-/** Parse the JSON-text destinations_array back into a string[] (null-safe). */
-function parseArray(v: unknown): string[] | null {
-  if (v == null) return null;
-  if (Array.isArray(v)) return v as string[];
-  try {
-    const parsed = JSON.parse(String(v));
-    return Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
 }
 
 @Injectable()
@@ -343,7 +318,7 @@ export class DealsAutomationService implements OnModuleInit {
 
   async getData(): Promise<any> {
     const stageRows: any[] = await this.dataSource.query(
-      `SELECT * FROM ${STAGE} ORDER BY direction ASC, account_name ASC, line_item_id ASC`,
+      `SELECT * FROM ${STAGE} ORDER BY direction ASC, account_name ASC, deal_reference ASC`,
     ).catch((err: Error) => {
       this.logger.error(`Failed to read ${STAGE}: ${err.message}`);
       return [];
@@ -359,10 +334,7 @@ export class DealsAutomationService implements OnModuleInit {
       direction:             r.direction ?? null,
       account_name:          r.account_name ?? null,
       account_manager:       r.account_manager ?? null,
-      line_item_id:          r.line_item_id ?? null,
       destinations:          r.destinations ?? null,
-      destinations_array:    parseArray(r.destinations_array),
-      destination_count:     r.destination_count != null ? Number(r.destination_count) : null,
       vendors:               r.vendors ?? null,
       start_date:            toYMD(r.start_date),
       end_date:              toYMD(r.end_date),
@@ -375,7 +347,6 @@ export class DealsAutomationService implements OnModuleInit {
       live_rate_per_min:     r.live_rate_per_min     != null ? Number(r.live_rate_per_min)     : null,
       rate_variance_per_min: r.rate_variance_per_min != null ? Number(r.rate_variance_per_min) : null,
       is_paused:             r.is_paused != null ? Number(r.is_paused) === 1 : false,
-      overrun_action:        r.overrun_action ?? null,
     }));
 
     const [refreshRow] = await this.dataSource.query(
