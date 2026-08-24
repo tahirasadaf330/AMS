@@ -181,10 +181,11 @@ filters Country: Senegal, MCC 608, MCC/MNC **608004** (Senegal — CSU). The pag
 Funnel" tab is exactly that portal view; Details / By Client / By Vendor tabs are drill-downs behind
 the same numbers.
 
-Always covers the **previous full UTC day** (00:00:00–23:59:59): the SQL window is
-`[GETUTCDATE()-1 day, GETUTCDATE())` on `SubmitDateTime` (UTC — never `GETDATE()`, see
-[innovatio-traffic.md](innovatio-traffic.md) for the timezone rule), and the stage is a plain
-snapshot, full-replaced by the daily 00:30 UTC refresh, so it only ever holds yesterday. Metric
+Defaults to the **previous full UTC day** (00:00:00–23:59:59), with a Date filter over the loaded
+history: the stage is **incremental** like Innovatio Traffic (history from `2026-08-01`, one whole
+UTC day appended by the daily 00:30 UTC refresh, 3-day lookback re-pull), and day bounds come from
+`GETUTCDATE()` — never `GETDATE()`, see [innovatio-traffic.md](innovatio-traffic.md) for the
+timezone rule. Metric
 conventions follow the SMS Report: sent = `SUM(PartsSent)`, failed = first-attempt DLR status 8,
 delivered = DLR status 2, expenses/income currency-converted; profit, margin % and delivery % are
 derived on read.

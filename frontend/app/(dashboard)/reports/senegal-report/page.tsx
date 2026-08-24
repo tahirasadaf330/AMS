@@ -30,8 +30,10 @@ const CSS = `
 .sn-card-lbl{font-size:.67rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mu)}
 .sn-err{background:rgba(220,38,38,.07);border:1px solid rgba(220,38,38,.25);color:#dc2626;border-radius:8px;padding:11px 16px;font-size:.83rem;margin-bottom:12px}
 .sn-filt{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-.sn-inp{height:33px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--ink);font-size:.8rem;padding:0 10px;outline:none;width:260px}
-.sn-inp:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(37,99,235,.15)}
+.sn-inp,.sn-sel{height:33px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--ink);font-size:.8rem;padding:0 10px;outline:none}
+.sn-inp{width:260px}
+.sn-inp:focus,.sn-sel:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(37,99,235,.15)}
+.sn-sel-lbl{font-size:.72rem;color:var(--mu);text-transform:uppercase;letter-spacing:.05em}
 .sn-tabs{display:flex;gap:6px}
 .sn-tab{height:33px;padding:0 14px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--inks);font-size:.79rem;font-weight:600;cursor:pointer}
 .sn-tab:hover{border-color:#94a3b8}
@@ -79,6 +81,7 @@ export default function SenegalReportPage() {
   const [error, setError]         = React.useState<string | null>(null);
   const [search, setSearch]       = React.useState('');
   const [tab, setTab]             = React.useState<Tab>('funnel');
+  const [day, setDay]             = React.useState<string>('');   // '' = latest (previous full day)
   const [sorts, setSorts] = React.useState<Record<Tab, { key: string; dir: SortDir }>>({
     funnel: { key: 'successful_sent', dir: 'desc' },
     detail: { key: 'successful_sent', dir: 'desc' },
@@ -89,16 +92,16 @@ export default function SenegalReportPage() {
     setSorts((s) => ({ ...s, [t]: { key, dir: s[t].key === key ? (s[t].dir === 'asc' ? 'desc' : 'asc') : 'desc' } }));
   }, []);
 
-  const load = React.useCallback(() => {
+  const load = React.useCallback((wantedDay?: string) => {
     setLoading(true); setError(null);
-    senegalReportApi.getData()
+    senegalReportApi.getData(wantedDay || undefined)
       .then((r) => { setData(r.data); setDatasetId(r.data?.datasetId ?? r.data?.dataset_id ?? null); })
       .catch((err: any) => setError(err?.response?.data?.message ?? err?.message ?? 'Failed to load data'))
       .finally(() => setLoading(false));
   }, []);
 
-  React.useEffect(() => { load(); }, [load]);
-  useDatasetSocket(datasetId ?? undefined, load);
+  React.useEffect(() => { load(day); }, [load, day]);
+  useDatasetSocket(datasetId ?? undefined, () => load(day));
 
   const funnel: any[] = React.useMemo(
     () => sortRows(data?.funnel ?? [], sorts.funnel.key, sorts.funnel.dir),
@@ -121,7 +124,8 @@ export default function SenegalReportPage() {
     [data, sorts.vendor]);
 
   const s = data?.summary ?? {};
-  const day: string = data?.day ?? '';
+  const days: string[] = data?.days ?? [];
+  const selDay: string = data?.day ?? '';
   const lastRefreshed: string | null = data?.lastRefreshed ?? data?.last_refreshed ?? null;
   const scope = data?.scope ?? {};
 
@@ -166,7 +170,7 @@ export default function SenegalReportPage() {
               <div className="sn-title">Senegal Report</div>
               <div className="sn-sub">
                 aSMSC Traffic Stats · MCC MNC funnel · {scope.country ?? 'Senegal'} · MCC {scope.mcc ?? '608'} · MCC/MNC {scope.mccmnc ?? '608004'} (CSU)
-                {day ? ` · previous full UTC day: ${day}` : ' · previous full UTC day'}
+                {selDay ? ` · whole UTC day: ${selDay}` : ' · previous full UTC day'}
               </div>
             </div>
             {lastRefreshed && (
@@ -189,6 +193,10 @@ export default function SenegalReportPage() {
           </div>
 
           <div className="sn-filt">
+            <span className="sn-sel-lbl">Date</span>
+            <select className="sn-sel" value={selDay} onChange={(e) => setDay(e.target.value)}>
+              {days.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
             <div className="sn-tabs">
               <button className={`sn-tab${tab === 'funnel' ? ' on' : ''}`} onClick={() => setTab('funnel')}>MCC MNC Funnel</button>
               <button className={`sn-tab${tab === 'detail' ? ' on' : ''}`} onClick={() => setTab('detail')}>Details</button>
@@ -303,7 +311,7 @@ export default function SenegalReportPage() {
                 : tab === 'detail' ? `${fN(rows.length)} rows`
                 : tab === 'client' ? `${fN(byClient.length)} clients`
                 : `${fN(byVendor.length)} vendors`}
-              {' '}· always the previous full UTC day (00:00:00–23:59:59) · snapshot replaced daily at 00:30 UTC
+              {' '}· whole UTC days (00:00:00–23:59:59) · defaults to the previous full day · refreshed daily at 00:30 UTC · last {fN(days.length)} day(s) available
             </div>
           )}
         </div>

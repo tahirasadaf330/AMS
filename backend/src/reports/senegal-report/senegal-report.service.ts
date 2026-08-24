@@ -14,31 +14,40 @@ const COUNTRY = 'Senegal';
 const MCC = '608';
 const MCCMNC = '608004'; // Senegal — CSU
 
-// TIMEZONE: aSMSC stores SubmitDateTime in UTC (see innovatio-traffic). The report always covers
-// the PREVIOUS FULL UTC DAY — 00:00:00 up to but excluding today 00:00:00 — so the window is
-// computed from GETUTCDATE(), never GETDATE(). Yesterday-UTC is complete at 00:00 UTC; the daily
-// refresh runs shortly after, at 00:30 UTC. The stage is a snapshot (full replace on each
-// refresh), so it only ever holds the previous full day.
+// History is kept from this fixed start date and grows daily: the stage is INCREMENTAL
+// (incremental_initial_date + incremental_lookback_days on the dataset row, same engine mode as
+// innovatio-traffic). The engine's first load (empty table) pulls from START_DATE; every later run
+// re-pulls only the last LOOKBACK_DAYS (delete WHERE "date" >= lookback + re-insert — which is why
+// the day column must be literally named "date").
+const START_DATE = '2026-08-01';
+const LOOKBACK_DAYS = 3;
+
+// TIMEZONE: aSMSC stores SubmitDateTime in UTC (see innovatio-traffic). Day buckets are whole UTC
+// days and the report page defaults to the newest loaded day — always the PREVIOUS FULL UTC DAY
+// (00:00:00 up to but excluding today 00:00:00) — so window bounds are computed from GETUTCDATE(),
+// never GETDATE(). Yesterday-UTC is complete at 00:00 UTC; the daily refresh runs shortly after,
+// at 00:30 UTC.
 const SCHEDULE_CRON = '30 0 * * *';
 
-// One previous-full-day window. MTEdr keeps only ~2-3 days live, so the archive UNION is belt
-// and braces for a late refresh. Metric conventions follow the SMS Report: sent = SUM(PartsSent),
-// failed = first-attempt DLR status 8, delivered = DLR status 2; expenses/income converted to the
-// base currency via CurrencyConversion. Grain: client × vendor (the API aggregates to the MCC MNC
-// funnel level on read).
+// Whole UTC days from {{LOOKBACK_DATE}} (engine-substituted: START_DATE on the initial empty-table
+// load, today-LOOKBACK_DAYS on daily runs) up to but excluding today — partial days never enter
+// the stage. MTEdr keeps only ~2-3 days live, so the archive UNION covers the backfill. Metric
+// conventions follow the SMS Report: sent = SUM(PartsSent), failed = first-attempt DLR status 8,
+// delivered = DLR status 2; expenses/income converted to the base currency via CurrencyConversion.
+// Grain: date × client × vendor (the API aggregates to the MCC MNC funnel level on read).
 const SEED_SQL = `
 WITH M AS (
     SELECT mt.PartsSent, mt.CustomerConnectionId, mt.MtVendorConnectionId, mt.MtVendorCost,
            mt.CustomerCost, mt.DlrStatusId, mt.RetryNumber, mt.MccMnc, mt.SubmitDateTime
     FROM SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
-    WHERE mt.SubmitDateTime >= CAST(DATEADD(DAY, -1, CAST(GETUTCDATE() AS DATE)) AS DATETIME)
+    WHERE mt.SubmitDateTime >= '{{LOOKBACK_DATE}}'
       AND mt.SubmitDateTime <  CAST(CAST(GETUTCDATE() AS DATE) AS DATETIME)
       AND mt.MccMnc = '${MCCMNC}'
     UNION ALL
     SELECT mt.PartsSent, mt.CustomerConnectionId, mt.MtVendorConnectionId, mt.MtVendorCost,
            mt.CustomerCost, mt.DlrStatusId, mt.RetryNumber, mt.MccMnc, mt.SubmitDateTime
     FROM SMSCArchiveEdr.dbo.ArchiveMtEdr mt WITH(NOLOCK)
-    WHERE mt.SubmitDateTime >= CAST(DATEADD(DAY, -1, CAST(GETUTCDATE() AS DATE)) AS DATETIME)
+    WHERE mt.SubmitDateTime >= '{{LOOKBACK_DATE}}'
       AND mt.SubmitDateTime <  CAST(CAST(GETUTCDATE() AS DATE) AS DATETIME)
       AND mt.MccMnc = '${MCCMNC}'
 )
@@ -73,7 +82,7 @@ ORDER BY SUM(m.PartsSent) DESC`;
 
 // Keys must match sanitizeRowKeys output: lowercase, non-alphanum runs → single underscore
 const SEED_COLUMNS = [
-  { key: 'date',            label: 'Date',        type: 'date',    description: 'UTC calendar date of the traffic (message submit time); always the previous full day (00:00:00–23:59:59 UTC).' },
+  { key: 'date',            label: 'Date',        type: 'date',    description: `UTC calendar date of the traffic (message submit time); history kept from ${START_DATE}, one new full day (00:00:00–23:59:59 UTC) appended daily.` },
   { key: 'country',         label: 'Country',     type: 'text',    description: `Destination country (from MCC/MNC lookup) — always ${COUNTRY}.` },
   { key: 'operator',        label: 'Operator',    type: 'text',    description: 'Destination mobile operator (from MCC/MNC lookup) — CSU.' },
   { key: 'mcc_mnc',         label: 'MCC MNC',     type: 'text',    description: `Combined mobile country + network code — always ${MCCMNC}.` },
@@ -130,13 +139,27 @@ export class SenegalReportService implements OnModuleInit {
       this._datasetId = existing.id;
       const sqlChanged  = existing.sqlQuery !== SEED_SQL;
       const metaChanged = JSON.stringify(existing.columnMetadata) !== JSON.stringify(SEED_COLUMNS);
-      if (sqlChanged || metaChanged || existing.name !== DATASET_NAME) {
+      const wasSnapshot = existing.incrementalInitialDate == null;
+      const incrChanged = existing.incrementalLookbackDays !== LOOKBACK_DAYS
+        || existing.incrementalInitialDate !== START_DATE;
+      if (sqlChanged || metaChanged || incrChanged || existing.name !== DATASET_NAME) {
         await this.datasetRepo.update(existing.id, {
-          name:           DATASET_NAME,
-          sqlQuery:       SEED_SQL,
-          columnMetadata: SEED_COLUMNS as any,
+          name:                    DATASET_NAME,
+          sqlQuery:                SEED_SQL,
+          columnMetadata:          SEED_COLUMNS as any,
+          incrementalLookbackDays: LOOKBACK_DAYS,
+          incrementalInitialDate:  START_DATE,
         });
-        this.logger.log('Updated Senegal Report dataset SQL and column metadata');
+        this.logger.log('Updated Senegal Report dataset SQL, column metadata and incremental config');
+      }
+      // One-time snapshot → incremental migration: the engine only backfills from START_DATE on an
+      // EMPTY table, so clear the snapshot-era rows (derived data — the backfill recreates them).
+      if (wasSnapshot) {
+        const [t] = await this.dataSource.query(`SELECT to_regclass($1) AS t`, [STAGE]);
+        if (t?.t) {
+          await this.dataSource.query(`TRUNCATE ${STAGE}`);
+          this.logger.warn(`Cleared ${STAGE} (snapshot → incremental) — next refresh backfills from ${START_DATE}`);
+        }
       }
       return;
     }
@@ -149,16 +172,18 @@ export class SenegalReportService implements OnModuleInit {
 
     const saved = await this.datasetRepo.save(
       this.datasetRepo.create({
-        name:           DATASET_NAME,
-        description:    `aSMSC Traffic Stats Report — View Funnel: MCC MNC, Country: ${COUNTRY}, MCC ${MCC}, MCC/MNC ${MCCMNC} (Senegal — CSU). Always the previous full UTC day (00:00:00–23:59:59), snapshot-replaced daily. Requested via MS Teams.`,
-        sourceDb:       'mssql',
-        dataSourceId:   asmsc.id,
-        sqlQuery:       SEED_SQL,
-        stageTableName: STAGE,
-        columnMetadata: SEED_COLUMNS as any,
-        scheduleCron:   SCHEDULE_CRON, // daily at 00:30 UTC, right after the UTC day closes; user-adjustable in the UI
-        isActive:       true,
-        createdBy:      null,
+        name:                    DATASET_NAME,
+        description:             `aSMSC Traffic Stats Report — View Funnel: MCC MNC, Country: ${COUNTRY}, MCC ${MCC}, MCC/MNC ${MCCMNC} (Senegal — CSU). Whole UTC days from ${START_DATE}, one day appended daily; the default view is always the previous full UTC day (00:00:00–23:59:59). Requested via MS Teams.`,
+        sourceDb:                'mssql',
+        dataSourceId:            asmsc.id,
+        sqlQuery:                SEED_SQL,
+        stageTableName:          STAGE,
+        columnMetadata:          SEED_COLUMNS as any,
+        scheduleCron:            SCHEDULE_CRON, // daily at 00:30 UTC, right after the UTC day closes; user-adjustable in the UI
+        isActive:                true,
+        createdBy:               null,
+        incrementalLookbackDays: LOOKBACK_DAYS,
+        incrementalInitialDate:  START_DATE,
       }),
     );
     this._datasetId = saved.id;
@@ -184,6 +209,9 @@ export class SenegalReportService implements OnModuleInit {
       await this.dataSource.query(
         `CREATE INDEX IF NOT EXISTS idx_${STAGE}_refreshed ON ${STAGE} (refreshed_at DESC)`,
       );
+      await this.dataSource.query(
+        `CREATE INDEX IF NOT EXISTS idx_${STAGE}_date ON ${STAGE} ("date" DESC)`,
+      );
       this.logger.log(`Stage table ${STAGE} created`);
       return;
     }
@@ -199,22 +227,36 @@ export class SenegalReportService implements OnModuleInit {
         );
       }
     }
+    await this.dataSource.query(
+      `CREATE INDEX IF NOT EXISTS idx_${STAGE}_date ON ${STAGE} ("date" DESC)`,
+    );
   }
 
   /**
-   * Report payload for the loaded day (the previous full UTC day after each refresh).
-   * `funnel` is the report as specified — one row per MCC MNC; `rows` is the client × vendor
-   * drill-down behind it.
+   * Report payload for one selected day (default: the newest loaded day — always the previous
+   * full UTC day after the daily refresh). `funnel` is the report as specified — one row per
+   * MCC MNC; `rows` is the client × vendor drill-down behind it.
    */
-  async getData(): Promise<any> {
+  async getData(day?: string): Promise<any> {
     const scope = { country: COUNTRY, mcc: MCC, mccmnc: MCCMNC };
     try {
+      const dayRows: any[] = await this.dataSource.query(
+        `SELECT DISTINCT "date" AS day FROM ${STAGE} WHERE "date" IS NOT NULL ORDER BY "date" DESC`,
+      );
+      const days = dayRows.map((r) => toYMD(r.day));
+      if (!days.length) {
+        return { datasetId: this._datasetId, day: null, days: [], rows: [], funnel: [], byClient: [],
+                 byVendor: [], lastRefreshed: null, summary: this.emptySummary(), scope };
+      }
+      const wanted = day && /^\d{4}-\d{2}-\d{2}$/.test(day) && days.includes(day) ? day : days[0];
+
       const [stageRows, [refreshRow]] = await Promise.all([
         this.dataSource.query(
           `SELECT "date", country, operator, mcc_mnc, mcc, mnc, client, vendor,
                   successful_sent, failed, delivered, expenses, income
              FROM ${STAGE}
-            ORDER BY successful_sent DESC NULLS LAST, client ASC`,
+            WHERE "date" = $1::date
+            ORDER BY successful_sent DESC NULLS LAST, client ASC`, [wanted],
         ),
         this.dataSource.query(`SELECT MAX(refreshed_at) AS last_refreshed FROM ${STAGE}`),
       ]);
@@ -239,8 +281,6 @@ export class SenegalReportService implements OnModuleInit {
         };
       });
 
-      const day = rows.length ? rows[0].date : null;
-
       // The Traffic Stats funnel row: everything aggregated to the MCC MNC level.
       const funnel = rows.length ? [this.aggregate(rows)] : [];
 
@@ -249,21 +289,22 @@ export class SenegalReportService implements OnModuleInit {
 
       return {
         datasetId: this._datasetId,
-        day,
+        day: wanted,
+        days,
         rows,
         funnel,
         byClient,
         byVendor,
         lastRefreshed: refreshRow?.last_refreshed ?? null,
         summary: funnel.length
-          ? { day, ...funnel[0], clients: byClient.length, vendors: byVendor.length, rowsCount: rows.length }
+          ? { day: wanted, ...funnel[0], clients: byClient.length, vendors: byVendor.length, rowsCount: rows.length }
           : this.emptySummary(),
         scope,
       };
     } catch (err) {
       this.logger.error(`Failed to read ${STAGE}: ${(err as Error).message}`);
-      return { datasetId: this._datasetId, day: null, rows: [], funnel: [], byClient: [], byVendor: [],
-               lastRefreshed: null, summary: this.emptySummary(), scope };
+      return { datasetId: this._datasetId, day: null, days: [], rows: [], funnel: [], byClient: [],
+               byVendor: [], lastRefreshed: null, summary: this.emptySummary(), scope };
     }
   }
 

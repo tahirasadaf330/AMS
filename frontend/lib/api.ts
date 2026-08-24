@@ -310,7 +310,7 @@ export const innovatioTrafficApi = {
 
 // ── REPORT — SENEGAL REPORT ──────────────────────────────────────
 export const senegalReportApi = {
-  getData: () => api.get('/reports/senegal-report/data'),
+  getData: (day?: string) => api.get('/reports/senegal-report/data', { params: day ? { day } : {} }),
 };
 
 // ── ADMIN — DATASETS ──────────────────────────────────────────
