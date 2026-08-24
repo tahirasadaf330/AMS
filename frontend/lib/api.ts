@@ -308,6 +308,11 @@ export const innovatioTrafficApi = {
   getData: (day?: string) => api.get('/reports/innovatio-traffic/data', { params: day ? { day } : {} }),
 };
 
+// ── REPORT — SENEGAL REPORT ──────────────────────────────────────
+export const senegalReportApi = {
+  getData: () => api.get('/reports/senegal-report/data'),
+};
+
 // ── ADMIN — DATASETS ──────────────────────────────────────────
 export const adminDatasetsApi = {
   list: () => api.get<Dataset[]>('/admin/datasets'),

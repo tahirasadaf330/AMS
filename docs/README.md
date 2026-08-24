@@ -52,7 +52,7 @@ password-login flag.
 
 | Page | Covers |
 |---|---|
-| [reports.md](reports.md) | All 15 reports: what each is, its section/route/source, and where it deviates from the shared path |
+| [reports.md](reports.md) | All 16 reports: what each is, its section/route/source, and where it deviates from the shared path |
 | [voice-outliers.md](voice-outliers.md) | Voice Smart Outliers in full — percentile ASR/ACD detection, spike/drop alert, the Jerasoft safety fences, tuning |
 | [zamani-firewall.md](zamani-firewall.md) | Zamani SMS Firewall — SS7/SMPP/SRI streams, ingest pipeline health, the source-side views |
 | [innovatio-traffic.md](innovatio-traffic.md) | Innovatio Traffic Report — per-day client/sender volumes to 614004, UTC-day rules, incremental history |

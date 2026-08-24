@@ -48,6 +48,7 @@ const REPORT_LINKS: ReportLink[] = ([
   { slug: 'innovatio-traffic', href: '/reports/innovatio-traffic', label: 'Innovatio Traffic', section: 'sms' },
   { slug: 'mt-edr', href: '/reports/mt-edr-monitoring', label: 'MT EDR Monitoring', section: 'sms' },
   { slug: 'prepayment-cl', href: '/reports/prepayment-cl', label: 'Pre-Payment Limit', section: 'voice' },
+  { slug: 'senegal-report', href: '/reports/senegal-report', label: 'Senegal Report', section: 'sms' },
   { slug: 'sms-credit-limit', href: '/reports/sms-credit-limit', label: 'SMS Credit Limit', section: 'sms' },
   { slug: 'sms-report', href: '/reports/sms-report', label: 'SMS Report', section: 'sms' },
   { slug: 'special-routes-monitoring', href: '/reports/special-routes-monitoring', label: 'Special Routes Monitoring', section: 'voice' },

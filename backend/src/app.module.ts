@@ -58,6 +58,7 @@ import { McpModule } from "./mcp/mcp.module";
 import { AccessModule } from "./common/access/access.module";
 import { VoiceOutliersModule } from "./reports/voice-outliers/voice-outliers.module";
 import { InnovatioTrafficModule } from "./reports/innovatio-traffic/innovatio-traffic.module";
+import { SenegalReportModule } from "./reports/senegal-report/senegal-report.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -142,6 +143,7 @@ import { InnovatioTrafficModule } from "./reports/innovatio-traffic/innovatio-tr
     AccessModule,
     VoiceOutliersModule,
     InnovatioTrafficModule,
+    SenegalReportModule,
   ],
 })
 export class AppModule {}
