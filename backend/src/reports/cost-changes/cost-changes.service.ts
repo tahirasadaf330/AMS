@@ -6,104 +6,114 @@ import { ExternalDataSource } from '../../common/entities/data-source.entity';
 
 const STAGE          = 'stage_cost_changes';
 const DATASET_NAME   = 'Cost Changes Report';
-const SCHEDULE_CRON  = '0 * * * *'; // hourly — today's snapshot updates intra-day, history is stable
-const LOOKBACK_DAYS  = 2;           // each refresh re-pulls the last 2 days (late EDRs / archive moves)
-const INITIAL_DATE   = '2026-07-01';// first-ever load backfills daily snapshots from this date
+const SCHEDULE_CRON  = '0 * * * *'; // hourly; a 2-day re-pull takes ~1.5-2 min on the live server
+const LOOKBACK_DAYS  = 2;           // each refresh re-pulls the last 2 days (late-written history rows)
+const INITIAL_DATE   = '2026-07-01';// first-ever load backfills announced changes from this date (~4.5 min)
 const RETENTION_DAYS = 92;          // keep ~3 months of history, pruned by StageService
+const ROW_LIMIT      = 10000;       // max rows returned to the UI per request (~7k changes arrive per day)
 
-// Cost Changes Report — SMS supplier (vendor) rate-change HISTORY from EDR traffic (ASMSC).
+// Cost Changes Report — ANNOUNCED SMS supplier rate changes from the ASMSC rate cards.
 //
-// One row per (UTC calendar day × supplier connection × destination network) where the rate
-// changed: for each day D, the "rate" is the MtVendorRate of the day's MOST RECENT message
-// (ROW_NUMBER by SubmitDateTime DESC); a row is emitted when day D's rate differs from day
-// D-1's rate. A lane silent on D-1 emits no row on D (same blind spot as the original
-// 48h-window version — intentional, matches the "vs previous 24h" requirement).
+// Source of truth is the vendor rate-card history, NOT traffic: every time a rate sheet is
+// loaded into the SMSC, MtRatePlanRateHistory gets one row per changed destination with the
+// NEW rate; the previous row for the same MtRatePlanRateId is the OLD rate (LAG). The first
+// history row of a rate id is its initial load, not a change — excluded via prev IS NOT NULL.
+// This shows every announced change (increase or decrease) regardless of whether we send any
+// traffic on the route — matching the rate-update sheets the team receives from suppliers.
 //
-// Refresh model: lookback-incremental (StageService). The stage table keeps history keyed by
-// the `date` column; each refresh deletes+re-pulls only days >= {{LOOKBACK_DATE}} (today-2),
-// so today's row updates hourly and finalizes when the day closes. The very first load (empty
-// table) backfills from incremental_initial_date. The EDR scan starts one day BEFORE
-// {{LOOKBACK_DATE}} so the window's first day has its D-1 partner, but rows are emitted only
-// for days >= {{LOOKBACK_DATE}} — this must exactly match StageService's DELETE range.
+// recent_ids narrows the LAG scan to rate ids actually touched in the window, but the LAG
+// itself runs over each id's FULL history so the old rate can come from before the window.
 //
-// The live SMSCEdr.dbo.MTEdr table only retains ~2-3 days; SMSCArchiveEdr holds older, so both
-// are UNIONed over the same filter. SubmitDateTime is UTC (the original query compared it to
-// GETUTCDATE()), so CAST(... AS DATE) buckets by UTC calendar day.
+// Supplier account = the rate-plan name's suffix after the last '-' (plans are named
+// '<CUR>-<Vendor>-<Connection>', e.g. 'USD-Sinch-Sinch_LOCAL' → 'Sinch_LOCAL'); the full
+// plan name is the fallback. Currency comes from the plan itself.
+// Country/network resolve via MccMncDb; 3-digit country-default entries (MccMnc < 1000)
+// show 'All Networks' and resolve the country by MCC.
 //
-// Currency = the supplier company's billing currency (MtVendorConnection.CompanyId → Company →
-// Currency), the same vendor-side currency the SMS Report uses to convert MtVendorCost.
-// Network falls back to the raw MCC-MNC code when MccMncDb has no OperatorName for it.
+// Refresh model: lookback-incremental keyed on the `date` column (the day the change was
+// loaded), same as before — history accumulates, the last 2 days are re-pulled hourly.
 const SEED_SQL = `
-WITH edrs AS (
-    SELECT mt.MtVendorConnectionId, mt.MccMnc, mt.MtVendorRate, mt.SubmitDateTime
+WITH recent_ids AS (
+    SELECT DISTINCT h.MtRatePlanRateId
+    FROM SMSCPhoenix.dbo.MtRatePlanRateHistory h WITH(NOLOCK)
+    WHERE h.CreatedDateTime >= CAST('{{LOOKBACK_DATE}}' AS DATE) AND h.Deleted = 0
+),
+hist AS (
+    SELECT h.MtRatePlanRateId, h.Rate, h.CreatedDateTime,
+           LAG(h.Rate) OVER (PARTITION BY h.MtRatePlanRateId
+                             ORDER BY h.CreatedDateTime, h.MtRatePlanRateHistoryId) AS prev_rate
+    FROM SMSCPhoenix.dbo.MtRatePlanRateHistory h WITH(NOLOCK)
+    JOIN recent_ids ri ON ri.MtRatePlanRateId = h.MtRatePlanRateId
+    WHERE h.Deleted = 0
+),
+mcc_country AS (
+    SELECT m.Mcc, MIN(m.CountryId) AS CountryId
+    FROM SMSCPhoenix.dbo.MccMncDb m WITH(NOLOCK)
+    GROUP BY m.Mcc
+),
+cust_pairs AS (
+    SELECT DISTINCT mt.MtVendorConnectionId, mt.MccMnc, cc.Name AS cust_name
     FROM SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
-    WHERE mt.SubmitDateTime >= DATEADD(DAY, -1, CAST('{{LOOKBACK_DATE}}' AS DATE))
-      AND mt.MtVendorConnectionId IS NOT NULL
-      AND mt.MtVendorRate IS NOT NULL
-    UNION ALL
-    SELECT amt.MtVendorConnectionId, amt.MccMnc, amt.MtVendorRate, amt.SubmitDateTime
-    FROM SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK)
-    WHERE amt.SubmitDateTime >= DATEADD(DAY, -1, CAST('{{LOOKBACK_DATE}}' AS DATE))
-      AND amt.MtVendorConnectionId IS NOT NULL
-      AND amt.MtVendorRate IS NOT NULL
+    JOIN SMSCPhoenix.dbo.CustomerConnections cc WITH(NOLOCK) ON cc.CustomerConnectionId = mt.CustomerConnectionId
+    WHERE mt.SubmitDateTime >= DATEADD(DAY, -7, GETUTCDATE())
+      AND mt.MtVendorConnectionId IS NOT NULL AND mt.MccMnc IS NOT NULL
 ),
-daily_ranked AS (
-    SELECT
-        e.MtVendorConnectionId,
-        e.MccMnc,
-        CAST(e.SubmitDateTime AS DATE) AS edr_date,
-        e.MtVendorRate,
-        ROW_NUMBER() OVER (
-            PARTITION BY e.MtVendorConnectionId, e.MccMnc, CAST(e.SubmitDateTime AS DATE)
-            ORDER BY e.SubmitDateTime DESC
-        ) AS rn
-    FROM edrs e
+agg_exact AS (
+    SELECT cp.MtVendorConnectionId, cp.MccMnc,
+           STRING_AGG(CAST(cp.cust_name AS NVARCHAR(MAX)), ', ') AS custs
+    FROM cust_pairs cp
+    GROUP BY cp.MtVendorConnectionId, cp.MccMnc
 ),
-daily_latest AS (
-    SELECT MtVendorConnectionId, MccMnc, edr_date, MtVendorRate
-    FROM daily_ranked
-    WHERE rn = 1
-),
-changes AS (
-    SELECT
-        dl_new.MtVendorConnectionId,
-        dl_new.MccMnc,
-        dl_new.edr_date,
-        dl_old.MtVendorRate AS old_rate,
-        dl_new.MtVendorRate AS new_rate
-    FROM daily_latest dl_new
-    JOIN daily_latest dl_old
-      ON  dl_old.MtVendorConnectionId = dl_new.MtVendorConnectionId
-      AND dl_old.MccMnc               = dl_new.MccMnc
-      AND dl_old.edr_date             = DATEADD(DAY, -1, dl_new.edr_date)
-    WHERE dl_new.edr_date >= CAST('{{LOOKBACK_DATE}}' AS DATE)
-      AND dl_new.MtVendorRate <> dl_old.MtVendorRate
+agg_mcc AS (
+    SELECT x.MtVendorConnectionId, x.Mcc,
+           STRING_AGG(CAST(x.cust_name AS NVARCHAR(MAX)), ', ') AS custs
+    FROM (SELECT DISTINCT cp.MtVendorConnectionId, md.Mcc, cp.cust_name
+          FROM cust_pairs cp
+          JOIN SMSCPhoenix.dbo.MccMncDb md WITH(NOLOCK) ON md.MccMnc = cp.MccMnc) x
+    GROUP BY x.MtVendorConnectionId, x.Mcc
 )
 SELECT
-    c.edr_date                                                 AS [date],
-    mvc.Name                                                   AS supplier_account,
-    COALESCE(co.CountryName, 'UNKNOWN')                        AS country,
-    COALESCE(mmd.OperatorName, CAST(c.MccMnc AS VARCHAR(32)))  AS network,
-    cur.CurrencyCode                                           AS currency,
-    c.old_rate                                                 AS old_rate,
-    c.new_rate                                                 AS new_rate
-FROM changes c
-JOIN SMSCPhoenix.dbo.MtVendorConnection mvc WITH(NOLOCK) ON mvc.MtVendorConnectionId = c.MtVendorConnectionId
-LEFT JOIN SMSCPhoenix.dbo.Company vcomp     WITH(NOLOCK) ON vcomp.CompanyId = mvc.CompanyId
-LEFT JOIN SMSCPhoenix.dbo.Currency cur      WITH(NOLOCK) ON cur.CurrencyId  = vcomp.CurrencyId
-LEFT JOIN SMSCPhoenix.dbo.MccMncDb mmd      WITH(NOLOCK) ON mmd.MccMnc      = c.MccMnc
-LEFT JOIN SMSCPhoenix.dbo.Countries co      WITH(NOLOCK) ON co.CountryId    = mmd.CountryId
-ORDER BY c.edr_date, mvc.Name, COALESCE(co.CountryName, 'UNKNOWN')
+    CAST(hi.CreatedDateTime AS DATE)                          AS [date],
+    CASE WHEN CHARINDEX('-', REVERSE(p.RatePlanName)) > 0
+         THEN RIGHT(p.RatePlanName, CHARINDEX('-', REVERSE(p.RatePlanName)) - 1)
+         ELSE p.RatePlanName END                              AS supplier_account,
+    COALESCE(ae.custs, am.custs)                              AS customer_connection,
+    COALESCE(co.CountryName, co2.CountryName, 'UNKNOWN')      AS country,
+    COALESCE(mmd.OperatorName,
+             CASE WHEN r.MccMnc < 1000 THEN 'All Networks'
+                  ELSE CAST(r.MccMnc AS VARCHAR(32)) END)     AS network,
+    cur.CurrencyCode                                          AS currency,
+    hi.prev_rate                                              AS old_rate,
+    hi.Rate                                                   AS new_rate
+FROM hist hi
+JOIN SMSCPhoenix.dbo.MtRatePlanRates r WITH(NOLOCK) ON r.MtRatePlanRateId = hi.MtRatePlanRateId
+JOIN SMSCPhoenix.dbo.MtRatePlans p     WITH(NOLOCK) ON p.MtRatePlanId = r.MtRatePlanId
+LEFT JOIN SMSCPhoenix.dbo.MtVendorConnection mvc2 WITH(NOLOCK)
+       ON mvc2.Name = CASE WHEN CHARINDEX('-', REVERSE(p.RatePlanName)) > 0
+                           THEN RIGHT(p.RatePlanName, CHARINDEX('-', REVERSE(p.RatePlanName)) - 1)
+                           ELSE p.RatePlanName END
+LEFT JOIN agg_exact ae ON ae.MtVendorConnectionId = mvc2.MtVendorConnectionId AND ae.MccMnc = r.MccMnc
+LEFT JOIN agg_mcc  am ON r.MccMnc < 1000 AND am.MtVendorConnectionId = mvc2.MtVendorConnectionId AND am.Mcc = r.MccMnc
+LEFT JOIN SMSCPhoenix.dbo.Currency cur WITH(NOLOCK) ON cur.CurrencyId = p.CurrencyId
+LEFT JOIN SMSCPhoenix.dbo.MccMncDb mmd WITH(NOLOCK) ON mmd.MccMnc = r.MccMnc
+LEFT JOIN SMSCPhoenix.dbo.Countries co WITH(NOLOCK) ON co.CountryId = mmd.CountryId
+LEFT JOIN mcc_country mc ON mc.Mcc = r.MccMnc
+LEFT JOIN SMSCPhoenix.dbo.Countries co2 WITH(NOLOCK) ON co2.CountryId = mc.CountryId
+WHERE hi.CreatedDateTime >= CAST('{{LOOKBACK_DATE}}' AS DATE)
+  AND hi.prev_rate IS NOT NULL
+  AND hi.prev_rate <> hi.Rate
+ORDER BY hi.CreatedDateTime, p.RatePlanName, r.MccMnc
 `;
 
 const SEED_COLUMNS = [
-  { key: 'date',             label: 'Date',             type: 'date',    description: 'UTC calendar day the new rate was observed on (compared with the previous day).' },
-  { key: 'supplier_account', label: 'Supplier Account', type: 'text',    description: 'SMS supplier (MT vendor connection) name.' },
-  { key: 'country',          label: 'Country',          type: 'text',    description: 'Destination country resolved from the MCC-MNC; UNKNOWN when the code is not in MccMncDb.' },
-  { key: 'network',          label: 'Network',          type: 'text',    description: 'Destination operator (network) name from MccMncDb; falls back to the raw MCC-MNC code.' },
-  { key: 'currency',         label: 'Currency',         type: 'text',    description: "Supplier company's billing currency (ISO code) that both rates are expressed in." },
-  { key: 'old_rate',         label: 'Old Rate',         type: 'numeric', description: "Latest MtVendorRate of the PREVIOUS day's traffic." },
-  { key: 'new_rate',         label: 'New Rate',         type: 'numeric', description: "Latest MtVendorRate of the row's day; differs from the old rate by definition." },
+  { key: 'date',             label: 'Date',             type: 'date',    description: 'Calendar day the rate change was loaded into the SMSC rate card.' },
+  { key: 'supplier_account',    label: 'Supplier Account',    type: 'text', description: "Supplier connection, parsed from the rate-plan name ('<CUR>-<Vendor>-<Connection>')." },
+  { key: 'customer_connection', label: 'Customer Connection', type: 'text', description: 'Customer connections with traffic on this supplier × destination in the last 7 days (comma-separated); empty when no recent traffic.' },
+  { key: 'country',          label: 'Country',          type: 'text',    description: 'Destination country resolved from the MCC-MNC (or MCC for country-default rows); UNKNOWN when unresolvable.' },
+  { key: 'network',          label: 'Network',          type: 'text',    description: "Destination operator from MccMncDb; 'All Networks' for country-default rows; raw code as fallback." },
+  { key: 'currency',         label: 'Currency',         type: 'text',    description: "Rate plan's currency (ISO code) that both rates are expressed in." },
+  { key: 'old_rate',         label: 'Old Rate',         type: 'numeric', description: 'Rate before the change (previous rate-card value for the same destination).' },
+  { key: 'new_rate',         label: 'New Rate',         type: 'numeric', description: 'Announced new rate; differs from the old rate by definition.' },
 ];
 
 @Injectable()
@@ -122,11 +132,10 @@ export class CostChangesService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     try {
-      // Order matters: the stage table must have the `date` column before the legacy cleanup,
-      // and the cleanup must run before any refresh so the initial backfill path is taken.
+      // Order matters: schema migration must land before the legacy cleanup, and both before
+      // any refresh so the initial backfill path is taken when the table was wiped.
       await this.ensureDatasetRecord();
       await this.ensureStageTable();
-      await this.cleanupLegacyRows();
       await this.applyRefreshConfig();
     } catch (err) {
       this.logger.error('Cost Changes dataset seed failed', err);
@@ -137,7 +146,7 @@ export class CostChangesService implements OnModuleInit {
     const existing = await this.datasetRepo.findOne({ where: { stageTableName: STAGE } });
 
     const DESCRIPTION =
-      'SMS supplier rate-change history from ASMSC EDRs — one row per day, supplier connection and destination network where the latest vendor rate differs from the previous day. Lookback-incremental: history accumulates, the last 2 days are re-pulled hourly.';
+      'Announced SMS supplier rate changes from the ASMSC rate cards (MtRatePlanRateHistory) — one row per rate-sheet change (old rate → new rate) per supplier rate plan and destination, independent of traffic. Lookback-incremental: history accumulates, the last 2 days are re-pulled hourly.';
 
     if (existing) {
       this._datasetId = existing.id;
@@ -192,19 +201,9 @@ export class CostChangesService implements OnModuleInit {
     this.logger.log('Cost Changes dataset record created');
   }
 
-  /** One-time migration from the old full-replace snapshot: rows without a date would make the
-   *  table look non-empty (skipping the initial backfill) and can never be matched by the
-   *  incremental `date >= X` delete. Idempotent — a no-op forever after. */
-  private async cleanupLegacyRows(): Promise<void> {
-    await this.dataSource.query(
-      `DELETE FROM ${STAGE} WHERE "date" IS NULL`,
-    ).catch((e: Error) => this.logger.error(`Legacy cleanup failed for ${STAGE}: ${e.message}`));
-  }
-
   /** DB-only refresh config (columns not on the Dataset entity → raw SQL, idempotent):
    *  retention_days prunes history past ~3 months; allow_empty_full_refresh stays set as a
-   *  safety net should the dataset ever revert to full-replace mode (an empty result is a
-   *  valid outcome for this report). */
+   *  safety net should the dataset ever revert to full-replace mode. */
   private async applyRefreshConfig(): Promise<void> {
     if (!this._datasetId) return;
     // Self-ensure the columns: module init order vs StageService's own DDL is not guaranteed.
@@ -253,20 +252,46 @@ export class CostChangesService implements OnModuleInit {
       [STAGE],
     );
     const existingSet = new Set(existing.map((r) => r.column_name));
+    const seedKeys    = new Set(SEED_COLUMNS.map((c) => c.key));
+    let schemaChanged = false;
+
     for (const col of SEED_COLUMNS) {
       if (!existingSet.has(col.key)) {
         await this.dataSource.query(
           `ALTER TABLE ${STAGE} ADD COLUMN IF NOT EXISTS "${col.key}" ${typeMap[col.type] ?? 'TEXT'}`,
         );
         this.logger.log(`Added missing column "${col.key}" to ${STAGE}`);
+        schemaChanged = true;
       }
+    }
+    // Drop data columns that are no longer part of the report (e.g. customer_connection from
+    // the traffic-based era) so stale schema doesn't linger.
+    for (const colName of existingSet) {
+      if (colName !== 'id' && colName !== 'refreshed_at' && !seedKeys.has(colName)) {
+        await this.dataSource.query(`ALTER TABLE ${STAGE} DROP COLUMN IF EXISTS "${colName}"`);
+        this.logger.log(`Dropped obsolete column "${colName}" from ${STAGE}`);
+        schemaChanged = true;
+      }
+    }
+    // On any schema change the existing rows are from the old query — wipe once so the next
+    // refresh takes the initial-backfill path and rebuilds history from INITIAL_DATE.
+    if (schemaChanged) {
+      await this.dataSource.query(`DELETE FROM ${STAGE}`);
+      this.logger.log(`${STAGE} wiped after schema change — next refresh will re-backfill history`);
     }
     await this.dataSource.query(
       `CREATE INDEX IF NOT EXISTS idx_${STAGE}_date ON ${STAGE} ("date" DESC)`,
     );
   }
 
-  async getData(month?: string, days?: string): Promise<any> {
+  async getData(
+    month?: string,
+    days?: string,
+    supplier?: string,
+    country?: string,
+    network?: string,
+    currency?: string,
+  ): Promise<any> {
     if (month !== undefined && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
       throw new BadRequestException('month must be YYYY-MM');
     }
@@ -278,26 +303,65 @@ export class CostChangesService implements OnModuleInit {
     // Quick-range mode (days) takes precedence over the month picker.
     const selected = daysNum !== null ? null : (month ?? currentMonth);
 
-    // "date"::text sidesteps the pg DATE → JS Date UTC day-shift.
-    const stageRows: any[] = await (daysNum !== null
-      ? this.dataSource.query(
-          `SELECT "date"::text AS date, supplier_account, country, network, currency, old_rate, new_rate
-           FROM ${STAGE}
-           WHERE "date" >= ((now() AT TIME ZONE 'UTC')::date - ($1::int - 1))
-           ORDER BY "date" DESC, supplier_account ASC, country ASC, network ASC`,
-          [daysNum],
-        )
-      : this.dataSource.query(
-          `SELECT "date"::text AS date, supplier_account, country, network, currency, old_rate, new_rate
-           FROM ${STAGE}
-           WHERE "date" >= $1::date AND "date" < ($1::date + INTERVAL '1 month')
-           ORDER BY "date" DESC, supplier_account ASC, country ASC, network ASC`,
-          [`${selected}-01`],
-        )
+    // Period predicate, shared by rows / summary / filter options.
+    const params: any[] = [];
+    let where: string;
+    if (daysNum !== null) {
+      params.push(daysNum);
+      where = `"date" >= ((now() AT TIME ZONE 'UTC')::date - ($1::int - 1))`;
+    } else {
+      params.push(`${selected}-01`);
+      where = `"date" >= $1::date AND "date" < ($1::date + INTERVAL '1 month')`;
+    }
+    // Period-only predicate (no dropdown filters) — used for the option lists below.
+    const periodWhere  = where;
+    const periodParams = [...params];
+
+    // ~7k changes arrive per day, so filtering happens SERVER-side; the four dropdowns
+    // re-query instead of filtering in the browser.
+    const addFilter = (col: string, val?: string) => {
+      if (val) { params.push(val); where += ` AND ${col} = $${params.length}`; }
+    };
+    addFilter('supplier_account', supplier);
+    addFilter('country', country);
+    addFilter('network', network);
+    addFilter('currency', currency);
+
+    const rows: any[] = await this.dataSource.query(
+      `SELECT "date"::text AS date, supplier_account, customer_connection, country, network, currency, old_rate, new_rate
+       FROM ${STAGE}
+       WHERE ${where}
+       ORDER BY "date" DESC, supplier_account ASC, country ASC, network ASC
+       LIMIT ${ROW_LIMIT}`,
+      params,
     ).catch((err: Error) => {
       this.logger.error(`Failed to read ${STAGE}: ${err.message}`);
       return [];
     });
+
+    // Summary over the WHOLE filtered period (not just the returned page).
+    const [agg] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(DISTINCT supplier_account)::int AS suppliers,
+              COUNT(DISTINCT country)::int AS countries,
+              COUNT(*) FILTER (WHERE new_rate > old_rate)::int AS increases,
+              COUNT(*) FILTER (WHERE new_rate < old_rate)::int AS decreases
+       FROM ${STAGE} WHERE ${where}`,
+      params,
+    ).catch(() => [{ total: 0, suppliers: 0, countries: 0, increases: 0, decreases: 0 }]);
+
+    // Dropdown options come from the selected PERIOD (unfiltered), so picking one filter
+    // never empties the other dropdowns' choices.
+    const optionsRows: any[] = await this.dataSource.query(
+      `SELECT DISTINCT supplier_account AS v, 'supplier' AS k FROM ${STAGE} WHERE ${periodWhere}
+       UNION ALL SELECT DISTINCT country, 'country' FROM ${STAGE} WHERE ${periodWhere}
+       UNION ALL SELECT DISTINCT network, 'network' FROM ${STAGE} WHERE ${periodWhere}
+       UNION ALL SELECT DISTINCT currency, 'currency' FROM ${STAGE} WHERE ${periodWhere}`,
+      periodParams,
+    ).catch(() => []);
+    const options: Record<string, string[]> = { supplier: [], country: [], network: [], currency: [] };
+    for (const r of optionsRows) if (r.v != null && r.v !== '') options[r.k].push(r.v);
+    for (const k of Object.keys(options)) options[k].sort((a, b) => a.localeCompare(b));
 
     const monthRows: { month: string }[] = await this.dataSource.query(
       `SELECT DISTINCT to_char("date", 'YYYY-MM') AS month
@@ -310,32 +374,31 @@ export class CostChangesService implements OnModuleInit {
       `SELECT MAX(refreshed_at) AS last_refreshed FROM ${STAGE}`,
     ).catch(() => [null]);
 
-    const rows = stageRows.map((r: any) => ({
-      date:             r.date ?? null,
-      supplier_account: r.supplier_account ?? null,
-      country:          r.country ?? null,
-      network:          r.network ?? null,
-      currency:         r.currency ?? null,
-      old_rate:         r.old_rate != null ? Number(r.old_rate) : null,
-      new_rate:         r.new_rate != null ? Number(r.new_rate) : null,
-    }));
-
-    const increases = rows.filter((r) => r.old_rate != null && r.new_rate != null && r.new_rate > r.old_rate).length;
-    const decreases = rows.filter((r) => r.old_rate != null && r.new_rate != null && r.new_rate < r.old_rate).length;
-
     return {
       datasetId:     this._datasetId,
       month:         selected,
       days:          daysNum,
       months,
-      rows,
+      options,
+      rows: rows.map((r: any) => ({
+        date:                r.date ?? null,
+        supplier_account:    r.supplier_account ?? null,
+        customer_connection: r.customer_connection ?? null,
+        country:             r.country ?? null,
+        network:          r.network ?? null,
+        currency:         r.currency ?? null,
+        old_rate:         r.old_rate != null ? Number(r.old_rate) : null,
+        new_rate:         r.new_rate != null ? Number(r.new_rate) : null,
+      })),
+      totalRows:     agg?.total ?? rows.length,
+      rowLimit:      ROW_LIMIT,
       lastRefreshed: refreshRow?.last_refreshed ?? null,
       summary: {
-        totalChanges: rows.length,
-        suppliers:    new Set(rows.map((r) => r.supplier_account)).size,
-        countries:    new Set(rows.map((r) => r.country)).size,
-        increases,
-        decreases,
+        totalChanges: agg?.total ?? 0,
+        suppliers:    agg?.suppliers ?? 0,
+        countries:    agg?.countries ?? 0,
+        increases:    agg?.increases ?? 0,
+        decreases:    agg?.decreases ?? 0,
       },
     };
   }

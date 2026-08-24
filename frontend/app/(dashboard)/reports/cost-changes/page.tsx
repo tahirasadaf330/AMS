@@ -40,7 +40,7 @@ const CSS = `
 .ccr-filt{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .ccr-ff{display:flex;flex-direction:column;gap:3px}
 .ccr-ff label{font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);font-weight:600}
-.ccr-sel{height:33px;min-width:170px;max-width:230px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--ink);font-size:.8rem;padding:0 8px;outline:none;color-scheme:light}
+.ccr-sel{height:33px;min-width:150px;max-width:220px;border:1px solid var(--lns);border-radius:7px;background:var(--sf);color:var(--ink);font-size:.8rem;padding:0 8px;outline:none;color-scheme:light}
 .dark .ccr-sel{color-scheme:dark}
 .ccr-sel:focus{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.15)}
 .ccr-clr{height:33px;padding:0 11px;border:1px dashed #94a3b8;border-radius:7px;background:transparent;color:var(--mu);font-size:.74rem;cursor:pointer}
@@ -48,6 +48,7 @@ const CSS = `
 .ccr-qb:hover{border-color:#2563eb;color:#2563eb}
 .ccr-qb.active{border-color:#2563eb;color:#2563eb;font-weight:700;background:var(--accent-bg)}
 .ccr-qbs{display:flex;align-items:flex-end;gap:6px}
+.ccr-cap{background:var(--accent-bg);border:1px solid var(--accent-bd);color:var(--accent);border-radius:8px;padding:8px 14px;font-size:.76rem;margin-bottom:10px}
 .ccr-tbl-wrap{overflow:auto;max-height:calc(100vh - 320px);min-height:260px;border-radius:10px;border:1px solid var(--ln);background:var(--sf)}
 .ccr-tbl{width:100%;border-collapse:collapse;font-size:.79rem;table-layout:fixed}
 .ccr-tbl thead tr{background:var(--sf2);border-bottom:2px solid var(--lns)}
@@ -73,13 +74,14 @@ type SortDir = 'asc' | 'desc' | null;
 
 // Column widths sum to 100% so the table fits without horizontal scroll.
 const COLS: { key: string; label: string; left?: boolean; w: string }[] = [
-  { key: 'date',             label: 'Date',             left: true, w: '10%' },
-  { key: 'supplier_account', label: 'Supplier Account', left: true, w: '21%' },
-  { key: 'country',          label: 'Country',          left: true, w: '15%' },
-  { key: 'network',          label: 'Network',          left: true, w: '19%' },
-  { key: 'currency',         label: 'Currency',         w: '9%'  },
-  { key: 'old_rate',         label: 'Old Rate',         w: '13%' },
-  { key: 'new_rate',         label: 'New Rate',         w: '13%' },
+  { key: 'date',                label: 'Date',                left: true, w: '9%'  },
+  { key: 'supplier_account',    label: 'Supplier Account',    left: true, w: '16%' },
+  { key: 'customer_connection', label: 'Customer Connection', left: true, w: '16%' },
+  { key: 'country',             label: 'Country',             left: true, w: '12%' },
+  { key: 'network',             label: 'Network',             left: true, w: '16%' },
+  { key: 'currency',            label: 'Currency',            w: '8%'  },
+  { key: 'old_rate',            label: 'Old Rate',            w: '11%' },
+  { key: 'new_rate',            label: 'New Rate',            w: '12%' },
 ];
 
 const fMonth = (m: string) =>
@@ -95,12 +97,44 @@ type QuickRange = typeof QUICK_RANGES[number]['key'] | '';
 
 const EMPTY_FILTERS = { supplier: '', country: '', network: '', currency: '' };
 
+/** Searchable dropdown (input + datalist): typing narrows the native suggestion list; the
+ *  filter is applied only when the text exactly matches an option (clicking a suggestion
+ *  fills the full value) or cleared when the box is emptied. Fully controlled — the page owns
+ *  both the visible text and the applied filter, so "Clear filters" resets both directly. */
+function SearchSelect({ id, label, text, applied, options, onText, onApply }: {
+  id: string; label: string; text: string; applied: string; options: string[];
+  onText: (v: string) => void; onApply: (v: string) => void;
+}) {
+  return (
+    <div className="ccr-ff">
+      <label>{label}</label>
+      <input
+        className="ccr-sel"
+        list={id}
+        value={text}
+        placeholder="All — type to search"
+        onChange={(e) => {
+          const v = e.target.value;
+          onText(v);
+          if (v === '') onApply('');
+          else if (options.includes(v)) onApply(v);
+        }}
+        onBlur={() => { if (text !== '' && !options.includes(text)) onText(applied); }}
+      />
+      <datalist id={id}>
+        {options.map((o) => <option key={o} value={o} />)}
+      </datalist>
+    </div>
+  );
+}
+
 export default function CostChangesPage() {
   const [data, setData]           = React.useState<any>(null);
   const [datasetId, setDatasetId] = React.useState<string | null>(null);
   const [loading, setLoading]     = React.useState(true);
   const [error, setError]         = React.useState<string | null>(null);
-  const [filters, setFilters]     = React.useState(EMPTY_FILTERS);
+  const [filters, setFilters]     = React.useState(EMPTY_FILTERS); // applied (server-side) filters
+  const [texts, setTexts]         = React.useState(EMPTY_FILTERS); // visible search-box text
   const [month, setMonth]         = React.useState(''); // '' = server default (current month)
   const [range, setRange]         = React.useState<QuickRange>(''); // quick range wins over month
   const [sort, setSort]           = React.useState<{ key: string | null; dir: SortDir }>({ key: 'date', dir: 'desc' });
@@ -112,40 +146,29 @@ export default function CostChangesPage() {
     }));
   }, []);
 
+  // ~7k announced changes arrive per day, so period + dropdowns all filter SERVER-side; every
+  // control change re-queries. The response is capped (rowLimit) — summary covers the full period.
   const load = React.useCallback(() => {
     setLoading(true); setError(null);
     const rangeDef = QUICK_RANGES.find((q) => q.key === range);
-    costChangesApi.getData(rangeDef ? { days: rangeDef.days } : month ? { month } : undefined)
+    costChangesApi.getData({
+      ...(rangeDef ? { days: rangeDef.days } : month ? { month } : {}),
+      ...(filters.supplier ? { supplier: filters.supplier } : {}),
+      ...(filters.country  ? { country:  filters.country }  : {}),
+      ...(filters.network  ? { network:  filters.network }  : {}),
+      ...(filters.currency ? { currency: filters.currency } : {}),
+    })
       .then(r => { setData(r.data); setDatasetId(r.data?.datasetId ?? null); })
       .catch((err: any) => setError(err?.response?.data?.message ?? err?.message ?? 'Failed to load data'))
       .finally(() => setLoading(false));
-  }, [month, range]);
+  }, [month, range, filters]);
 
   React.useEffect(() => { load(); }, [load]);
   useDatasetSocket(datasetId, load);
 
-  // Distinct dropdown options always come from ALL rows, so picking one filter
-  // never empties the other dropdowns' choices.
-  const options = React.useMemo(() => {
-    const all: any[] = data?.rows ?? [];
-    const distinct = (key: string) =>
-      Array.from(new Set(all.map((r) => r[key]).filter((v) => v != null && v !== ''))).sort((a, b) =>
-        String(a).localeCompare(String(b)));
-    return {
-      supplier: distinct('supplier_account'),
-      country:  distinct('country'),
-      network:  distinct('network'),
-      currency: distinct('currency'),
-    };
-  }, [data]);
-
+  // Client-side sorting of the returned page only (the server orders by date DESC).
   const rows: any[] = React.useMemo(() => {
-    if (!data?.rows) return [];
-    let f: any[] = data.rows;
-    if (filters.supplier) f = f.filter((r: any) => r.supplier_account === filters.supplier);
-    if (filters.country)  f = f.filter((r: any) => r.country === filters.country);
-    if (filters.network)  f = f.filter((r: any) => r.network === filters.network);
-    if (filters.currency) f = f.filter((r: any) => r.currency === filters.currency);
+    const f: any[] = data?.rows ?? [];
     if (!sort.key || !sort.dir) return f;
     const { key, dir } = sort;
     return [...f].sort((a, b) => {
@@ -156,22 +179,12 @@ export default function CostChangesPage() {
       const cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv));
       return dir === 'asc' ? cmp : -cmp;
     });
-  }, [data, filters, sort]);
+  }, [data, sort]);
 
-  // Cards derive from all rows so they always match the table's source data.
-  const stats = React.useMemo(() => {
-    const all: any[] = data?.rows ?? [];
-    return {
-      changes:   all.length,
-      suppliers: new Set(all.map((r) => r.supplier_account)).size,
-      countries: new Set(all.map((r) => r.country)).size,
-      increases: all.filter((r) => r.old_rate != null && r.new_rate != null && r.new_rate > r.old_rate).length,
-      decreases: all.filter((r) => r.old_rate != null && r.new_rate != null && r.new_rate < r.old_rate).length,
-    };
-  }, [data]);
-
+  const summary = data?.summary ?? { totalChanges: 0, suppliers: 0, countries: 0, increases: 0, decreases: 0 };
   const lastRefreshed: string | null = data?.lastRefreshed ?? null;
   const hasFilter = Object.values(filters).some(Boolean);
+  const capped = (data?.totalRows ?? 0) > (data?.rows?.length ?? 0);
 
   const Th = ({ col }: { col: typeof COLS[number] }) => {
     const active = sort.key === col.key;
@@ -188,10 +201,10 @@ export default function CostChangesPage() {
   };
 
   const FILTER_DEFS = [
-    { key: 'supplier' as const, label: 'Supplier Account', opts: options.supplier },
-    { key: 'country'  as const, label: 'Country',          opts: options.country },
-    { key: 'network'  as const, label: 'Network',          opts: options.network },
-    { key: 'currency' as const, label: 'Currency',         opts: options.currency },
+    { key: 'supplier' as const, label: 'Supplier Account', opts: data?.options?.supplier ?? [] },
+    { key: 'country'  as const, label: 'Country',          opts: data?.options?.country ?? [] },
+    { key: 'network'  as const, label: 'Network',          opts: data?.options?.network ?? [] },
+    { key: 'currency' as const, label: 'Currency',         opts: data?.options?.currency ?? [] },
   ];
 
   return (
@@ -204,7 +217,7 @@ export default function CostChangesPage() {
               <div className="ccr-title">Cost Changes Report</div>
               <div className="ccr-sub">
                 <span className="ccr-dot" />
-                ASMSC · daily rate-change history · latest supplier rate per day vs the previous day
+                ASMSC rate cards · announced supplier rate changes (old → new), independent of traffic
               </div>
             </div>
             {lastRefreshed && (
@@ -218,11 +231,11 @@ export default function CostChangesPage() {
           {error && <div className="ccr-err">Could not load data: {error}</div>}
 
           <div className="ccr-cards">
-            <div className="ccr-card ccr-card-accent"><div className="ccr-card-num">{fN(stats.changes)}</div><div className="ccr-card-lbl">Rate Changes</div></div>
-            <div className="ccr-card"><div className="ccr-card-num">{fN(stats.suppliers)}</div><div className="ccr-card-lbl">Suppliers</div></div>
-            <div className="ccr-card"><div className="ccr-card-num">{fN(stats.countries)}</div><div className="ccr-card-lbl">Countries</div></div>
-            <div className="ccr-card ccr-card-up"><div className="ccr-card-num">{fN(stats.increases)}</div><div className="ccr-card-lbl">Increases</div></div>
-            <div className="ccr-card ccr-card-down"><div className="ccr-card-num">{fN(stats.decreases)}</div><div className="ccr-card-lbl">Decreases</div></div>
+            <div className="ccr-card ccr-card-accent"><div className="ccr-card-num">{fN(summary.totalChanges)}</div><div className="ccr-card-lbl">Rate Changes</div></div>
+            <div className="ccr-card"><div className="ccr-card-num">{fN(summary.suppliers)}</div><div className="ccr-card-lbl">Suppliers</div></div>
+            <div className="ccr-card"><div className="ccr-card-num">{fN(summary.countries)}</div><div className="ccr-card-lbl">Countries</div></div>
+            <div className="ccr-card ccr-card-up"><div className="ccr-card-num">{fN(summary.increases)}</div><div className="ccr-card-lbl">Increases</div></div>
+            <div className="ccr-card ccr-card-down"><div className="ccr-card-num">{fN(summary.decreases)}</div><div className="ccr-card-lbl">Decreases</div></div>
           </div>
 
           <div className="ccr-filt">
@@ -249,20 +262,30 @@ export default function CostChangesPage() {
               </select>
             </div>
             {FILTER_DEFS.map((f) => (
-              <div className="ccr-ff" key={f.key}>
-                <label>{f.label}</label>
-                <select
-                  className="ccr-sel"
-                  value={filters[f.key]}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                >
-                  <option value="">All</option>
-                  {f.opts.map((o: any) => <option key={o} value={o}>{o}</option>)}
-                </select>
-              </div>
+              <SearchSelect
+                key={f.key}
+                id={`ccr-dl-${f.key}`}
+                label={f.label}
+                text={texts[f.key]}
+                applied={filters[f.key]}
+                options={f.opts}
+                onText={(v) => setTexts((prev) => ({ ...prev, [f.key]: v }))}
+                onApply={(v) => setFilters((prev) => ({ ...prev, [f.key]: v }))}
+              />
             ))}
-            {hasFilter && <button className="ccr-clr" onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</button>}
+            <button
+              className="ccr-clr"
+              onClick={() => { setTexts(EMPTY_FILTERS); setFilters({ ...EMPTY_FILTERS }); }}
+            >
+              Clear filters
+            </button>
           </div>
+
+          {!loading && capped && (
+            <div className="ccr-cap">
+              Showing the {fN(data?.rows?.length)} most recent of {fN(data?.totalRows)} changes in this period — use the filters to narrow down.
+            </div>
+          )}
 
           <div className="ccr-tbl-wrap">
             <table className="ccr-tbl">
@@ -281,6 +304,7 @@ export default function CostChangesPage() {
                     <tr key={`${r.date}|${r.supplier_account}|${r.network}|${i}`}>
                       <td className="l mono">{r.date ?? '—'}</td>
                       <td className="l" style={{ fontWeight: 600 }} title={r.supplier_account ?? ''}>{r.supplier_account ?? '—'}</td>
+                      <td className="l" title={r.customer_connection ?? ''}>{r.customer_connection ?? '—'}</td>
                       <td className="l" title={r.country ?? ''}>{r.country ?? '—'}</td>
                       <td className="l" title={r.network ?? ''}>{r.network ?? '—'}</td>
                       <td className="mono">{r.currency ?? '—'}</td>
@@ -294,7 +318,7 @@ export default function CostChangesPage() {
           </div>
 
           {!loading && rows.length > 0 && (
-            <div className="ccr-footer">{fN(rows.length)} of {fN(stats.changes)} rate changes</div>
+            <div className="ccr-footer">{fN(rows.length)} of {fN(data?.totalRows)} rate changes</div>
           )}
         </div>
       </div>

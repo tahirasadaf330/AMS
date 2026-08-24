@@ -541,7 +541,11 @@ export const specialRoutesApi = {
 // ── COST CHANGES REPORT ───────────────────────────────────────
 export const costChangesApi = {
   // month = 'YYYY-MM' (omitted → current month); days = last-N-days quick range, wins over month.
-  getData: (params?: { month?: string; days?: number }) => api.get('/reports/cost-changes/data', { params }),
+  // supplier/country/network/currency filter server-side (the dataset holds ~7k changes/day).
+  getData: (params?: {
+    month?: string; days?: number;
+    supplier?: string; country?: string; network?: string; currency?: string;
+  }) => api.get('/reports/cost-changes/data', { params }),
 };
 
 // ── PRE-PAYMENT CL REPORT ─────────────────────────────────────
