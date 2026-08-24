@@ -8,7 +8,12 @@ import { VENDOR_NAME, MCCMNC } from './innovatio-traffic.service';
 // user-managed via the Alerts UI (trigger_cron) — we only seed a sensible default for a fresh
 // condition and never override it afterwards.
 const ALERT_NAME = 'Innovatio Daily Traffic';
-const TO: string[] = ['bilal.waris@hayo.net'];
+const TO: string[] = [
+  'bilal.waris@hayo.net',
+  'franck@hayo.net',
+  'sarkari@hayo.net',
+  'mladen@hayo.net',
+];
 const CC: string[] = [];
 // Condition crons run in UTC (ConditionSchedulerService). The dataset refreshes at 00:30 UTC,
 // right after the UTC day closes — the alert follows at 01:00 UTC so it reads the fresh day.
