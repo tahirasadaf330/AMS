@@ -25,6 +25,7 @@ access list is auto-discovered from those decorators
 | [MT EDR Monitoring](#mt-edr-monitoring) | sms | `reports/mt-edr` | ASMSC (MSSQL) |
 | [Apple Traffic](#apple-traffic) | sms | `reports/apple-traffic` | ASMSC (MSSQL) |
 | [Google MO Traffic](#google-mo-traffic) | sms | `reports/google-mo` | ASMSC (MSSQL) |
+| [Senegal Report](#senegal-report) | sms | `reports/senegal-report` | ASMSC (MSSQL) |
 | [Zamani Traffic](#zamani-traffic) | sms | `reports/zamani` | ASMSC (MSSQL) |
 | [Zamani Sender ID](#zamani-sender-id) | sms | `reports/zamani-sender-id` | ASMSC (MSSQL) |
 
@@ -169,6 +170,25 @@ were added through the Alerts UI, so operational edits are not clobbered by a de
 Cost and estimate spreadsheets are auto-synced from SharePoint (`SHAREPOINT_SYNC_ENABLED`,
 `SHAREPOINT_SYNC_CRON`), reusing the `GRAPH_*` app registration, which needs `Sites.Read.All` with
 admin consent.
+
+## Senegal Report
+
+`senegal-report` · sms · ASMSC (MSSQL). Stage table `stage_senegal_report`. Requested via
+**MS Teams** (the report's origin).
+
+A daily replica of the aSMSC portal's **Traffic Stats Report** with *View Funnel: MCC MNC* and the
+filters Country: Senegal, MCC 608, MCC/MNC **608004** (Senegal — CSU). The page's headline "MCC MNC
+Funnel" tab is exactly that portal view; Details / By Client / By Vendor tabs are drill-downs behind
+the same numbers.
+
+Defaults to the **previous full UTC day** (00:00:00–23:59:59), with a Date filter over the loaded
+history: the stage is **incremental** like Innovatio Traffic (history from `2026-08-01`, one whole
+UTC day appended by the daily 00:30 UTC refresh, 3-day lookback re-pull), and day bounds come from
+`GETUTCDATE()` — never `GETDATE()`, see [innovatio-traffic.md](innovatio-traffic.md) for the
+timezone rule. Metric
+conventions follow the SMS Report: sent = `SUM(PartsSent)`, failed = first-attempt DLR status 8,
+delivered = DLR status 2, expenses/income currency-converted; profit, margin % and delivery % are
+derived on read.
 
 ## Zamani Traffic
 
