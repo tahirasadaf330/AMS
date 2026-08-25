@@ -158,7 +158,7 @@ try:
               '<div style="color:' + NAVY + ';font-size:19px;font-weight:700;margin:2px 0 8px;">Innovatio Daily Traffic</div>')
     intro = ('<div style="color:#333;font-size:13px;line-height:1.6;margin-bottom:12px;">'
              'Hi Team,<br>Please find below the SMS traffic terminated via supplier <b>${VENDOR_NAME}</b> '
-             'to <b>Niger &mdash; Airtel</b> (MCC/MNC ${MCCMNC}) for <b>' + ydays + '</b> (yesterday, UTC day).</div>')
+             'to <b>Niger &mdash; Zamani</b> (MCC/MNC ${MCCMNC}) for <b>' + ydays + '</b> (yesterday, UTC day).</div>')
     summary = ('<table style="border-collapse:collapse;font-size:13px;margin:4px 0;">'
                '<tr><td style="padding:6px 16px 6px 0;color:' + MUTE + ';">Yesterday total</td>'
                '<td style="padding:6px 16px;text-align:right;font-weight:700;">Volume: ' + fi(total) + '</td>'
