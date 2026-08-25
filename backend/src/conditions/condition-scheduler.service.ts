@@ -178,6 +178,7 @@ export class ConditionSchedulerService implements OnModuleInit {
     // IMPORTANT: once the email has actually been sent, later bookkeeping failures must NOT trigger
     // a retry (that would resend) — post-send bookkeeping is therefore best-effort.
     const MAX_ATTEMPTS = 3;
+    let teamsPosted = false; // survives retries so a later email failure can't double-post Teams
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         // executeReport is a superset of execute() — it also parses html/subject/image for
@@ -207,6 +208,28 @@ export class ConditionSchedulerService implements OnModuleInit {
             });
             return;
           }
+        }
+
+        // Teams channel: python conditions historically emailed only. When the condition has
+        // channels.teams.enabled and the script returned rows, post them as ONE consolidated
+        // MessageCard through the normal notifications path (notification_log + manual retry +
+        // WS events). The clone scopes dispatch() to the teams channel so an also-enabled email
+        // channel isn't sent the generic row email here — the rich-HTML branch below stays the
+        // one python email path. dispatchTeams never throws (failures are logged per channel),
+        // so this cannot re-enter the retry loop after a send.
+        if (!teamsPosted && condition.channels?.teams?.enabled && result.rows?.length) {
+          const teamsOnly = Object.assign(
+            Object.create(Object.getPrototypeOf(condition)),
+            condition,
+            { channels: { teams: condition.channels.teams } },
+          ) as Condition;
+          await this.notificationsService.dispatch({
+            condition: teamsOnly,
+            datasetName: condition.dataset?.name ?? condition.name,
+            matchedRows: result.rows,
+          });
+          teamsPosted = true;
+          this.logger.log(`Python condition "${condition.name}": ${result.rows.length} row(s) posted to Teams`);
         }
 
         // Report-style script (returns HTML): send the rich email to the condition's recipients.
