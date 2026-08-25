@@ -190,6 +190,14 @@ conventions follow the SMS Report: sent = `SUM(PartsSent)`, failed = first-attem
 delivered = DLR status 2, expenses/income currency-converted; profit, margin % and delivery % are
 derived on read.
 
+A **daily Teams alert** ("Senegal Report Daily Alert", python condition, default cron `0 4 * * *`
+= 09:00 Pakistan time) posts yesterday's per-client summary + total as one card into the
+**Hayo - SMS - Generated Traffic Reports** channel. This is the first python condition delivered
+over Teams — `ConditionSchedulerService.runPythonCycle` posts `result.rows` as a consolidated
+card when `channels.teams.enabled` is set. The webhook URL comes from
+`TEAMS_SENEGAL_WEBHOOK_URL` (env, wins on boot) or the Alerts UI, falling back to
+`TEAMS_DEFAULT_WEBHOOK_URL`; the schedule stays user-managed after the seed.
+
 ## Zamani Traffic
 
 `zamani` · sms · ASMSC (MSSQL). Also owns `zamani_investment_tracking`, with a weekly job at
