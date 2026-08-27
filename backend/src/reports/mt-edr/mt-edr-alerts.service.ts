@@ -179,8 +179,28 @@ const HIGH_DELAY_BODY = String.raw`
     trows = [[esc(r[0]), esc(r[1]), fi(r[2]), fi(r[3]), esc(str(r[4])) + "s", fi(r[5]) + "s"] for r in rows]
     inner = table(["Customer", "Account Manager", "Msgs (15 min)", "With DLR", "Avg Delay", "Max Delay"],
                   ["left", "left", "right", "right", "right", "right"], trows)
+    # Route breakdown for the offending customers: which vendor / destination network is slow.
+    offenders = [r[0] for r in rows]
+    cur.execute("""
+        SELECT customer_company, COALESCE(vendor_name, '(none)'),
+               COALESCE(network_name, '(unmapped)'), COALESCE(mcc_mnc, '?'),
+               COUNT(*) AS msgs,
+               ROUND(AVG(delivery_time_sec) FILTER (WHERE delivery_time_sec IS NOT NULL), 1) AS avg_delay
+        FROM stage_mt_edr_monitoring
+        WHERE submit_datetime >= now() - interval '15 minutes'
+          AND customer_company = ANY(%(cos)s)
+        GROUP BY 1, 2, 3, 4
+        ORDER BY 1, 6 DESC NULLS LAST
+    """, {"cos": offenders})
+    vrows = cur.fetchall()
+    btrows = [[esc(v[0]), esc(v[1]), esc(v[2]), esc(v[3]), fi(v[4]),
+               (esc(str(v[5])) + "s") if v[5] is not None else "&mdash;"] for v in vrows]
+    inner += ('<div style="margin:14px 0 6px;font-weight:700;color:' + NAVY + ';font-size:13px;">Route breakdown (last 15 min)</div>'
+              + table(["Customer", "Vendor", "Country / Network", "MCC-MNC", "Msgs", "Avg Delay"],
+                      ["left", "left", "left", "left", "right", "right"], btrows))
     intro = ("High delivery delay: average sent&rarr;DLR time above <b>${DELAY_SEC}s</b> over the last 15 minutes "
-             "(&ge; ${MIN_MSGS_15M} messages). Slow DLRs usually mean a congested or degraded route.")
+             "(&ge; ${MIN_MSGS_15M} messages). Slow DLRs usually mean a congested or degraded route — the "
+             "breakdown below shows which vendor and destination network is dragging.")
     # Dedup key = identity only (customer): the average drifts every tick as the window slides.
     drows = sorted([{"customer": r[0]} for r in rows], key=lambda d: str(d["customer"]))
     emit({"triggered": True, "subject": "[MT EDR] High delivery delay (> ${DELAY_SEC}s avg)",
@@ -188,34 +208,47 @@ const HIGH_DELAY_BODY = String.raw`
           "message": str(len(rows)) + " customer(s) with high delay", "rows": drows})
 `;
 
-// ── 3) Negative margin: any negative-margin message in the last 15 min ──────────────────────────
+// ── 3) Negative margin: any true-negative-margin message in the last 15 min ─────────────────────
+// is_negative_margin compares the base-currency (EUR) costs, so cross-currency routes (e.g. a
+// USD vendor against an EUR customer) are judged correctly; raw rates are shown with their own
+// currencies and the loss column is the summed EUR difference.
 const NEG_MARGIN_BODY = String.raw`
     cur.execute("""
-        SELECT customer_company, COALESCE(vendor_name, '(none)') AS vendor, COUNT(*) AS msgs,
-               MAX(customer_currency) AS cur,
+        SELECT customer_company, COALESCE(vendor_name, '(none)') AS vendor,
+               COALESCE(network_name, '(unmapped)') AS network, COALESCE(mcc_mnc, '?') AS mccmnc,
+               COUNT(*) AS msgs,
+               MAX(customer_currency) AS ccur, MAX(vendor_currency) AS vcur,
                ROUND(AVG(customer_rate)::numeric, 5) AS avg_cust_rate,
-               ROUND(AVG(vendor_rate)::numeric, 5)   AS avg_vend_rate
+               ROUND(AVG(vendor_rate)::numeric, 5)   AS avg_vend_rate,
+               ROUND(SUM(vendor_cost_base - customer_cost_base)::numeric, 2) AS loss_eur
         FROM stage_mt_edr_monitoring
         WHERE submit_datetime >= now() - interval '15 minutes'
           AND is_negative_margin = 1
-        GROUP BY 1, 2 ORDER BY COUNT(*) DESC
+        GROUP BY 1, 2, 3, 4 ORDER BY 10 DESC
     """)
     rows = cur.fetchall()
     if not rows:
         fail("No negative-margin traffic in the last 15 minutes")
-    total = sum(int(r[2] or 0) for r in rows)
-    trows = [[esc(r[0]), esc(r[1]), fi(r[2]), esc(str(r[4])) + " " + esc(r[3] or ""), esc(str(r[5])) + " " + esc(r[3] or "")] for r in rows]
-    inner = table(["Customer", "Vendor", "Messages", "Avg Customer Rate", "Avg Vendor Rate"],
-                  ["left", "left", "right", "right", "right"], trows)
-    intro = ("<b>" + fi(total) + "</b> message(s) in the last 15 minutes were sent at a NEGATIVE margin "
-             "(vendor rate above customer rate; both in the customer's deal currency). "
+    total = sum(int(r[4] or 0) for r in rows)
+    total_loss = sum(float(r[9] or 0) for r in rows)
+    trows = [[esc(r[0]), esc(r[1]), esc(r[2]), esc(r[3]), fi(r[4]),
+              esc(str(r[7])) + " " + esc(r[5] or ""), esc(str(r[8])) + " " + esc(r[6] or ""),
+              "<b>" + esc(str(r[9])) + "</b>"] for r in rows]
+    inner = table(["Customer", "Vendor", "Country / Network", "MCC-MNC", "Messages",
+                   "Avg Customer Rate", "Avg Vendor Rate", "Loss (EUR)"],
+                  ["left", "left", "left", "left", "right", "right", "right", "right"], trows)
+    intro = ("<b>" + fi(total) + "</b> message(s) in the last 15 minutes were sent at a TRUE negative margin "
+             "&mdash; vendor cost above customer revenue <b>compared in EUR</b> (rates shown in their own "
+             "booking currencies; a USD vendor rate no longer false-alarms against an EUR customer rate). "
+             "Total loss in the window: <b>&euro;" + "{:,.2f}".format(total_loss) + "</b>. "
              "Check the routing/rates before the loss grows.")
-    # Dedup key = the losing route (customer + vendor): message counts and rate averages drift.
-    drows = sorted([{"customer": r[0], "vendor": r[1]} for r in rows],
-                   key=lambda d: (str(d["customer"]), str(d["vendor"])))
-    emit({"triggered": True, "subject": "[MT EDR] Negative margin traffic",
+    # Dedup key = the losing route (customer + vendor + destination): counts, averages and the
+    # loss drift as the window slides; a new losing route still alerts immediately.
+    drows = sorted([{"customer": r[0], "vendor": r[1], "mcc_mnc": r[3]} for r in rows],
+                   key=lambda d: (str(d["customer"]), str(d["vendor"]), str(d["mcc_mnc"])))
+    emit({"triggered": True, "subject": "[MT EDR] Negative margin traffic (−€" + "{:,.2f}".format(total_loss) + " / 15 min)",
           "html": wrap("MT EDR — Negative Margin", intro, inner),
-          "message": fi(total) + " negative-margin message(s)", "rows": drows})
+          "message": fi(total) + " negative-margin message(s), loss EUR " + "{:,.2f}".format(total_loss), "rows": drows})
 `;
 
 // ── 4) Traffic spike: any 1-min bucket >= 500 msgs in the last 15 min (report's own rule) ───────

@@ -32,14 +32,20 @@ SELECT
         ELSE 'pending'
     END                                                                 AS status,
     mt.MccMnc                                                           AS mcc_mnc,
+    md.OperatorName                                                     AS network_name,
     mvc.Name                                                            AS vendor_name,
     cust_cur.CurrencyCode                                              AS customer_currency,
-    -- Vendor rate/cost is booked in the CUSTOMER's deal currency (not the vendor company's
-    -- own currency), so both raw rates are same-currency and margin compares directly.
-    cust_cur.CurrencyCode                                              AS vendor_currency,
+    -- CustomerRate is in the CUSTOMER's currency but MtVendorRate is in the VENDOR's own
+    -- currency (verified 2026-08-27 via the *CostBaseCurrency ratios: e.g. Etisalat_A2P books
+    -- USD against EUR customers). Raw rates are therefore display-only; margin math uses the
+    -- platform-base-converted (EUR) cost columns below.
+    vend_cur.CurrencyCode                                              AS vendor_currency,
     mt.CustomerRate                                                     AS customer_rate,
     mt.MtVendorRate                                                     AS vendor_rate,
-    CASE WHEN mt.MtVendorRate > mt.CustomerRate THEN 1 ELSE 0 END       AS is_negative_margin,
+    mt.CustomerCostBaseCurrency                                         AS customer_cost_base,
+    mt.MtVendorCostBaseCurrency                                         AS vendor_cost_base,
+    CASE WHEN mt.MtVendorCostBaseCurrency > mt.CustomerCostBaseCurrency
+         THEN 1 ELSE 0 END                                              AS is_negative_margin,
     CASE WHEN mt.SentDateTime IS NOT NULL AND mt.DlrDateTime IS NOT NULL
          THEN DATEDIFF(SECOND, mt.SentDateTime, mt.DlrDateTime) END     AS delivery_time_sec
 FROM SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
@@ -57,6 +63,14 @@ LEFT JOIN SMSCPhoenix.dbo.Currency cust_cur WITH(NOLOCK)
     ON cust_cur.CurrencyId = cust_co.CurrencyId
 LEFT JOIN SMSCPhoenix.dbo.MtVendorConnection mvc WITH(NOLOCK)
     ON mvc.MtVendorConnectionId = mt.MtVendorConnectionId
+LEFT JOIN SMSCPhoenix.dbo.Company vend_co WITH(NOLOCK)
+    ON vend_co.CompanyId = mvc.CompanyId
+LEFT JOIN SMSCPhoenix.dbo.Currency vend_cur WITH(NOLOCK)
+    ON vend_cur.CurrencyId = vend_co.CurrencyId
+-- Destination operator lookup (curated table, 99.99% coverage of live traffic; MccMnc is INT
+-- there vs varchar on the EDR, hence the cast). OperatorName includes the country name.
+LEFT JOIN SMSCPhoenix.dbo.MccMncDb md WITH(NOLOCK)
+    ON md.MccMnc = TRY_CAST(mt.MccMnc AS INT)
 WHERE mt.SubmitDateTime >= '{{SINCE}}'
 `;
 
@@ -72,12 +86,15 @@ const SEED_COLUMNS = [
   { key: 'account_manager',   label: 'Account Manager', type: 'text',     description: "Customer's sales account manager (full name), from Company.SalesAccountManagerId → Users." },
   { key: 'status',            label: 'Status',         type: 'text',      description: "Per-message delivery state: 'delivered' | 'accepted' | 'pending' | 'rejected'." },
   { key: 'mcc_mnc',           label: 'MCC-MNC',        type: 'text',      description: 'Destination operator code (mobile country + network code).' },
+  { key: 'network_name',      label: 'Country / Network', type: 'text',   description: 'Destination operator name incl. country (MccMncDb.OperatorName); null for the rare unmapped codes.' },
   { key: 'vendor_name',       label: 'Vendor',         type: 'text',      description: 'Terminating vendor connection name.' },
   { key: 'customer_currency', label: 'Customer Currency', type: 'text',   description: 'Customer company billing currency (ISO code).' },
-  { key: 'vendor_currency',   label: 'Vendor Currency', type: 'text',     description: "Currency the vendor rate/cost is booked in — the customer's deal currency (ISO code), not the vendor company's own currency." },
-  { key: 'customer_rate',     label: 'Customer Rate',  type: 'numeric',   description: 'Customer (revenue) rate for the message, in customer currency.' },
-  { key: 'vendor_rate',       label: 'Vendor Rate',    type: 'numeric',   description: 'Vendor (cost) rate for the message, in vendor currency.' },
-  { key: 'is_negative_margin', label: 'Neg. Margin',   type: 'numeric',   description: 'Flag 1/0: vendor rate exceeds customer rate (raw comparison, not currency-converted).' },
+  { key: 'vendor_currency',   label: 'Vendor Currency', type: 'text',     description: "Vendor company's own billing currency (ISO code) — the currency vendor_rate is booked in (e.g. Etisalat = USD)." },
+  { key: 'customer_rate',     label: 'Customer Rate',  type: 'numeric',   description: 'Customer (revenue) rate for the message, in customer currency; display-only, not currency-normalised.' },
+  { key: 'vendor_rate',       label: 'Vendor Rate',    type: 'numeric',   description: "Vendor (cost) rate for the message, in the VENDOR's currency; display-only, not currency-normalised." },
+  { key: 'customer_cost_base', label: 'Customer Cost (EUR)', type: 'numeric', description: 'Customer cost of the message converted to the platform base currency (EUR); use for margin math.' },
+  { key: 'vendor_cost_base',  label: 'Vendor Cost (EUR)', type: 'numeric', description: 'Vendor cost of the message converted to the platform base currency (EUR); use for margin math.' },
+  { key: 'is_negative_margin', label: 'Neg. Margin',   type: 'numeric',   description: 'Flag 1/0: vendor cost exceeds customer cost compared in the platform base currency (EUR) — a true same-currency comparison.' },
   { key: 'delivery_time_sec', label: 'Delivery (s)',   type: 'numeric',   description: 'Seconds from sent to DLR; null if not yet delivered.' },
 ];
 
@@ -195,7 +212,10 @@ export class MtEdrService implements OnModuleInit {
       // rows with a NULL value for the new column).
       //  • submit_datetime absent → legacy per-company snapshot schema.
       //  • account_manager absent → column added after the per-message rows already existed.
-      if (!existingSet.has('submit_datetime') || !existingSet.has('account_manager')) {
+      //  • vendor_cost_base absent → 2026-08-27 currency fix (base-cost columns + corrected
+      //    is_negative_margin + network_name + true vendor_currency) needs every row re-pulled.
+      if (!existingSet.has('submit_datetime') || !existingSet.has('account_manager')
+          || !existingSet.has('vendor_cost_base')) {
         await this.dataSource.query(`TRUNCATE TABLE ${STAGE}`);
         this.logger.log(`Cleared ${STAGE} rows for schema migration (full backfill on next refresh)`);
       }
@@ -259,6 +279,8 @@ export class MtEdrService implements OnModuleInit {
         COUNT(*) FILTER (WHERE w.status = 'pending')                         AS pending,
         COUNT(*) FILTER (WHERE w.status = 'rejected')                        AS rejected,
         COUNT(*) FILTER (WHERE w.is_negative_margin = 1)                     AS negative_margin_count,
+        SUM(w.vendor_cost_base - w.customer_cost_base)
+          FILTER (WHERE w.is_negative_margin = 1)                            AS negative_margin_loss,
         AVG(w.delivery_time_sec) FILTER (WHERE w.delivery_time_sec IS NOT NULL) AS avg_delivery_time,
         AVG(w.vendor_rate)   FILTER (WHERE w.is_negative_margin = 1)         AS avg_neg_vendor_rate,
         AVG(w.customer_rate) FILTER (WHERE w.is_negative_margin = 1)         AS avg_neg_customer_rate,
@@ -298,6 +320,7 @@ export class MtEdrService implements OnModuleInit {
         pending:               Number(r.pending ?? 0),
         rejected:              Number(r.rejected ?? 0),
         negative_margin_count: Number(r.negative_margin_count ?? 0),
+        negative_margin_loss:  r.negative_margin_loss != null ? Number(r.negative_margin_loss) : null, // EUR
         msg_count_1min:        peak,
         traffic_spike:         peak >= 500 ? 1 : 0,
         avg_delivery_time:     r.avg_delivery_time    != null ? Number(r.avg_delivery_time)    : null,
