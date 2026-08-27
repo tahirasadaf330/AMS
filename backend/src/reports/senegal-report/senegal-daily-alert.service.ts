@@ -22,10 +22,11 @@ const ALERT_NAME = 'Senegal Report Daily Alert';
 const DEFAULT_CRON = '0 4 * * *'; // 04:00 UTC = 09:00 PKT
 const WEBHOOK_ENV = 'TEAMS_SENEGAL_WEBHOOK_URL';
 
-// Reads the newest loaded day from stage_senegal_report (always the previous full UTC day after
-// the daily refresh) and emits one row per client plus a TOTAL row. Values are pre-formatted
-// strings — the Teams card renders each row as a facts section. No backticks or ${ } here: the
-// script lives inside a String.raw template.
+// Reports YESTERDAY (UTC) explicitly — not the newest loaded day — and emits one row per client
+// plus a TOTAL row; a day with no 608004 traffic sends an explicit zero-traffic card instead of
+// silently re-building the previous day's rows (which the 24h duplicate suppression would then
+// skip, observed 2026-08-27). Values are pre-formatted strings — the Teams card renders each row
+// as a facts section. No backticks or ${ } here: the script lives inside a String.raw template.
 const SCRIPT = String.raw`
 import os, sys, json, traceback
 
@@ -77,10 +78,10 @@ try:
     if cur.fetchone()[0] is None:
         fail("stage_senegal_report not found")
 
-    cur.execute('SELECT MAX("date") FROM stage_senegal_report')
+    # Yesterday as a UTC calendar day — the stage's day buckets are UTC, and the DB server's
+    # own timezone must not shift the target day.
+    cur.execute("SELECT ((NOW() AT TIME ZONE 'utc')::date - 1)")
     day = cur.fetchone()[0]
-    if day is None:
-        fail("No Senegal Report data loaded yet")
     days = day.strftime("%Y-%m-%d")
 
     cur.execute(
@@ -91,8 +92,6 @@ try:
         {"d": day},
     )
     rows = cur.fetchall()
-    if not rows:
-        fail("No Senegal traffic for " + days)
 
     def row_obj(name, sent, failed, delivered, exp, inc):
         return {
@@ -107,6 +106,16 @@ try:
             "profit": fm((inc or 0) - (exp or 0)),
             "margin": fp((inc or 0) - (exp or 0), inc),
         }
+
+    if not rows:
+        # A zero-traffic day is information, not a non-event: send an explicit zero card so the
+        # channel gets a post every day. Rows carry the date, so dedup never suppresses it.
+        emit({
+            "triggered": True,
+            "rows": [row_obj("No traffic recorded", 0, 0, 0, 0.0, 0.0)],
+            "message": "Senegal CSU (608004) " + days + ": no traffic recorded",
+        })
+        sys.exit(0)
 
     out = []
     t_sent = t_failed = t_del = 0
