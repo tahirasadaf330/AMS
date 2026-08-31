@@ -262,8 +262,8 @@ function CmpPie({ rows, revKey }: { rows: any[]; revKey: string }) {
 /* ── Sortable TH helper ──────────────────────────────────── */
 function useSortState(defaultKey: string) {
   const [s, set] = React.useState<{ k: string; d: 1 | -1 }>({ k: defaultKey, d: -1 });
-  const th = (k: string, label: string) => (
-    <th className={s.k === k ? 'zs' : ''} onClick={() => set(p => p.k === k ? { k, d: (p.d * -1) as 1 | -1 } : { k, d: k === 'name' || k === 'customer_name' ? 1 : -1 })}>
+  const th = (k: string, label: string, align?: 'left' | 'right') => (
+    <th className={s.k === k ? 'zs' : ''} style={align ? { textAlign: align } : undefined} onClick={() => set(p => p.k === k ? { k, d: (p.d * -1) as 1 | -1 } : { k, d: k === 'name' || k === 'customer_name' ? 1 : -1 })}>
       {label}{s.k === k ? (s.d === 1 ? ' ▲' : ' ▼') : ''}
     </th>
   );
@@ -1486,8 +1486,8 @@ const TABS: { id: Tab; l: string }[] = [
                         <table className="zt">
                           <thead><tr>
                             {nsSort.th('sender_id', 'Sender ID')}
-                            {nsSort.th('customer_name', 'Customer')}
-                            {nsSort.th('supplier', 'Supplier')}
+                            {nsSort.th('customer_name', 'Customer', 'left')}
+                            {nsSort.th('supplier', 'Supplier', 'left')}
                             {nsSort.th('first_seen', 'First Seen')}
                             {nsSort.th('messages', 'Messages')}
                             {nsSort.th('dlr_pct', 'DLR %')}
@@ -1540,8 +1540,8 @@ const TABS: { id: Tab; l: string }[] = [
                         <table className="zt">
                           <thead><tr>
                             {lsSort.th('sender_id', 'Sender ID')}
-                            {lsSort.th('customer_name', 'Customer')}
-                            {lsSort.th('supplier', 'Supplier')}
+                            {lsSort.th('customer_name', 'Customer', 'left')}
+                            {lsSort.th('supplier', 'Supplier', 'left')}
                             {lsSort.th('last_seen', 'Last Seen')}
                             {lsSort.th('messages', 'Messages')}
                             {lsSort.th('dlr_pct', 'DLR %')}
