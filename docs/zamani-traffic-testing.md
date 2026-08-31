@@ -45,12 +45,12 @@ list is **Lost**, with each sender's global last-seen date. Endpoint:
 `GET /reports/zamani-sender-id/new-senders`. The Zamani Sender ID report also gained a
 **Supplier** filter (applies to all views, flags, and the trend chart).
 
-## Global supplier filter
+## Supplier filter
 
-A page-level **Supplier** dropdown (All / Zamani_Niger / Innovatio) in the header applies
-to every tab except Investment Recovery (always combined). Backend-side it maps to
-`vendorconnection = $supplier` on the stage queries (`supplier` query param on every
-endpoint).
+Removed from this report's UI on request (2026-08-31) — supplier-level analysis lives on
+the **Zamani Sender ID** report. The backend endpoints still accept an optional
+`supplier` query param (maps to `vendorconnection = $supplier`), so the dropdown can be
+restored frontend-only if Sales change their mind.
 
 ## Shared state with the original report
 

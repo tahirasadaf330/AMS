@@ -292,9 +292,6 @@ type Tab = 'yesterday' | 'comparison' | 'mtd' | 'projections' | 'cost-revenue' |
 export default function ZamaniTrafficTestingPage() {
   const [tab, setTab]                 = React.useState<Tab>('yesterday');
   const [customers, setCustomers]     = React.useState<string[]>([]);
-  /* global supplier filter — applies to every tab except Investment Recovery (always combined) */
-  const [suppliers, setSuppliers]     = React.useState<string[]>([]);
-  const [supplier, setSupplier]       = React.useState('');
   const [latestDate, setLatestDate]   = React.useState('');
   const [lastRefresh, setLastRefresh] = React.useState<string | null>(null);
   const [datasetId, setDatasetId]     = React.useState<string | null>(null);
@@ -380,7 +377,6 @@ export default function ZamaniTrafficTestingPage() {
     zamaniTestingApi.getFilters().then(r => {
       const f = r.data as any;
       setCustomers(f.customers ?? []);
-      setSuppliers(f.suppliers ?? []);
       // responses are snake_cased by the backend interceptor — read both spellings
       setLatestDate(f.latest_date ?? f.latestDate ?? '');
       setLastRefresh(f.last_refreshed ?? f.lastRefreshed ?? null);
@@ -397,43 +393,40 @@ export default function ZamaniTrafficTestingPage() {
     setYLoad(true);
     const p: Record<string, string> = { date: yDate };
     if (yCust) p.customer = yCust;
-    if (supplier) p.supplier = supplier;
     zamaniTestingApi.getYesterday(p).then(r => setYData(r.data)).catch(console.error).finally(() => setYLoad(false));
-  }, [tab, yDate, yCust, supplier, refreshTick]);
+  }, [tab, yDate, yCust, refreshTick]);
 
   React.useEffect(() => {
     if (tab !== 'comparison') return;
-    const sup: Record<string, string> = supplier ? { supplier } : {};
     if (cMode === 'day') {
       if (!cOld || !cNew) return;
       setCLoad(true);
-      zamaniTestingApi.getComparison({ old_date: cOld, new_date: cNew, ...sup }).then(r => setCData(r.data)).catch(console.error).finally(() => setCLoad(false));
+      zamaniTestingApi.getComparison({ old_date: cOld, new_date: cNew }).then(r => setCData(r.data)).catch(console.error).finally(() => setCLoad(false));
     } else if (cMode === 'month') {
       if (!cOldMonth || !cNewMonth) return;
       const lastDay = (ym: string) => { const [y, m] = ym.split('-').map(Number); return new Date(y, m, 0).toISOString().slice(0,10); };
       setCLoad(true);
-      zamaniTestingApi.getComparison({ old_start: `${cOldMonth}-01`, old_end: lastDay(cOldMonth), new_start: `${cNewMonth}-01`, new_end: lastDay(cNewMonth), ...sup }).then(r => setCData(r.data)).catch(console.error).finally(() => setCLoad(false));
+      zamaniTestingApi.getComparison({ old_start: `${cOldMonth}-01`, old_end: lastDay(cOldMonth), new_start: `${cNewMonth}-01`, new_end: lastDay(cNewMonth) }).then(r => setCData(r.data)).catch(console.error).finally(() => setCLoad(false));
     } else {
       if (!cOldStart || !cOldEnd || !cNewStart || !cNewEnd) return;
       setCLoad(true);
-      zamaniTestingApi.getComparison({ old_start: cOldStart, old_end: cOldEnd, new_start: cNewStart, new_end: cNewEnd, ...sup }).then(r => setCData(r.data)).catch(console.error).finally(() => setCLoad(false));
+      zamaniTestingApi.getComparison({ old_start: cOldStart, old_end: cOldEnd, new_start: cNewStart, new_end: cNewEnd }).then(r => setCData(r.data)).catch(console.error).finally(() => setCLoad(false));
     }
-  }, [tab, cMode, cOld, cNew, cOldMonth, cNewMonth, cOldStart, cOldEnd, cNewStart, cNewEnd, supplier, refreshTick]);
+  }, [tab, cMode, cOld, cNew, cOldMonth, cNewMonth, cOldStart, cOldEnd, cNewStart, cNewEnd, refreshTick]);
 
   React.useEffect(() => {
     if (tab !== 'mtd') return;
     setMLoad(true);
     const p: Record<string, string> = { start_date: mStart, end_date: mEnd };
     if (mCust) p.customer = mCust;
-    if (supplier) p.supplier = supplier;
     zamaniTestingApi.getMtd(p).then(r => setMData(r.data)).catch(console.error).finally(() => setMLoad(false));
-  }, [tab, mStart, mEnd, mCust, supplier, refreshTick]);
+  }, [tab, mStart, mEnd, mCust, refreshTick]);
 
   React.useEffect(() => {
     if (tab !== 'cost-revenue') return;
     setCrLoad(true);
-    zamaniTestingApi.getCostVsRevenue(supplier ? { supplier } : undefined).then(r => setCrData(r.data)).catch(console.error).finally(() => setCrLoad(false));
-  }, [tab, supplier, refreshTick]);
+    zamaniTestingApi.getCostVsRevenue().then(r => setCrData(r.data)).catch(console.error).finally(() => setCrLoad(false));
+  }, [tab, refreshTick]);
 
   React.useEffect(() => {
     if (tab !== 'investment-recovery') return;
@@ -449,9 +442,8 @@ export default function ZamaniTrafficTestingPage() {
     if (tab !== 'projections') return;
     setPLoad(true);
     const p: Record<string, string> = { year: String(pYear), month: String(pMonth) };
-    if (supplier) p.supplier = supplier;
     zamaniTestingApi.getProjections(p).then(r => setPData(r.data)).catch(console.error).finally(() => setPLoad(false));
-  }, [tab, pYear, pMonth, supplier, refreshTick]);
+  }, [tab, pYear, pMonth, refreshTick]);
 
   /* ── derived data ─────────────────────────────────────── */
   const yRows = React.useMemo(() => aggByCustomer(yData?.rows ?? []), [yData]);
@@ -528,22 +520,12 @@ const TABS: { id: Tab; l: string }[] = [
               </p>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <div className="zff" style={{ minWidth: 190 }}>
-              <label>Supplier</label>
-              <select className="zsl" value={supplier} onChange={e => setSupplier(e.target.value)}
-                title={tab === 'investment-recovery' ? 'Investment Recovery always counts revenue from both suppliers' : undefined}>
-                <option value="">All suppliers</option>
-                {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+          {latestDate && (
+            <div className="zdcard">
+              <div className="dlbl">Data is up to</div>
+              <div className="dval"><span className="zpulse" /><span>{fDate(latestDate)}</span></div>
             </div>
-            {latestDate && (
-              <div className="zdcard">
-                <div className="dlbl">Data is up to</div>
-                <div className="dval"><span className="zpulse" /><span>{fDate(latestDate)}</span></div>
-              </div>
-            )}
-          </div>
+          )}
         </div>
 
         {/* ── TABS ────────────────────────────────────────── */}
