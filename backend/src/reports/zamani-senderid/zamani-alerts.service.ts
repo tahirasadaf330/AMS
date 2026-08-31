@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Condition, ConditionChannels } from '../../common/entities/condition.entity';
-import { ZAMANI_APPROVED_VENDORS } from './zamani-senderid.service';
+import { ZAMANI_APPROVED_VENDORS, ZAMANI_VENDOR_NAME } from './zamani-senderid.service';
 
 // Recipients are code-managed and re-applied to all 5 alerts on boot (ensureCondition). The SCHEDULE
 // is user-managed via the Alerts UI (trigger_cron) — we only seed a sensible default for a fresh
@@ -149,12 +149,15 @@ const SPIKE_BODY = String.raw`
 `;
 
 // ── 3) New Sender ID alive: >=10 msgs in last 15 min, not seen in the prior 24h ─────────────────
+// Scoped to the Zamani_Niger supplier ONLY (Innovatio-routed traffic is deliberately excluded
+// from both windows, per the AM team 2026-08-27): "new" means new on the Zamani route.
 const NEW_SID_BODY = String.raw`
     cur.execute("""
         WITH recent AS (
             SELECT terminated_senderid AS sid, MAX(customer_connection) AS agg, COUNT(*) AS c
             FROM stage_zamani_senderid
             WHERE submit_datetime >= now() - interval '15 minutes'
+              AND COALESCE(vendor_connection, '') = '${ZAMANI_VENDOR_NAME}'
             GROUP BY 1 HAVING COUNT(*) >= 10
         ),
         prior AS (
@@ -162,6 +165,7 @@ const NEW_SID_BODY = String.raw`
             FROM stage_zamani_senderid
             WHERE submit_datetime >= now() - interval '24 hours'
               AND submit_datetime <  now() - interval '15 minutes'
+              AND COALESCE(vendor_connection, '') = '${ZAMANI_VENDOR_NAME}'
         )
         SELECT r.sid, r.agg, r.c
         FROM recent r WHERE r.sid NOT IN (SELECT sid FROM prior)
@@ -169,10 +173,11 @@ const NEW_SID_BODY = String.raw`
     """)
     rows = cur.fetchall()
     if not rows:
-        fail("No new sender IDs in the last 15 minutes")
+        fail("No new sender IDs on ${ZAMANI_VENDOR_NAME} in the last 15 minutes")
     trows = [[esc(r[0]), esc(r[1]), fi(r[2])] for r in rows]
     inner = table(["New Sender ID", "Customer", "Messages (15 min)"], ["left", "left", "right"], trows)
-    intro = ("A new sender ID just went live on Zamani (sending now, not seen in the prior 24h) — likely a "
+    intro = ("A new sender ID just went live on the <b>${ZAMANI_VENDOR_NAME}</b> supplier (sending now, not seen "
+             "on this route in the prior 24h; Innovatio-routed traffic is not counted) — likely a "
              "customer testing a new SD. Worth an early check with them.")
     # Dedup key = identity only (sender + customer); the 15-min count is window noise.
     drows = sorted([{"sender_id": r[0], "customer": r[1]} for r in rows], key=lambda d: str(d["sender_id"]))
@@ -182,6 +187,9 @@ const NEW_SID_BODY = String.raw`
 `;
 
 // ── 4) Stopped Sender ID: >=50 msgs in prior 24h..30m but 0 in the last 30 min ──────────────────
+// Scoped to the Zamani_Niger supplier ONLY (Innovatio-routed traffic is deliberately excluded
+// from both windows, per the AM team 2026-08-27): a sender still flowing via Innovatio but
+// silent on the Zamani route still counts as stopped.
 const STOPPED_SID_BODY = String.raw`
     cur.execute("""
         WITH prior AS (
@@ -190,12 +198,14 @@ const STOPPED_SID_BODY = String.raw`
             FROM stage_zamani_senderid
             WHERE submit_datetime >= now() - interval '6 hours'
               AND submit_datetime <  now() - interval '60 minutes'
+              AND COALESCE(vendor_connection, '') = '${ZAMANI_VENDOR_NAME}'
             GROUP BY 1 HAVING COUNT(*) >= 100
         ),
         recent AS (
             SELECT DISTINCT terminated_senderid AS sid
             FROM stage_zamani_senderid
             WHERE submit_datetime >= now() - interval '60 minutes'
+              AND COALESCE(vendor_connection, '') = '${ZAMANI_VENDOR_NAME}'
         )
         SELECT p.sid, p.agg, p.c, p.last_seen
         FROM prior p WHERE p.sid NOT IN (SELECT sid FROM recent)
@@ -203,11 +213,12 @@ const STOPPED_SID_BODY = String.raw`
     """)
     rows = cur.fetchall()
     if not rows:
-        fail("No established sender IDs have stopped in the last 60 minutes")
+        fail("No established sender IDs have stopped on ${ZAMANI_VENDOR_NAME} in the last 60 minutes")
     trows = [[esc(r[0]), esc(r[1]), fi(r[2]), esc(r[3]) + " UTC"] for r in rows]
     inner = table(["Sender ID", "Customer", "Msgs (prior 6h)", "Last seen"], ["left", "left", "right", "left"], trows)
-    intro = ("An established sender ID that was working has STOPPED — it sent ≥ 100 messages in the prior 6h but 0 "
-             "in the last 60 minutes. Could be a route break or the client stopping traffic.")
+    intro = ("An established sender ID on the <b>${ZAMANI_VENDOR_NAME}</b> supplier has STOPPED — it sent ≥ 100 "
+             "messages via this route in the prior 6h but 0 in the last 60 minutes (Innovatio-routed traffic is "
+             "not counted). Could be a route break or the client stopping traffic.")
     # Dedup key = the stop EVENT (sender + customer + last_seen). The prior-6h count is deliberately
     # excluded: that window slides every run, so the count drifts (483 → 471 …) with no new
     # information and would defeat the duplicate suppression — the exact every-30-min repeat this

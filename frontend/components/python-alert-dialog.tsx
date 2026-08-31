@@ -20,6 +20,8 @@ export function PythonAlertDialog({ open, onClose, onSubmit, isSubmitting, initi
   const [name, setName] = React.useState(initialValues?.name ?? '');
   const [script, setScript] = React.useState(initialValues?.python_script ?? '');
   const [triggerCron, setTriggerCron] = React.useState<string | null>(initialValues?.trigger_cron ?? null);
+  const [teamsEnabled, setTeamsEnabled] = React.useState(initialValues?.channels?.teams?.enabled ?? false);
+  const [teamsWebhook, setTeamsWebhook] = React.useState(initialValues?.channels?.teams?.webhook_url ?? '');
   const [errors, setErrors] = React.useState<{ name?: string; script?: string }>({});
 
   React.useEffect(() => {
@@ -27,6 +29,8 @@ export function PythonAlertDialog({ open, onClose, onSubmit, isSubmitting, initi
       setName(initialValues?.name ?? '');
       setScript(initialValues?.python_script ?? '');
       setTriggerCron(initialValues?.trigger_cron ?? null);
+      setTeamsEnabled(initialValues?.channels?.teams?.enabled ?? false);
+      setTeamsWebhook(initialValues?.channels?.teams?.webhook_url ?? '');
       setErrors({});
     }
   }, [open]);
@@ -49,7 +53,17 @@ export function PythonAlertDialog({ open, onClose, onSubmit, isSubmitting, initi
       dataset_id: undefined,
       logic: 'AND',
       condition_rows: [],
-      channels: {},
+      // Preserve channels this dialog doesn't edit (e.g. code-managed email recipients) —
+      // previously `channels: {}` here wiped them on every save.
+      channels: {
+        ...(initialValues?.channels ?? {}),
+        teams: {
+          ...(initialValues?.channels?.teams ?? {}),
+          enabled: teamsEnabled,
+          webhook_url: teamsWebhook.trim(),
+          severity: initialValues?.channels?.teams?.severity ?? 'info',
+        },
+      },
       trigger_cron: triggerCron,
       is_active: true,
       last_triggered_at: null,
@@ -100,6 +114,35 @@ export function PythonAlertDialog({ open, onClose, onSubmit, isSubmitting, initi
           <div className="space-y-1.5">
             <Label>Trigger Schedule <span className="text-gray-500 font-normal">(optional)</span></Label>
             <TriggerPicker value={triggerCron} onChange={setTriggerCron} />
+          </div>
+
+          {/* Teams channel — optional. Email recipients for python alerts are code-managed, but the
+              Teams webhook is operational config, so it is editable here. */}
+          <div className="space-y-1.5">
+            <Label>Teams Channel <span className="text-gray-500 font-normal">(optional)</span></Label>
+            <div className="rounded-lg border border-gray-700 bg-gray-900/40 p-3 space-y-2.5">
+              <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={teamsEnabled}
+                  onChange={(e) => setTeamsEnabled(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-600 bg-gray-800 accent-emerald-500"
+                />
+                Post the script&apos;s rows to a Teams channel
+              </label>
+              {teamsEnabled && (
+                <div className="space-y-1">
+                  <Input
+                    value={teamsWebhook}
+                    onChange={(e) => setTeamsWebhook(e.target.value)}
+                    placeholder="Incoming-webhook URL (empty = TEAMS_DEFAULT_WEBHOOK_URL)"
+                  />
+                  <p className="text-xs text-gray-500">
+                    The channel&apos;s incoming-webhook / Power Automate URL. Leave empty to use the default webhook.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Actions */}

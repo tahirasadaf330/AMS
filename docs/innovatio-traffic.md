@@ -1,6 +1,6 @@
 # Innovatio Traffic Report
 
-Daily SMS volumes terminated via supplier **Innovatio** to **MCC/MNC 614004** (Niger — Airtel),
+Daily SMS volumes terminated via supplier **Innovatio** to **MCC/MNC 614004** (Niger — Zamani),
 broken down per client and sender ID, with the full history retained from the route's first day.
 
 - Backend: [`backend/src/reports/innovatio-traffic/`](../backend/src/reports/innovatio-traffic/)

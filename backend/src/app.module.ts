@@ -59,6 +59,7 @@ import { AccessModule } from "./common/access/access.module";
 import { VoiceOutliersModule } from "./reports/voice-outliers/voice-outliers.module";
 import { InnovatioTrafficModule } from "./reports/innovatio-traffic/innovatio-traffic.module";
 import { ZamaniTestingModule } from "./reports/zamani-testing/zamani-testing.module";
+import { SenegalReportModule } from "./reports/senegal-report/senegal-report.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -144,6 +145,7 @@ import { ZamaniTestingModule } from "./reports/zamani-testing/zamani-testing.mod
     AccessModule,
     VoiceOutliersModule,
     InnovatioTrafficModule,
+    SenegalReportModule,
   ],
 })
 export class AppModule {}

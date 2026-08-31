@@ -11,7 +11,7 @@ const ASMSC_DATASOURCE_NAME = 'ASMSC';
 // Report scope — SMS traffic terminated via this supplier to this destination network,
 // whole UTC days. Kept as constants for easy tweaks (exported for the daily alert seed).
 export const VENDOR_NAME = 'Innovatio';
-export const MCCMNC = '614004'; // Niger — Airtel
+export const MCCMNC = '614004'; // Niger — Zamani (ex-Orange Niger; Airtel Niger is 614002)
 
 // History is kept from this fixed start date and grows daily: the stage is INCREMENTAL
 // (incremental_initial_date + incremental_lookback_days on the dataset row). The engine's first
