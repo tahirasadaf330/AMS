@@ -20,8 +20,6 @@ import { ReportAccessGuard } from '../../common/guards/report-access.guard';
   ],
   controllers: [ZamaniReportController],
   providers: [ZamaniReportService, ZamaniDailyAlertService, ReportAccessGuard],
-  // ZamaniReportService is exported for the Zamani Testing clone, which delegates its
-  // Investment Recovery endpoint here (Zamani-route-only figures, single tracking cron).
-  exports: [ZamaniDailyAlertService, ZamaniReportService],
+  exports: [ZamaniDailyAlertService],
 })
 export class ZamaniReportModule {}

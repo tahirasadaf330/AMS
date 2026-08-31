@@ -287,12 +287,12 @@ const AX  = { tick: { fontSize: 10, fill: 'var(--mu)' }, axisLine: false, tickLi
 /* ═══════════════════════════════════════════════════════════
    PAGE
 ════════════════════════════════════════════════════════════ */
-type Tab = 'yesterday' | 'comparison' | 'new-senders' | 'mtd' | 'projections' | 'cost-revenue' | 'investment-recovery';
+type Tab = 'yesterday' | 'comparison' | 'mtd' | 'projections' | 'cost-revenue' | 'investment-recovery';
 
 export default function ZamaniTrafficTestingPage() {
   const [tab, setTab]                 = React.useState<Tab>('yesterday');
   const [customers, setCustomers]     = React.useState<string[]>([]);
-  /* global supplier filter — applies to every tab except Investment Recovery (Zamani-only) */
+  /* global supplier filter — applies to every tab except Investment Recovery (always combined) */
   const [suppliers, setSuppliers]     = React.useState<string[]>([]);
   const [supplier, setSupplier]       = React.useState('');
   const [latestDate, setLatestDate]   = React.useState('');
@@ -341,20 +341,6 @@ export default function ZamaniTrafficTestingPage() {
     const d = new Date(); d.setDate(d.getDate()-1);
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   });
-
-  /* new / lost senders (month vs month) */
-  const [nsOldMonth, setNsOldMonth] = React.useState<string>(() => {
-    const d = new Date(); d.setDate(0);
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-  });
-  const [nsNewMonth, setNsNewMonth] = React.useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-  });
-  const [nsData, setNsData] = React.useState<any>(null);
-  const [nsLoad, setNsLoad] = React.useState(false);
-  const nsSort = useSortState('messages');
-  const lsSort = useSortState('messages');
 
   /* mtd */
   const toLocalDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -433,18 +419,6 @@ export default function ZamaniTrafficTestingPage() {
       zamaniTestingApi.getComparison({ old_start: cOldStart, old_end: cOldEnd, new_start: cNewStart, new_end: cNewEnd, ...sup }).then(r => setCData(r.data)).catch(console.error).finally(() => setCLoad(false));
     }
   }, [tab, cMode, cOld, cNew, cOldMonth, cNewMonth, cOldStart, cOldEnd, cNewStart, cNewEnd, supplier, refreshTick]);
-
-  React.useEffect(() => {
-    if (tab !== 'new-senders' || !nsOldMonth || !nsNewMonth) return;
-    const lastDay = (ym: string) => { const [y, m] = ym.split('-').map(Number); return new Date(y, m, 0).toISOString().slice(0,10); };
-    setNsLoad(true);
-    const p: Record<string, string> = {
-      old_start: `${nsOldMonth}-01`, old_end: lastDay(nsOldMonth),
-      new_start: `${nsNewMonth}-01`, new_end: lastDay(nsNewMonth),
-    };
-    if (supplier) p.supplier = supplier;
-    zamaniTestingApi.getNewSenders(p).then(r => setNsData(r.data)).catch(console.error).finally(() => setNsLoad(false));
-  }, [tab, nsOldMonth, nsNewMonth, supplier, refreshTick]);
 
   React.useEffect(() => {
     if (tab !== 'mtd') return;
@@ -528,7 +502,6 @@ const MCFG: Record<Metric, { label: string; color: string; yAxis: 'left' | 'righ
 const TABS: { id: Tab; l: string }[] = [
     { id: 'yesterday',           l: 'Yesterday Data' },
     { id: 'comparison',          l: 'Comparison' },
-    { id: 'new-senders',         l: 'New Senders' },
     { id: 'mtd',                 l: 'Month to Date' },
     { id: 'projections',         l: 'Projections' },
     { id: 'cost-revenue',        l: 'Cost Vs Revenue' },
@@ -559,7 +532,7 @@ const TABS: { id: Tab; l: string }[] = [
             <div className="zff" style={{ minWidth: 190 }}>
               <label>Supplier</label>
               <select className="zsl" value={supplier} onChange={e => setSupplier(e.target.value)}
-                title={tab === 'investment-recovery' ? 'Investment Recovery is always Zamani Niger route only' : undefined}>
+                title={tab === 'investment-recovery' ? 'Investment Recovery always counts revenue from both suppliers' : undefined}>
                 <option value="">All suppliers</option>
                 {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
@@ -1426,172 +1399,13 @@ const TABS: { id: Tab; l: string }[] = [
           );
         })()}
 
-        {/* ════════════════════════════════════════════════
-            NEW / LOST SENDERS
-        ════════════════════════════════════════════════ */}
-        {tab === 'new-senders' && (() => {
-          const added: any[] = nsData?.added ?? [];
-          const lost:  any[] = nsData?.lost  ?? [];
-          const addedSorted = nsSort.sort(added);
-          const lostSorted  = lsSort.sort(lost);
-          const sumCol = (rows: any[], k: string) => rows.reduce((s, r) => s + Number(r[k] ?? 0), 0);
-          return (
-            <>
-              {/* Filter strip */}
-              <div className="zpnl zfilt">
-                <div className="zff">
-                  <label>Previous Period — Month</label>
-                  <input className="zdi" type="month" value={nsOldMonth} onChange={e => setNsOldMonth(e.target.value)} />
-                </div>
-                <div className="zff">
-                  <label>Current Period — Month</label>
-                  <input className="zdi" type="month" value={nsNewMonth} onChange={e => setNsNewMonth(e.target.value)} />
-                </div>
-                <div style={{ alignSelf: 'flex-end' }}>
-                  <button className="zbt" onClick={() => {
-                    const prev = new Date(); prev.setDate(0);
-                    const cur = new Date();
-                    setNsOldMonth(`${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}`);
-                    setNsNewMonth(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`);
-                  }}>Reset</button>
-                </div>
-              </div>
-
-              {/* KPI row */}
-              {nsData?.kpi && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 18 }}>
-                  <Kpi color="kt" label="New Senders" icon={IC.msg}
-                    value={fN(nsData.kpi.added_senders)} sub={`in ${cMonthName(nsNewMonth)}, not in ${cMonthName(nsOldMonth)}`} />
-                  <Kpi color="kb" label="Traffic Added" icon={IC.trend}
-                    value={fN(nsData.kpi.added_messages)} sub="messages from new senders" />
-                  <Kpi color="kg" label="Revenue Added" icon={IC.rev}
-                    value={fM(nsData.kpi.added_revenue)} sub="revenue from new senders" />
-                  <Kpi color="kr" label="Lost Senders" icon={IC.down}
-                    value={fN(nsData.kpi.lost_senders)} sub={`no traffic in ${cMonthName(nsNewMonth)}`} />
-                </div>
-              )}
-
-              {nsLoad ? <Skel /> : (
-                <>
-                  {/* Added senders */}
-                  <div className="zpnl" style={{ marginBottom: 16 }}>
-                    <PH title="New Senders — What Traffic Has Been Added"
-                      right={`${cMonthName(nsNewMonth)} vs ${cMonthName(nsOldMonth)} · ${added.length} rows`} />
-                    {!added.length ? (
-                      <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>
-                        No new senders in {cMonthName(nsNewMonth)} for the selected filters.
-                      </div>
-                    ) : (
-                      <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
-                        <table className="zt">
-                          <thead><tr>
-                            {nsSort.th('sender_id', 'Sender ID')}
-                            {nsSort.th('customer_name', 'Customer', 'left')}
-                            {nsSort.th('supplier', 'Supplier', 'left')}
-                            {nsSort.th('first_seen', 'First Seen')}
-                            {nsSort.th('messages', 'Messages')}
-                            {nsSort.th('dlr_pct', 'DLR %')}
-                            {nsSort.th('revenue', 'Revenue')}
-                            {nsSort.th('margin', 'Margin')}
-                          </tr></thead>
-                          <tbody>
-                            {addedSorted.map((r: any, i: number) => (
-                              <tr key={i}>
-                                <td>
-                                  <div className="zconn">
-                                    <span className="zdot" style={{ background: PAL[i % PAL.length] }} />
-                                    {r.sender_id}
-                                    <span className="znew">NEW</span>
-                                  </div>
-                                </td>
-                                <td style={{ textAlign: 'left', fontFamily: "'Hanken Grotesk',sans-serif" }}>{r.customer_name ?? '—'}</td>
-                                <td style={{ textAlign: 'left', fontFamily: "'Hanken Grotesk',sans-serif" }}>{r.supplier ?? '—'}</td>
-                                <td>{r.first_seen ? fDate(r.first_seen) : '—'}</td>
-                                <td>{fN(r.messages)}</td>
-                                <td>{fP(r.dlr_pct)}</td>
-                                <td>{fR(r.revenue)}</td>
-                                <td className={Number(r.margin) < 0 ? 'zneg' : 'zpos'}>{fR(r.margin)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot><tr>
-                            <td>Total</td>
-                            <td /><td /><td />
-                            <td>{fN(sumCol(added, 'messages'))}</td>
-                            <td />
-                            <td>{fR(sumCol(added, 'revenue'))}</td>
-                            <td className={sumCol(added, 'margin') < 0 ? 'zneg' : 'zpos'}>{fR(sumCol(added, 'margin'))}</td>
-                          </tr></tfoot>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Lost senders */}
-                  <div className="zpnl">
-                    <PH title="Lost Senders — Traffic That Stopped"
-                      right={`active in ${cMonthName(nsOldMonth)}, gone in ${cMonthName(nsNewMonth)} · ${lost.length} rows`} />
-                    {!lost.length ? (
-                      <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>
-                        No lost senders — everything active in {cMonthName(nsOldMonth)} still has traffic.
-                      </div>
-                    ) : (
-                      <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
-                        <table className="zt">
-                          <thead><tr>
-                            {lsSort.th('sender_id', 'Sender ID')}
-                            {lsSort.th('customer_name', 'Customer', 'left')}
-                            {lsSort.th('supplier', 'Supplier', 'left')}
-                            {lsSort.th('last_seen', 'Last Seen')}
-                            {lsSort.th('messages', 'Messages')}
-                            {lsSort.th('dlr_pct', 'DLR %')}
-                            {lsSort.th('revenue', 'Revenue')}
-                            {lsSort.th('margin', 'Margin')}
-                          </tr></thead>
-                          <tbody>
-                            {lostSorted.map((r: any, i: number) => (
-                              <tr key={i}>
-                                <td>
-                                  <div className="zconn">
-                                    <span className="zdot" style={{ background: PAL[i % PAL.length], opacity: 0.5 }} />
-                                    {r.sender_id}
-                                  </div>
-                                </td>
-                                <td style={{ textAlign: 'left', fontFamily: "'Hanken Grotesk',sans-serif" }}>{r.customer_name ?? '—'}</td>
-                                <td style={{ textAlign: 'left', fontFamily: "'Hanken Grotesk',sans-serif" }}>{r.supplier ?? '—'}</td>
-                                <td>{r.last_seen ? fDate(r.last_seen) : '—'}</td>
-                                <td>{fN(r.messages)}</td>
-                                <td>{fP(r.dlr_pct)}</td>
-                                <td>{fR(r.revenue)}</td>
-                                <td className={Number(r.margin) < 0 ? 'zneg' : 'zpos'}>{fR(r.margin)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot><tr>
-                            <td>Total</td>
-                            <td /><td /><td />
-                            <td>{fN(sumCol(lost, 'messages'))}</td>
-                            <td />
-                            <td>{fR(sumCol(lost, 'revenue'))}</td>
-                            <td className={sumCol(lost, 'margin') < 0 ? 'zneg' : 'zpos'}>{fR(sumCol(lost, 'margin'))}</td>
-                          </tr></tfoot>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </>
-          );
-        })()}
-
         {tab === 'investment-recovery' && (() => {
           const fD = (n: number) =>
             new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(n);
 
           return (
             <div className="zpnl">
-              <PH title="Investment Recovery" right={`Zamani Niger route only · €${(546_000).toLocaleString()} total · trailing ${irData?.trailing_days ?? 7}d avg`} />
+              <PH title="Investment Recovery" right={`Zamani_Niger + Innovatio revenue · €${(546_000).toLocaleString()} total · trailing ${irData?.trailing_days ?? 7}d avg`} />
 
               {irLoad ? <Skel /> : irError ? (
                 <div style={{ padding: '40px 18px', textAlign: 'center' }}>

@@ -433,7 +433,6 @@ export const zamaniTestingApi = {
   getFilters: () => api.get('/reports/zamani-testing/filters'),
   getYesterday: (params: Record<string, string>) => api.get('/reports/zamani-testing/yesterday', { params }),
   getComparison: (params: Record<string, string>) => api.get('/reports/zamani-testing/comparison', { params }),
-  getNewSenders: (params: Record<string, string>) => api.get('/reports/zamani-testing/new-senders', { params }),
   getMtd: (params: Record<string, string>) => api.get('/reports/zamani-testing/mtd', { params }),
   getProjections: (params: Record<string, string>) => api.get('/reports/zamani-testing/projections', { params }),
   upsertTarget: (data: { year: number; month: number; messages_target: number; revenue_target: number }) =>
@@ -449,12 +448,14 @@ export const zamaniTestingApi = {
 
 // ── ZAMANI SENDER ID (near-real-time destination monitoring) ──
 export const zamaniSenderIdApi = {
-  getData: (params?: { from?: string; to?: string }) =>
+  getData: (params?: { from?: string; to?: string; supplier?: string }) =>
     api.get('/reports/zamani-sender-id/data', { params }),
-  getTimeseries: (params: { from?: string; to?: string; dimension: 'customer' | 'sender'; granularity: 'hour' | 'day' | 'week' | 'month'; keys: string[]; filter?: string }) =>
+  getTimeseries: (params: { from?: string; to?: string; dimension: 'customer' | 'sender'; granularity: 'hour' | 'day' | 'week' | 'month'; keys: string[]; filter?: string; supplier?: string }) =>
     api.get('/reports/zamani-sender-id/timeseries', {
-      params: { from: params.from, to: params.to, dimension: params.dimension, granularity: params.granularity, keys: JSON.stringify(params.keys), filter: params.filter || undefined },
+      params: { from: params.from, to: params.to, dimension: params.dimension, granularity: params.granularity, keys: JSON.stringify(params.keys), filter: params.filter || undefined, supplier: params.supplier || undefined },
     }),
+  getNewSenders: (params: Record<string, string>) =>
+    api.get('/reports/zamani-sender-id/new-senders', { params }),
 };
 
 // ── GOOGLE MO TRAFFIC REPORT ──────────────────────────────────

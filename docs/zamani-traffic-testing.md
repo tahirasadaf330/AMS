@@ -23,22 +23,32 @@ filter by supplier, and answer "what traffic has been added?" month over month.
 
 ## Tabs
 
-Same six tabs as the original, plus **New Senders**:
+Same six tabs as the original:
 
 | Tab | Notes |
 | --- | --- |
 | Yesterday Data | as original, respects the supplier filter |
 | Comparison | day / month / range modes, respects the supplier filter |
-| **New Senders** | month vs month: senders present in the new month with no traffic in the old month (**Added**, answers "what traffic has been added?"), and the inverse (**Lost**). Per sender × customer × supplier with first/last-seen dates, messages, DLR %, revenue, margin |
 | Month to Date | as original, respects the supplier filter |
 | Projections | identical to the original (incl. €137k target gauge and gap), respects the supplier filter |
 | Cost Vs Revenue | as original, respects the supplier filter |
-| Investment Recovery | **delegated to the original `ZamaniReportService`** — always Zamani_Niger-route-only figures against the €546k investment, no duplicate cron or tracking table. The global supplier filter does not apply here |
+| Investment Recovery | **combined-supplier recovery** (Sales request 2026-08-31): Zamani_Niger + Innovatio revenue counted against the €546k investment, computed over this report's stage into its own weekly tracking table `zamani_testing_investment_tracking` (Monday 06:00 cron, backfills all past Sundays on first run). The original report keeps its Zamani_Niger-only tracker — the two tabs intentionally differ. The global supplier filter does not apply here |
+
+## New / Lost Senders
+
+Lives on the **Zamani Sender ID** report (moved there per Sales feedback 2026-08-31 —
+that report is near-real-time and covers every vendor). "New Senders" view: month vs
+month over `stage_zamani_senderid`; a sender active in the new month with zero traffic
+in the old month is **Added** — badged **NEW** only if never seen in the full retained
+history (since 2026-03-01), otherwise **RETURNING** (paused and came back). The inverse
+list is **Lost**, with each sender's global last-seen date. Endpoint:
+`GET /reports/zamani-sender-id/new-senders`. The Zamani Sender ID report also gained a
+**Supplier** filter (applies to all views, flags, and the trend chart).
 
 ## Global supplier filter
 
 A page-level **Supplier** dropdown (All / Zamani_Niger / Innovatio) in the header applies
-to every tab except Investment Recovery. Backend-side it maps to
+to every tab except Investment Recovery (always combined). Backend-side it maps to
 `vendorconnection = $supplier` on the stage queries (`supplier` query param on every
 endpoint).
 
@@ -46,8 +56,7 @@ endpoint).
 
 - **`zamani_targets`** (monthly targets) is shared — one set of Zamani targets, editable
   from either report's targets endpoint.
-- **Investment recovery** data comes from the original module (see above).
-- Everything else (dataset, stage table, endpoints) is fully separate.
+- Everything else (dataset, stage table, investment tracking, endpoints) is fully separate.
 
 ## Deploy notes
 

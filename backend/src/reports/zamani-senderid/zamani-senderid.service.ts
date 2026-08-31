@@ -252,10 +252,12 @@ export class ZamaniSenderIdService implements OnModuleInit {
    * whole retained window): totals, per-sender, per-aggregator, the routing (mis-routed) view, and
    * an hourly trend. Volume = message count; delivery uses the is_delivered flag.
    */
-  async getData(from?: string, to?: string): Promise<any> {
-    const p = [from ?? null, to ?? null];
+  async getData(from?: string, to?: string, supplier?: string): Promise<any> {
+    const sup = supplier && supplier.trim() !== '' ? supplier : null;
+    const p = [from ?? null, to ?? null, sup];
     const WIN = `($1::timestamptz IS NULL OR submit_datetime >= $1::timestamptz)
-                 AND ($2::timestamptz IS NULL OR submit_datetime <= $2::timestamptz)`;
+                 AND ($2::timestamptz IS NULL OR submit_datetime <= $2::timestamptz)
+                 AND ($3::text IS NULL OR vendor_connection = $3)`;
     const n = (v: any) => Number(v) || 0;
     const pct = (d: number, s: number) => (s > 0 ? +(d * 100 / s).toFixed(2) : 0);
 
@@ -293,42 +295,48 @@ export class ZamaniSenderIdService implements OnModuleInit {
     // report — so a flag that only held for the exact 15-min trigger window would already be gone.
     // The 6h horizon keeps a sender visibly flagged while it is still being investigated.
     const toSet = (rows: any[]) => new Set<string>(rows.map((r) => r.sid));
-    const [newRows, spikeRows, stoppedRows, lowRows, ageRows] = await Promise.all([
+    // All status flags respect the supplier filter so a supplier-scoped view stays coherent.
+    const SUP = `($1::text IS NULL OR vendor_connection = $1)`;
+    const [newRows, spikeRows, stoppedRows, lowRows, ageRows, supplierRows] = await Promise.all([
       // NEW: >=10 msgs in the last 6h AND silent in the 24h before that (i.e. appeared/re-activated
       // within the last 6h after >=24h of silence) — mirrors the alert's "not seen in prior 24h".
       this.dataSource.query(
         `SELECT terminated_senderid AS sid FROM ${STAGE}
-         WHERE submit_datetime >= now() - interval '6 hours'
+         WHERE submit_datetime >= now() - interval '6 hours' AND ${SUP}
          GROUP BY 1 HAVING COUNT(*) >= 10
            AND terminated_senderid NOT IN (
              SELECT terminated_senderid FROM ${STAGE}
-             WHERE submit_datetime >= now() - interval '30 hours' AND submit_datetime < now() - interval '6 hours')`),
+             WHERE submit_datetime >= now() - interval '30 hours' AND submit_datetime < now() - interval '6 hours' AND ${SUP})`, [sup]),
       // SPIKE: within the last 6h, a 15-min bucket peaked at >=100 AND >=3x the sender's average
       // 15-min volume over that window — a genuine burst relative to its own baseline.
       this.dataSource.query(
         `WITH b AS (SELECT terminated_senderid sid, date_bin('15 minutes', submit_datetime, TIMESTAMPTZ '2000-01-01 00:00:00+00') bk, COUNT(*) c
-           FROM ${STAGE} WHERE submit_datetime >= now() - interval '6 hours' GROUP BY 1, 2)
-         SELECT sid FROM b GROUP BY sid HAVING MAX(c) >= 100 AND MAX(c) >= 3 * AVG(c)`),
+           FROM ${STAGE} WHERE submit_datetime >= now() - interval '6 hours' AND ${SUP} GROUP BY 1, 2)
+         SELECT sid FROM b GROUP BY sid HAVING MAX(c) >= 100 AND MAX(c) >= 3 * AVG(c)`, [sup]),
       // STOPPED: was established recently (>=100 msgs in [12h, 1h)) but has gone silent (0 in the
       // last 60 min) — stays flagged while it is down, clears as soon as it resumes.
       this.dataSource.query(
         `WITH prior AS (SELECT terminated_senderid sid, COUNT(*) c FROM ${STAGE}
-           WHERE submit_datetime >= now() - interval '12 hours' AND submit_datetime < now() - interval '60 minutes' GROUP BY 1)
+           WHERE submit_datetime >= now() - interval '12 hours' AND submit_datetime < now() - interval '60 minutes' AND ${SUP} GROUP BY 1)
          SELECT p.sid FROM prior p WHERE p.c >= 100
-           AND p.sid NOT IN (SELECT terminated_senderid FROM ${STAGE} WHERE submit_datetime >= now() - interval '60 minutes')`),
+           AND p.sid NOT IN (SELECT terminated_senderid FROM ${STAGE} WHERE submit_datetime >= now() - interval '60 minutes' AND ${SUP})`, [sup]),
       // LOW DELIVERY: settled window [now-70m, now-10m] (so DLRs have landed and don't look
       // artificially low on the freshest minutes) — >=50 msgs and <50% delivered. Mirrors the alert.
       this.dataSource.query(
         `SELECT terminated_senderid AS sid FROM ${STAGE}
-         WHERE submit_datetime >= now() - interval '70 minutes' AND submit_datetime < now() - interval '10 minutes'
-         GROUP BY 1 HAVING COUNT(*) >= 50 AND SUM(is_delivered)::numeric / NULLIF(COUNT(*), 0) < 0.5`),
+         WHERE submit_datetime >= now() - interval '70 minutes' AND submit_datetime < now() - interval '10 minutes' AND ${SUP}
+         GROUP BY 1 HAVING COUNT(*) >= 50 AND SUM(is_delivered)::numeric / NULLIF(COUNT(*), 0) < 0.5`, [sup]),
       // Freshness per sender: minutes since it (re)appeared in the last 6h, and minutes since its
       // last message — so a badge can show whether the event is minutes old (15m/30m) or hours old.
       this.dataSource.query(
         `SELECT terminated_senderid AS sid,
            EXTRACT(EPOCH FROM (now() - min(submit_datetime) FILTER (WHERE submit_datetime >= now() - interval '6 hours'))) / 60 AS appeared_min,
            EXTRACT(EPOCH FROM (now() - max(submit_datetime))) / 60 AS idle_min
-         FROM ${STAGE} WHERE submit_datetime >= now() - interval '12 hours' GROUP BY 1`),
+         FROM ${STAGE} WHERE submit_datetime >= now() - interval '12 hours' AND ${SUP} GROUP BY 1`, [sup]),
+      // Supplier dropdown options (last 90 days keeps the scan on the date index).
+      this.dataSource.query(
+        `SELECT DISTINCT vendor_connection AS v FROM ${STAGE}
+         WHERE date >= CURRENT_DATE - 90 AND vendor_connection IS NOT NULL ORDER BY 1`),
     ]);
     const newSet = toSet(newRows), spikeSet = toSet(spikeRows), stoppedSet = toSet(stoppedRows), lowSet = toSet(lowRows);
     const ageMap = new Map<string, { appeared_min: number | null; idle_min: number | null }>();
@@ -360,13 +368,15 @@ export class ZamaniSenderIdService implements OnModuleInit {
                 SUM(is_delivered)::bigint AS delivered, SUM(is_misrouted)::bigint AS misrouted,
                 to_char(MAX(submit_datetime) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS last_seen
          FROM ${STAGE} WHERE submit_datetime >= now() - interval '6 hours' AND terminated_senderid = ANY($1)
-         GROUP BY 1`, [flaggedMissing]);
+           AND ($2::text IS NULL OR vendor_connection = $2)
+         GROUP BY 1`, [flaggedMissing, sup]);
       for (const s of extra) outSenders.push(mapSender(s, true));
     }
 
     return {
       totals: { submitted: tSub, delivered: tDel, misrouted: tMis, dlr_pct: pct(tDel, tSub),
                 senders: senders.length, aggregators: aggregators.length },
+      suppliers: supplierRows.map((r: any) => r.v),
       senders: outSenders,
       aggregators: aggregators.map((a) => ({ ...a, submitted: n(a.submitted), delivered: n(a.delivered),
         misrouted: n(a.misrouted), senders: n(a.senders), dlr_pct: pct(n(a.delivered), n(a.submitted)) })),
@@ -390,6 +400,7 @@ export class ZamaniSenderIdService implements OnModuleInit {
     granularity: 'hour' | 'day' | 'week' | 'month',
     keys: string[],
     filter?: string,
+    supplier?: string,
   ): Promise<{ buckets: string[]; keys: string[]; points: Array<{ bucket: string; key: string; messages: number; dlr: number }> }> {
     const MAX_SERIES = 12;
     const dimCol = dimension === 'sender' ? 'terminated_senderid' : 'customer_connection';
@@ -397,6 +408,7 @@ export class ZamaniSenderIdService implements OnModuleInit {
     // only for one sender ID, giving one line per customer that sends it. null = no cross-filter.
     const filterCol = dimension === 'sender' ? 'customer_connection' : 'terminated_senderid';
     const filterVal = filter && filter.trim() !== '' ? filter : null;
+    const supVal = supplier && supplier.trim() !== '' ? supplier : null;
     const trunc = (['hour', 'day', 'week', 'month'] as const).includes(granularity) ? granularity : 'day';
     // Truncate in UTC (submit_datetime is stored UTC) so buckets align to UTC day/week/month boundaries.
     const truncExpr = `date_trunc('${trunc}', submit_datetime AT TIME ZONE 'UTC')`;
@@ -413,7 +425,8 @@ export class ZamaniSenderIdService implements OnModuleInit {
          WHERE ($1::timestamptz IS NULL OR submit_datetime >= $1::timestamptz)
            AND ($2::timestamptz IS NULL OR submit_datetime <= $2::timestamptz)
            AND ($3::text IS NULL OR ${filterCol} = $3)
-         GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT ${MAX_SERIES}`, [from ?? null, to ?? null, filterVal]);
+           AND ($4::text IS NULL OR vendor_connection = $4)
+         GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT ${MAX_SERIES}`, [from ?? null, to ?? null, filterVal, supVal]);
       keyList = top.map((r) => r.k).filter((k) => k != null);
     } else if (keyList.length > MAX_SERIES) {
       keyList = keyList.slice(0, MAX_SERIES);
@@ -428,8 +441,9 @@ export class ZamaniSenderIdService implements OnModuleInit {
          AND ($2::timestamptz IS NULL OR submit_datetime <= $2::timestamptz)
          AND ${dimCol} = ANY($3::text[])
          AND ($4::text IS NULL OR ${filterCol} = $4)
+         AND ($5::text IS NULL OR vendor_connection = $5)
        GROUP BY ${truncExpr}, ${dimCol}
-       ORDER BY ${truncExpr}`, [from ?? null, to ?? null, keyList, filterVal]);
+       ORDER BY ${truncExpr}`, [from ?? null, to ?? null, keyList, filterVal, supVal]);
 
     const buckets: string[] = [];
     const seen = new Set<string>();
@@ -440,5 +454,107 @@ export class ZamaniSenderIdService implements OnModuleInit {
       return { bucket: r.bucket, key: r.key, messages, dlr: messages > 0 ? +(delivered * 100 / messages).toFixed(2) : 0 };
     });
     return { buckets, keys: keyList, points };
+  }
+
+  /**
+   * New / Lost senders, period vs period (Sales: "what traffic has been added?").
+   * "Added" = sender IDs with traffic in [new_start,new_end] and NONE in [old_start,old_end];
+   * each row also carries first_seen_ever over the FULL retained history (since 2026-03-01), so a
+   * sender that merely paused last period is flagged returning=true rather than passed off as new.
+   * "Lost" = the inverse, with the sender's global last-seen date. Volume = message count.
+   */
+  async getNewSenders(params: {
+    old_start: string;
+    old_end:   string;
+    new_start: string;
+    new_end:   string;
+    supplier?: string;
+  }) {
+    const sup = params.supplier && params.supplier.trim() !== '' ? params.supplier : null;
+    const args = [params.old_start, params.old_end, params.new_start, params.new_end, sup];
+    const SUP = `($5::text IS NULL OR vendor_connection = $5)`;
+
+    const [added, lost] = await Promise.all([
+      this.dataSource.query(
+        `WITH old_senders AS (
+           SELECT DISTINCT COALESCE(terminated_senderid, '(unknown)') AS sid
+           FROM ${STAGE}
+           WHERE date BETWEEN $1::date AND $2::date AND ${SUP}
+         ),
+         new_rows AS (
+           SELECT COALESCE(terminated_senderid, '(unknown)') AS sender_id,
+                  customer_connection                         AS aggregator,
+                  vendor_connection                           AS supplier,
+                  MAX(account_manager)                        AS account_manager,
+                  MIN(date)::text                             AS first_seen,
+                  COUNT(*)::bigint                            AS messages,
+                  SUM(is_delivered)::bigint                   AS delivered,
+                  SUM(is_misrouted)::bigint                   AS misrouted
+           FROM ${STAGE}
+           WHERE date BETWEEN $3::date AND $4::date AND ${SUP}
+           GROUP BY 1, 2, 3
+         ),
+         hist AS (
+           SELECT COALESCE(terminated_senderid, '(unknown)') AS sid, MIN(date) AS first_ever
+           FROM ${STAGE} GROUP BY 1
+         )
+         SELECT nr.*,
+                h.first_ever::text AS first_seen_ever,
+                (h.first_ever < $3::date) AS returning,
+                ROUND(nr.delivered::numeric * 100.0 / NULLIF(nr.messages, 0), 1) AS dlr_pct
+         FROM new_rows nr
+         LEFT JOIN hist h ON h.sid = nr.sender_id
+         WHERE NOT EXISTS (SELECT 1 FROM old_senders o WHERE o.sid = nr.sender_id)
+         ORDER BY nr.messages DESC`,
+        args,
+      ),
+      this.dataSource.query(
+        `WITH new_senders AS (
+           SELECT DISTINCT COALESCE(terminated_senderid, '(unknown)') AS sid
+           FROM ${STAGE}
+           WHERE date BETWEEN $3::date AND $4::date AND ${SUP}
+         ),
+         old_rows AS (
+           SELECT COALESCE(terminated_senderid, '(unknown)') AS sender_id,
+                  customer_connection                         AS aggregator,
+                  vendor_connection                           AS supplier,
+                  MAX(account_manager)                        AS account_manager,
+                  COUNT(*)::bigint                            AS messages,
+                  SUM(is_delivered)::bigint                   AS delivered
+           FROM ${STAGE}
+           WHERE date BETWEEN $1::date AND $2::date AND ${SUP}
+           GROUP BY 1, 2, 3
+         ),
+         hist AS (
+           SELECT COALESCE(terminated_senderid, '(unknown)') AS sid, MAX(date)::text AS last_seen_ever
+           FROM ${STAGE} GROUP BY 1
+         )
+         SELECT o.*,
+                h.last_seen_ever,
+                ROUND(o.delivered::numeric * 100.0 / NULLIF(o.messages, 0), 1) AS dlr_pct
+         FROM old_rows o
+         LEFT JOIN hist h ON h.sid = o.sender_id
+         WHERE NOT EXISTS (SELECT 1 FROM new_senders n WHERE n.sid = o.sender_id)
+         ORDER BY o.messages DESC`,
+        args,
+      ),
+    ]);
+
+    const distinct = (rows: any[], pred: (r: any) => boolean = () => true) =>
+      new Set(rows.filter(pred).map((r) => r.sender_id)).size;
+    const sum = (rows: any[], k: string) => rows.reduce((s, r) => s + Number(r[k] ?? 0), 0);
+
+    return {
+      added,
+      lost,
+      kpi: {
+        added_senders:    distinct(added),
+        brand_new:        distinct(added, (r) => !r.returning),
+        returning:        distinct(added, (r) => !!r.returning),
+        added_messages:   sum(added, 'messages'),
+        lost_senders:     distinct(lost),
+        lost_messages:    sum(lost, 'messages'),
+      },
+    };
   }
 }

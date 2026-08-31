@@ -5,7 +5,6 @@ import { ReportAccess } from '../../common/decorators/report-access.decorator';
 import { CurrentUser, JwtUser } from '../../common/decorators/current-user.decorator';
 import { AuditService } from '../../audit/audit.service';
 import { ZamaniTestingService } from './zamani-testing.service';
-import { ZamaniReportService } from '../zamani/zamani-report.service';
 
 @Controller('reports/zamani-testing')
 @UseGuards(JwtAuthGuard, ReportAccessGuard)
@@ -13,9 +12,6 @@ import { ZamaniReportService } from '../zamani/zamani-report.service';
 export class ZamaniTestingController {
   constructor(
     private readonly zamaniTestingService: ZamaniTestingService,
-    // Investment Recovery tracks the Zamani-route-only $546k investment; the clone
-    // delegates to the original service so both reports always show identical figures.
-    private readonly zamaniReportService: ZamaniReportService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -51,18 +47,6 @@ export class ZamaniTestingController {
       return this.zamaniTestingService.getComparisonRange({ old_start, old_end, new_start, new_end, customer, supplier });
     }
     return this.zamaniTestingService.getComparison({ old_date: old_date!, new_date: new_date!, customer, supplier });
-  }
-
-  @Get('new-senders')
-  getNewSenders(
-    @Query('old_start') old_start: string,
-    @Query('old_end')   old_end:   string,
-    @Query('new_start') new_start: string,
-    @Query('new_end')   new_end:   string,
-    @Query('customer')  customer?: string,
-    @Query('supplier')  supplier?: string,
-  ) {
-    return this.zamaniTestingService.getNewSenders({ old_start, old_end, new_start, new_end, customer, supplier });
   }
 
   @Get('mtd')
@@ -111,10 +95,11 @@ export class ZamaniTestingController {
     return result;
   }
 
+  // Combined-supplier recovery (Zamani_Niger + Innovatio revenue vs the €546k investment).
   @Get('investment-recovery')
   getInvestmentRecovery(
     @Query('trailingDays', new DefaultValuePipe(7), ParseIntPipe) trailingDays: number,
   ) {
-    return this.zamaniReportService.getInvestmentRecovery(trailingDays);
+    return this.zamaniTestingService.getInvestmentRecovery(trailingDays);
   }
 }

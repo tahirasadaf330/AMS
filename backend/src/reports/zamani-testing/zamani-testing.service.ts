@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { Cron } from '@nestjs/schedule';
 import { Dataset } from '../../common/entities/dataset.entity';
 import { ExternalDataSource } from '../../common/entities/data-source.entity';
 import { CredentialsService } from '../../credentials/credentials.service';
@@ -8,11 +9,14 @@ import { ZAMANI_APPROVED_VENDORS } from '../zamani-senderid/zamani-senderid.serv
 
 // Clone of the Zamani Traffic report widened to ALL approved suppliers for the Zamani
 // destination (Zamani_Niger + Innovatio testing route). Fully separate dataset + stage
-// table so the original report stays untouched. Investment Recovery is NOT cloned here —
-// the controller delegates it to ZamaniReportService (the $546k figure is Zamani-route-only).
+// table so the original report stays untouched. Investment Recovery here counts revenue
+// from BOTH suppliers toward the €546k investment (Sales request 2026-08-31) — its own
+// tracking table, independent of the original report's Zamani_Niger-only tracking.
 const STAGE   = 'zamani_traffic_testing';
 // Monthly targets are shared with the original report — same Zamani targets, one table.
 const TARGETS = 'zamani_targets';
+const INVESTMENT_TRACKING = 'zamani_testing_investment_tracking';
+const TOTAL_INVESTMENT    = 546_000;
 
 const ASMSC_DATASOURCE_NAME = 'ASMSC';
 const DATASET_NAME          = 'Zamani Traffic include Testing';
@@ -209,6 +213,7 @@ export class ZamaniTestingService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await this.ensureTargetsTable();
+    await this.ensureInvestmentTrackingTable();
     await this.seedDataset();
   }
 
@@ -693,111 +698,6 @@ export class ZamaniTestingService implements OnModuleInit {
     };
   }
 
-  // ── New / Lost Senders (period vs period) ────────────────────
-
-  async getNewSenders(params: {
-    old_start: string;
-    old_end:   string;
-    new_start: string;
-    new_end:   string;
-    customer?: string;
-    supplier?: string;
-  }) {
-    if (!(await this.stageExists())) return { added: [], lost: [], kpi: null };
-
-    const args: unknown[] = [params.old_start, params.old_end, params.new_start, params.new_end];
-    const extra: string[] = [];
-    if (params.customer) extra.push(`AND customerconnection = $${args.push(params.customer)}`);
-    if (params.supplier) extra.push(`AND vendorconnection   = $${args.push(params.supplier)}`);
-    const X = extra.join(' ');
-
-    const [added, lost] = await Promise.all([
-      // Senders with traffic in the NEW period that had none in the OLD period
-      this.dataSource.query(
-        `WITH old_senders AS (
-           SELECT DISTINCT COALESCE(terminatedsenderid, '(unknown)') AS sender_id
-           FROM ${STAGE}
-           WHERE receiveddate BETWEEN $1::date AND $2::date
-             ${X}
-         ),
-         new_rows AS (
-           SELECT COALESCE(terminatedsenderid, '(unknown)')  AS sender_id,
-                  customerconnection                          AS customer_name,
-                  vendorconnection                            AS supplier,
-                  MIN(receiveddate)::text                     AS first_seen,
-                  SUM(numbersofmessages)::bigint              AS messages,
-                  SUM(deliveredmessages)::bigint              AS dlr_sms,
-                  ROUND(SUM(revenue)::numeric, 4)             AS revenue,
-                  ROUND(SUM(negativemargin)::numeric, 4)      AS margin
-           FROM ${STAGE}
-           WHERE receiveddate BETWEEN $3::date AND $4::date
-             ${X}
-           GROUP BY 1, 2, 3
-         ),
-         first_seen_all AS (
-           SELECT COALESCE(terminatedsenderid, '(unknown)') AS sender_id,
-                  MIN(receiveddate)::text                    AS first_seen_ever
-           FROM ${STAGE}
-           GROUP BY 1
-         )
-         SELECT nr.*,
-                fs.first_seen_ever,
-                ROUND(nr.dlr_sms::numeric * 100.0 / NULLIF(nr.messages, 0), 1) AS dlr_pct
-         FROM new_rows nr
-         LEFT JOIN first_seen_all fs ON fs.sender_id = nr.sender_id
-         WHERE NOT EXISTS (SELECT 1 FROM old_senders o WHERE o.sender_id = nr.sender_id)
-         ORDER BY nr.messages DESC`,
-        args,
-      ),
-      // Senders with traffic in the OLD period that vanished in the NEW period
-      this.dataSource.query(
-        `WITH new_senders AS (
-           SELECT DISTINCT COALESCE(terminatedsenderid, '(unknown)') AS sender_id
-           FROM ${STAGE}
-           WHERE receiveddate BETWEEN $3::date AND $4::date
-             ${X}
-         ),
-         old_rows AS (
-           SELECT COALESCE(terminatedsenderid, '(unknown)')  AS sender_id,
-                  customerconnection                          AS customer_name,
-                  vendorconnection                            AS supplier,
-                  MAX(receiveddate)::text                     AS last_seen,
-                  SUM(numbersofmessages)::bigint              AS messages,
-                  SUM(deliveredmessages)::bigint              AS dlr_sms,
-                  ROUND(SUM(revenue)::numeric, 4)             AS revenue,
-                  ROUND(SUM(negativemargin)::numeric, 4)      AS margin
-           FROM ${STAGE}
-           WHERE receiveddate BETWEEN $1::date AND $2::date
-             ${X}
-           GROUP BY 1, 2, 3
-         )
-         SELECT o.*,
-                ROUND(o.dlr_sms::numeric * 100.0 / NULLIF(o.messages, 0), 1) AS dlr_pct
-         FROM old_rows o
-         WHERE NOT EXISTS (SELECT 1 FROM new_senders n WHERE n.sender_id = o.sender_id)
-         ORDER BY o.messages DESC`,
-        args,
-      ),
-    ]);
-
-    const distinct = (rows: any[]) => new Set(rows.map((r) => r.sender_id)).size;
-    const sum = (rows: any[], k: string) => rows.reduce((s, r) => s + Number(r[k] ?? 0), 0);
-
-    return {
-      added,
-      lost,
-      kpi: {
-        added_senders:  distinct(added),
-        lost_senders:   distinct(lost),
-        added_messages: sum(added, 'messages'),
-        added_revenue:  Math.round(sum(added, 'revenue') * 100) / 100,
-        added_margin:   Math.round(sum(added, 'margin') * 100) / 100,
-        lost_messages:  sum(lost, 'messages'),
-        lost_revenue:   Math.round(sum(lost, 'revenue') * 100) / 100,
-      },
-    };
-  }
-
   // ── Month to Date ─────────────────────────────────────────────
 
   async getMtd(params: {
@@ -1111,5 +1011,291 @@ export class ZamaniTestingService implements OnModuleInit {
       [dto.year, dto.month, dto.messages_target, dto.revenue_target],
     );
     return { success: true };
+  }
+
+  // ── Investment Recovery (Zamani_Niger + Innovatio revenue) ────
+  // Same maths as the original report's tracker, but computed over THIS report's stage
+  // (both approved suppliers), into its own weekly tracking table — per the Sales request
+  // that the Testing report's recovery must include the Innovatio revenue.
+
+  private async ensureInvestmentTrackingTable(): Promise<void> {
+    try {
+      await this.dataSource.query(`
+        CREATE TABLE IF NOT EXISTS ${INVESTMENT_TRACKING} (
+          id                   SERIAL PRIMARY KEY,
+          week_ending          DATE NOT NULL,
+          cumulative_revenue   NUMERIC(18,2) NOT NULL,
+          pct_recovered        NUMERIC(8,4)  NOT NULL,
+          remaining            NUMERIC(18,2) NOT NULL,
+          trailing_daily_avg   NUMERIC(18,2),
+          days_left            INTEGER,
+          delta_days_left      INTEGER,
+          projected_recovery   DATE,
+          trailing_window_days INTEGER NOT NULL DEFAULT 7,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT zamani_testing_inv_week_uq UNIQUE (week_ending)
+        )
+      `);
+    } catch (err) {
+      this.logger.error('Failed to ensure testing investment tracking table', err);
+    }
+  }
+
+  private safeNum(val: any, fallback = 0): number {
+    const n = Number(val ?? fallback);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  private async getCumulativeRevenue(upToDate: string): Promise<number> {
+    if (!(await this.stageExists())) return 0;
+    const [row] = await this.dataSource.query(
+      `SELECT ROUND(
+         COALESCE(SUM(revenue) FILTER (WHERE revenue IS NOT NULL AND revenue::text != 'NaN'), 0)::numeric,
+         2
+       ) AS total
+       FROM ${STAGE}
+       WHERE receiveddate::date <= $1::date`,
+      [upToDate],
+    );
+    return this.safeNum(row?.total);
+  }
+
+  private async getTrailingDailyAvg(endDate: string, days: number): Promise<number | null> {
+    if (!(await this.stageExists())) return null;
+    const [row] = await this.dataSource.query(
+      `SELECT ROUND(
+         COALESCE(SUM(revenue) FILTER (WHERE revenue IS NOT NULL AND revenue::text != 'NaN'), 0)::numeric /
+         GREATEST(COUNT(DISTINCT receiveddate::date), 1),
+         2
+       ) AS avg
+       FROM ${STAGE}
+       WHERE receiveddate::date >= ($1::date - ($2::int - 1))
+         AND receiveddate::date <= $1::date`,
+      [endDate, days],
+    );
+    if (row?.avg == null) return null;
+    const n = Number(row.avg);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  private async runWeekForDate(weekEnding: Date, trailingDays: number, forceUpdate = false): Promise<void> {
+    const weekEndStr   = weekEnding.toISOString().slice(0, 10);
+    const cumRevenue   = await this.getCumulativeRevenue(weekEndStr);
+    const pctRecovered = TOTAL_INVESTMENT > 0 ? (cumRevenue / TOTAL_INVESTMENT) * 100 : 0;
+    const remaining    = TOTAL_INVESTMENT - cumRevenue;
+    const trailingAvg  = await this.getTrailingDailyAvg(weekEndStr, trailingDays);
+
+    let daysLeft: number | null = null;
+    let projectedRecovery: string | null = null;
+    if (remaining <= 0) {
+      daysLeft = 0;
+      projectedRecovery = weekEndStr;
+    } else if (trailingAvg != null && trailingAvg > 0) {
+      daysLeft = Math.ceil(remaining / trailingAvg);
+      const projDate = new Date(weekEnding);
+      projDate.setDate(projDate.getDate() + daysLeft);
+      projectedRecovery = projDate.toISOString().slice(0, 10);
+    }
+
+    const [prevRow] = await this.dataSource.query(
+      `SELECT days_left FROM ${INVESTMENT_TRACKING} WHERE week_ending < $1 ORDER BY week_ending DESC LIMIT 1`,
+      [weekEndStr],
+    );
+    const deltaDaysLeft =
+      prevRow != null && daysLeft != null && prevRow.days_left != null
+        ? daysLeft - Number(prevRow.days_left)
+        : null;
+
+    const conflictClause = forceUpdate
+      ? `DO UPDATE SET
+           cumulative_revenue   = EXCLUDED.cumulative_revenue,
+           pct_recovered        = EXCLUDED.pct_recovered,
+           remaining            = EXCLUDED.remaining,
+           trailing_daily_avg   = EXCLUDED.trailing_daily_avg,
+           days_left            = EXCLUDED.days_left,
+           delta_days_left      = EXCLUDED.delta_days_left,
+           projected_recovery   = EXCLUDED.projected_recovery,
+           trailing_window_days = EXCLUDED.trailing_window_days`
+      : `DO NOTHING`;
+
+    await this.dataSource.query(
+      `INSERT INTO ${INVESTMENT_TRACKING}
+         (week_ending, cumulative_revenue, pct_recovered, remaining, trailing_daily_avg, days_left, delta_days_left, projected_recovery, trailing_window_days)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::date, $9)
+       ON CONFLICT (week_ending) ${conflictClause}`,
+      [weekEndStr, cumRevenue, pctRecovered, remaining, trailingAvg, daysLeft, deltaDaysLeft, projectedRecovery, trailingDays],
+    );
+  }
+
+  @Cron('0 6 * * 1')
+  async runWeeklyTracking(trailingDays = 7): Promise<void> {
+    if (!(await this.stageExists())) return;
+    await this.ensureInvestmentTrackingTable();
+
+    const today      = new Date();
+    const dayOfWeek  = today.getDay();
+    const lastSunday = new Date(today);
+    lastSunday.setDate(today.getDate() - dayOfWeek);
+    lastSunday.setHours(0, 0, 0, 0);
+
+    const [firstRow] = await this.dataSource.query(
+      `SELECT MIN(receiveddate::date)::text AS first_date FROM ${STAGE}`,
+    );
+    if (!firstRow?.first_date) return;
+
+    const firstDate        = new Date(firstRow.first_date + 'T00:00:00Z');
+    const daysUntilSunday  = (7 - firstDate.getUTCDay()) % 7;
+    const firstSunday      = new Date(firstDate);
+    firstSunday.setUTCDate(firstDate.getUTCDate() + daysUntilSunday);
+
+    const existing: { week_ending: string }[] = await this.dataSource.query(
+      `SELECT week_ending::text FROM ${INVESTMENT_TRACKING}`,
+    );
+    const existingSet = new Set(existing.map((r) => r.week_ending.slice(0, 10)));
+
+    const lastSundayStr = lastSunday.toISOString().slice(0, 10);
+    const cursor = new Date(firstSunday);
+    while (cursor <= lastSunday) {
+      const dateStr  = cursor.toISOString().slice(0, 10);
+      const isLatest = dateStr === lastSundayStr;
+      if (isLatest || !existingSet.has(dateStr)) {
+        try {
+          await this.runWeekForDate(new Date(cursor), trailingDays, isLatest);
+        } catch (err) {
+          this.logger.error(`runWeekForDate failed for ${dateStr}`, err);
+        }
+      }
+      cursor.setDate(cursor.getDate() + 7);
+    }
+    this.logger.log(`Testing investment recovery tracking updated through ${lastSunday.toISOString().slice(0, 10)}`);
+  }
+
+  async getInvestmentRecovery(trailingDays = 7): Promise<any> {
+    const safeWeeklyRows = async () => {
+      try {
+        const rows = await this.dataSource.query(
+          `SELECT week_ending::text,
+                  cumulative_revenue,
+                  cumulative_revenue - LAG(cumulative_revenue) OVER (ORDER BY week_ending ASC) AS weekly_revenue,
+                  pct_recovered, remaining,
+                  trailing_daily_avg, days_left, delta_days_left, projected_recovery::text
+           FROM ${INVESTMENT_TRACKING}
+           ORDER BY week_ending DESC`,
+        );
+        return rows.map((r: any) => ({
+          weekEnding:        r.week_ending?.slice(0, 10) ?? null,
+          weeklyRevenue:     r.weekly_revenue != null ? this.safeNum(r.weekly_revenue) : null,
+          cumulativeRevenue: this.safeNum(r.cumulative_revenue),
+          pctRecovered:      this.safeNum(r.pct_recovered),
+          remaining:         this.safeNum(r.remaining),
+          trailingDailyAvg:  r.trailing_daily_avg != null ? this.safeNum(r.trailing_daily_avg) : null,
+          daysLeft:          r.days_left != null ? Number(r.days_left) : null,
+          deltaDaysLeft:     r.delta_days_left != null ? Number(r.delta_days_left) : null,
+          projectedRecovery: r.projected_recovery?.slice(0, 10) ?? null,
+        }));
+      } catch (e: any) {
+        this.logger.error('safeWeeklyRows failed', e?.message);
+        return [];
+      }
+    };
+
+    try {
+      await this.ensureInvestmentTrackingTable();
+
+      if (await this.stageExists()) {
+        try {
+          await this.runWeeklyTracking(trailingDays);
+        } catch (err: any) {
+          this.logger.error('[IR-testing] runWeeklyTracking failed', err?.message);
+        }
+      }
+
+      const today = new Date().toISOString().slice(0, 10);
+
+      const [maxRow] = await this.dataSource.query(
+        `SELECT COALESCE(MAX(receiveddate::date)::text, $1) AS max_date FROM ${STAGE}`,
+        [today],
+      );
+      const maxDate: string = (maxRow?.max_date ?? today).slice(0, 10);
+
+      // Sum revenue excluding month 2 (Feb) — mirrors the Cost vs Revenue frontend filter
+      const [totRow] = await this.dataSource.query(
+        `SELECT ROUND(COALESCE(SUM(revenue) FILTER (WHERE revenue IS NOT NULL AND revenue::text != 'NaN'), 0)::numeric, 2) AS total
+         FROM ${STAGE}
+         WHERE EXTRACT(MONTH FROM receiveddate)::int != 2 OR receiveddate IS NULL`,
+      );
+      const cumulativeRevenue = this.safeNum(totRow?.total);
+
+      const pctRecovered = (cumulativeRevenue / TOTAL_INVESTMENT) * 100;
+      const remaining    = TOTAL_INVESTMENT - cumulativeRevenue;
+
+      // Load latest tracking row — projected date/days/avg come from here so the
+      // KPI card always shows the same projected recovery as the top table row
+      const [lastTracking] = await this.dataSource.query(
+        `SELECT week_ending::text, cumulative_revenue, pct_recovered, remaining,
+                trailing_daily_avg, days_left, projected_recovery::text
+         FROM ${INVESTMENT_TRACKING} ORDER BY week_ending DESC LIMIT 1`,
+      );
+
+      const trailingAvg   = lastTracking?.trailing_daily_avg != null ? this.safeNum(lastTracking.trailing_daily_avg) : null;
+      const daysToRecover = lastTracking?.days_left            != null ? Number(lastTracking.days_left) : null;
+      const projectedDate = lastTracking?.projected_recovery?.slice(0, 10) ?? null;
+
+      const lastSundayDate       = lastTracking?.week_ending?.slice(0, 10) ?? null;
+      const lastSundayCumulative = lastTracking ? this.safeNum(lastTracking.cumulative_revenue) : 0;
+      const lastSundayPct        = lastTracking ? this.safeNum(lastTracking.pct_recovered)      : 0;
+      const lastSundayRemaining  = lastTracking ? this.safeNum(lastTracking.remaining)          : TOTAL_INVESTMENT;
+      const thisWeekRevenue      = Math.round((cumulativeRevenue - lastSundayCumulative) * 100) / 100;
+
+      let weekStart: string | null = null;
+      if (lastSundayDate) {
+        const d = new Date(lastSundayDate + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + 1);
+        weekStart = d.toISOString().slice(0, 10);
+      }
+
+      const weeklyTracking = await safeWeeklyRows();
+
+      return {
+        totalInvestment: TOTAL_INVESTMENT,
+        trailingDays,
+        thisWeek: {
+          lastSundayDate,
+          weekStart,
+          todayDate:           maxDate,
+          revenueThisWeek:     thisWeekRevenue,
+          lastSundayCumulative,
+          lastSundayPct,
+          lastSundayRemaining,
+        },
+        kpi: {
+          totalInvestment:    TOTAL_INVESTMENT,
+          recoveredToDate:    cumulativeRevenue,
+          pctRecovered:       Math.round(pctRecovered * 100) / 100,
+          remainingToRecover: remaining,
+          trailingDailyAvg:   trailingAvg,
+          daysToRecover,
+          projectedDate,
+        },
+        weeklyTracking,
+      };
+    } catch (outerErr: any) {
+      this.logger.error('[IR-testing] OUTER CATCH', outerErr?.message, outerErr?.stack);
+      return {
+        totalInvestment:  TOTAL_INVESTMENT,
+        trailingDays,
+        thisWeek:         null,
+        kpi: {
+          totalInvestment:    TOTAL_INVESTMENT,
+          recoveredToDate:    0,
+          pctRecovered:       0,
+          remainingToRecover: TOTAL_INVESTMENT,
+          trailingDailyAvg:   null,
+          daysToRecover:      null,
+          projectedDate:      null,
+        },
+        weeklyTracking: await safeWeeklyRows(),
+      };
+    }
   }
 }

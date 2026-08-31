@@ -109,7 +109,7 @@ function ageLabel(min: number | null): string {
 type Agg = { aggregator: string; account_manager: string; submitted: number; delivered: number; misrouted: number; senders: number; dlr_pct: number };
 type Route = { sender_id: string; aggregator: string; vendor: string; vendor_id: number; msgs: number };
 type Pair = { sender_id: string; aggregator: string; account_manager: string; submitted: number; delivered: number; misrouted: number; dlr_pct: number; last_seen: string };
-type Data = { totals: Totals; senders: Sender[]; aggregators: Agg[]; senderCustomer: Pair[]; routing: Route[]; trend: any[] };
+type Data = { totals: Totals; suppliers: string[]; senders: Sender[]; aggregators: Agg[]; senderCustomer: Pair[]; routing: Route[]; trend: any[] };
 
 // Distinct line colors for the trend chart (categorical; assigned in fixed order, never cycled
 // per-render). Vibrant mid-tones ordered for adjacent-pair separation — legible on both themes.
@@ -195,10 +195,181 @@ function MultiSelect({ options, selected, onChange, placeholder }: { options: st
   );
 }
 
+// New / Lost senders, month vs month — answers Sales' "what traffic has been added?".
+// A sender that merely paused last month (traffic exists earlier in the retained history)
+// is badged RETURNING rather than NEW, so the list stays honest about what is genuinely new.
+function NewSendersView({ supplier, search }: { supplier: string; search: string }) {
+  const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const [oldMonth, setOldMonth] = React.useState(() => { const d = new Date(); d.setDate(0); return ym(d); });
+  const [newMonth, setNewMonth] = React.useState(() => ym(new Date()));
+  const [nsData, setNsData] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const [sortA, setSortA] = React.useState<{ key: string | null; dir: SortDir }>({ key: 'messages', dir: 'desc' });
+  const [sortL, setSortL] = React.useState<{ key: string | null; dir: SortDir }>({ key: 'messages', dir: 'desc' });
+
+  const monthLabel = (m: string) => {
+    if (!m) return '—';
+    const [y, mo] = m.split('-').map(Number);
+    return new Date(y, mo - 1, 1).toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+  };
+
+  React.useEffect(() => {
+    if (!oldMonth || !newMonth) return;
+    const lastDay = (m: string) => { const [y, mo] = m.split('-').map(Number); return `${m}-${String(new Date(y, mo, 0).getDate()).padStart(2, '0')}`; };
+    setLoading(true); setErr(null);
+    const p: Record<string, string> = {
+      old_start: `${oldMonth}-01`, old_end: lastDay(oldMonth),
+      new_start: `${newMonth}-01`, new_end: lastDay(newMonth),
+    };
+    if (supplier) p.supplier = supplier;
+    zamaniSenderIdApi.getNewSenders(p)
+      .then((r) => setNsData(r.data))
+      .catch((e: any) => setErr(e?.response?.data?.message ?? e?.message ?? 'Failed to load new senders'))
+      .finally(() => setLoading(false));
+  }, [oldMonth, newMonth, supplier]);
+
+  const applySearch = (rows: any[]) => {
+    if (!search.trim()) return rows;
+    const q = search.toLowerCase();
+    return rows.filter((r) => (r.sender_id ?? '').toLowerCase().includes(q) || (r.aggregator ?? '').toLowerCase().includes(q) || (r.supplier ?? '').toLowerCase().includes(q));
+  };
+  const sortRows = (rows: any[], sort: { key: string | null; dir: SortDir }) => {
+    if (!sort.key || !sort.dir) return rows;
+    const { key, dir } = sort;
+    return [...rows].sort((a, b) => {
+      const av = a[key], bv = b[key];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      const cmp = typeof av === 'string' ? av.localeCompare(bv) : Number(av) - Number(bv);
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  };
+  const onSortA = (key: string) => setSortA((s) => ({ key, dir: s.key === key ? (s.dir === 'asc' ? 'desc' : s.dir === 'desc' ? null : 'asc') : 'desc' }));
+  const onSortL = (key: string) => setSortL((s) => ({ key, dir: s.key === key ? (s.dir === 'asc' ? 'desc' : s.dir === 'desc' ? null : 'asc') : 'desc' }));
+
+  const added = applySearch(sortRows(nsData?.added ?? [], sortA));
+  const lost  = applySearch(sortRows(nsData?.lost ?? [], sortL));
+  const k = nsData?.kpi;
+
+  return (
+    <>
+      <div className="edr-filt" style={{ marginTop: 2 }}>
+        <span style={{ fontSize: '.72rem', color: 'var(--mu)', fontWeight: 600 }}>Previous month</span>
+        <input className="edr-inp" style={{ width: 150 }} type="month" value={oldMonth} onChange={(e) => setOldMonth(e.target.value)} />
+        <span style={{ fontSize: '.72rem', color: 'var(--mu)', fontWeight: 600 }}>Current month</span>
+        <input className="edr-inp" style={{ width: 150 }} type="month" value={newMonth} onChange={(e) => setNewMonth(e.target.value)} />
+        {loading && <span style={{ fontSize: '.72rem', color: 'var(--mu)' }}>Loading…</span>}
+      </div>
+
+      {err && <div className="edr-err">{err}</div>}
+
+      {k && (
+        <div className="edr-cards">
+          <div className="edr-card edr-card-good">
+            <div className="edr-card-num">{fmtN(k.added_senders)}</div>
+            <div className="edr-card-lbl">Senders Added</div>
+            <div className="edr-card-sub">{fmtN(k.brand_new)} brand new · {fmtN(k.returning)} returning</div>
+          </div>
+          <div className="edr-card">
+            <div className="edr-card-num">{fmtN(k.added_messages)}</div>
+            <div className="edr-card-lbl">Traffic Added</div>
+            <div className="edr-card-sub">messages from added senders in {monthLabel(newMonth)}</div>
+          </div>
+          <div className={`edr-card${(k.lost_senders ?? 0) > 0 ? ' edr-card-danger' : ''}`}>
+            <div className="edr-card-num">{fmtN(k.lost_senders)}</div>
+            <div className="edr-card-lbl">Senders Lost</div>
+            <div className="edr-card-sub">active in {monthLabel(oldMonth)}, silent in {monthLabel(newMonth)}</div>
+          </div>
+          <div className="edr-card">
+            <div className="edr-card-num">{fmtN(k.lost_messages)}</div>
+            <div className="edr-card-lbl">Traffic Lost</div>
+            <div className="edr-card-sub">their messages in {monthLabel(oldMonth)}</div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--ink)', margin: '6px 0 8px' }}>
+        Senders Added — in {monthLabel(newMonth)}, no traffic in {monthLabel(oldMonth)}
+      </div>
+      <div className="edr-tbl-wrap" style={{ maxHeight: 420 }}>
+        {loading ? <Skel /> : (
+          <table className="edr-tbl">
+            <thead><tr>
+              <TH left w={190} colKey="sender_id" sort={sortA} onSort={onSortA}>Sender ID</TH>
+              <TH left w={160} colKey="aggregator" sort={sortA} onSort={onSortA}>Customer</TH>
+              <TH left w={130} colKey="supplier" sort={sortA} onSort={onSortA}>Supplier</TH>
+              <TH left w={150} colKey="account_manager" sort={sortA} onSort={onSortA}>Account Manager</TH>
+              <TH w={105} colKey="first_seen" sort={sortA} onSort={onSortA}>First Seen</TH>
+              <TH w={115} colKey="first_seen_ever" sort={sortA} onSort={onSortA}>First Ever Seen</TH>
+              <TH w={95} colKey="messages" sort={sortA} onSort={onSortA}>Messages</TH>
+              <TH w={80} colKey="dlr_pct" sort={sortA} onSort={onSortA}>DLR %</TH>
+            </tr></thead>
+            <tbody>
+              {added.length === 0 && <tr><td colSpan={8} className="edr-empty">No senders added in {monthLabel(newMonth)} for this selection</td></tr>}
+              {added.map((r: any, i: number) => (
+                <tr key={i}>
+                  <TD left>
+                    <span style={{ fontWeight: 600 }}>{r.sender_id || '—'}</span>{' '}
+                    {r.returning
+                      ? <span className="bdg bdg-spike" title={`Seen before ${monthLabel(oldMonth)} — paused, then came back (first ever: ${r.first_seen_ever ?? '?'})`}>RETURNING</span>
+                      : <span className="bdg bdg-new" title="Never seen before in the retained history (since 1 Mar 2026)">NEW</span>}
+                  </TD>
+                  <TD left>{r.aggregator || '—'}</TD>
+                  <TD left>{r.supplier || '—'}</TD>
+                  <TD left><span style={{ color: r.account_manager ? 'var(--inks)' : 'var(--mu)' }}>{r.account_manager || '—'}</span></TD>
+                  <TD mono>{r.first_seen || '—'}</TD>
+                  <TD mono>{r.first_seen_ever || '—'}</TD>
+                  <TD><span style={{ fontWeight: 700 }}>{fmtN(r.messages)}</span></TD>
+                  <TD><span className={dlrCls(Number(r.dlr_pct ?? 0))}>{r.dlr_pct ?? 0}%</span></TD>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--ink)', margin: '16px 0 8px' }}>
+        Senders Lost — active in {monthLabel(oldMonth)}, silent in {monthLabel(newMonth)}
+      </div>
+      <div className="edr-tbl-wrap" style={{ maxHeight: 420 }}>
+        {loading ? <Skel /> : (
+          <table className="edr-tbl">
+            <thead><tr>
+              <TH left w={190} colKey="sender_id" sort={sortL} onSort={onSortL}>Sender ID</TH>
+              <TH left w={160} colKey="aggregator" sort={sortL} onSort={onSortL}>Customer</TH>
+              <TH left w={130} colKey="supplier" sort={sortL} onSort={onSortL}>Supplier</TH>
+              <TH left w={150} colKey="account_manager" sort={sortL} onSort={onSortL}>Account Manager</TH>
+              <TH w={115} colKey="last_seen_ever" sort={sortL} onSort={onSortL}>Last Seen</TH>
+              <TH w={95} colKey="messages" sort={sortL} onSort={onSortL}>Messages ({monthLabel(oldMonth)})</TH>
+              <TH w={80} colKey="dlr_pct" sort={sortL} onSort={onSortL}>DLR %</TH>
+            </tr></thead>
+            <tbody>
+              {lost.length === 0 && <tr><td colSpan={7} className="edr-empty">No senders lost — everything active in {monthLabel(oldMonth)} still has traffic</td></tr>}
+              {lost.map((r: any, i: number) => (
+                <tr key={i}>
+                  <TD left><span style={{ fontWeight: 600 }}>{r.sender_id || '—'}</span></TD>
+                  <TD left>{r.aggregator || '—'}</TD>
+                  <TD left>{r.supplier || '—'}</TD>
+                  <TD left><span style={{ color: r.account_manager ? 'var(--inks)' : 'var(--mu)' }}>{r.account_manager || '—'}</span></TD>
+                  <TD mono>{r.last_seen_ever || '—'}</TD>
+                  <TD><span style={{ fontWeight: 700 }}>{fmtN(r.messages)}</span></TD>
+                  <TD><span className={dlrCls(Number(r.dlr_pct ?? 0))}>{r.dlr_pct ?? 0}%</span></TD>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </>
+  );
+}
+
 // Line chart: Messages or DLR % over time, split by customer or sender ID, at hour/day/week/month
 // granularity, for a selectable set of series. Fetches its own time-series independent of the table.
-function TrendChart({ senders, aggregators, preset, customFrom, customTo, reloadKey }: {
-  senders: Sender[]; aggregators: Agg[]; preset: Preset; customFrom: string; customTo: string; reloadKey?: number;
+function TrendChart({ senders, aggregators, preset, customFrom, customTo, supplier, reloadKey }: {
+  senders: Sender[]; aggregators: Agg[]; preset: Preset; customFrom: string; customTo: string; supplier: string; reloadKey?: number;
 }) {
   const [metric, setMetric] = React.useState<'messages' | 'dlr'>('messages');
   const [dim, setDim] = React.useState<'customer' | 'sender'>('customer');
@@ -228,13 +399,13 @@ function TrendChart({ senders, aggregators, preset, customFrom, customTo, reload
     const { fromISO, toISO } = computeWindowISO(preset, customFrom, customTo);
     setLoading(true); setErr(null);
     const req = drill
-      ? { from: fromISO, to: toISO, dimension: (dim === 'sender' ? 'customer' : 'sender') as 'customer' | 'sender', granularity: gran, keys: [], filter: drill }
-      : { from: fromISO, to: toISO, dimension: dim, granularity: gran, keys };
+      ? { from: fromISO, to: toISO, dimension: (dim === 'sender' ? 'customer' : 'sender') as 'customer' | 'sender', granularity: gran, keys: [], filter: drill, supplier: supplier || undefined }
+      : { from: fromISO, to: toISO, dimension: dim, granularity: gran, keys, supplier: supplier || undefined };
     zamaniSenderIdApi.getTimeseries(req)
       .then((r) => setTs(r.data as any))
       .catch((e: any) => setErr(e?.response?.data?.message ?? e?.message ?? 'Failed to load chart'))
       .finally(() => setLoading(false));
-  }, [dim, gran, keys, drill, preset, customFrom, customTo, reloadKey]);
+  }, [dim, gran, keys, drill, preset, customFrom, customTo, supplier, reloadKey]);
 
   const seriesKeys = ts?.keys ?? [];
   // Live text filter on the plotted series — mirrors the table's "Search sender / customer" box.
@@ -339,8 +510,9 @@ export default function ZamaniSenderIdPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [lastLoaded, setLastLoaded] = React.useState<Date | null>(null);
 
-  const [view, setView] = React.useState<'senders' | 'aggregators' | 'routing'>('senders');
+  const [view, setView] = React.useState<'senders' | 'aggregators' | 'routing' | 'new-senders'>('senders');
   const [search, setSearch] = React.useState('');
+  const [supplier, setSupplier] = React.useState('');
   const [amFilter, setAmFilter] = React.useState('all');
   const [misOnly, setMisOnly] = React.useState(false);
   const [statusFilters, setStatusFilters] = React.useState<Set<string>>(new Set());
@@ -364,11 +536,11 @@ export default function ZamaniSenderIdPage() {
       const { start, end } = presetWindow(preset);
       fromISO = start.toISOString(); toISO = end.toISOString();
     }
-    zamaniSenderIdApi.getData({ from: fromISO, to: toISO })
+    zamaniSenderIdApi.getData({ from: fromISO, to: toISO, supplier: supplier || undefined })
       .then((r) => { setData(r.data as Data); setLastLoaded(new Date()); })
       .catch((e: any) => setError(e?.response?.data?.message ?? e?.message ?? 'Failed to load data'))
       .finally(() => setLoading(false));
-  }, [preset, customFrom, customTo]);
+  }, [preset, customFrom, customTo, supplier]);
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -467,41 +639,57 @@ export default function ZamaniSenderIdPage() {
           )}
 
           <div className="edr-filt">
-            {(['1h', '6h', '24h', '48h'] as const).map((p) => (
-              <button key={p} className="edr-tbtn" onClick={() => setPreset(p)}
-                style={preset === p ? { borderColor: '#2563eb', color: '#2563eb', fontWeight: 700 } : undefined}>
-                {PRESET_LABEL[p]}
-              </button>
-            ))}
-            <span style={{ fontSize: '.72rem', color: 'var(--mu)', fontWeight: 600 }}>From</span>
-            <input className="edr-inp" style={{ width: 195 }} type="datetime-local" value={dispFrom} onChange={(e) => editFrom(e.target.value)} />
-            <span style={{ fontSize: '.72rem', color: 'var(--mu)', fontWeight: 600 }}>To</span>
-            <input className="edr-inp" style={{ width: 195 }} type="datetime-local" value={dispTo} onChange={(e) => editTo(e.target.value)} />
+            {view !== 'new-senders' && (
+              <>
+                {(['1h', '6h', '24h', '48h'] as const).map((p) => (
+                  <button key={p} className="edr-tbtn" onClick={() => setPreset(p)}
+                    style={preset === p ? { borderColor: '#2563eb', color: '#2563eb', fontWeight: 700 } : undefined}>
+                    {PRESET_LABEL[p]}
+                  </button>
+                ))}
+                <span style={{ fontSize: '.72rem', color: 'var(--mu)', fontWeight: 600 }}>From</span>
+                <input className="edr-inp" style={{ width: 195 }} type="datetime-local" value={dispFrom} onChange={(e) => editFrom(e.target.value)} />
+                <span style={{ fontSize: '.72rem', color: 'var(--mu)', fontWeight: 600 }}>To</span>
+                <input className="edr-inp" style={{ width: 195 }} type="datetime-local" value={dispTo} onChange={(e) => editTo(e.target.value)} />
+              </>
+            )}
             <span className="edr-seg">
               <button className={view === 'senders' ? 'on' : ''} onClick={() => setView('senders')}>By Sender ID</button>
               <button className={view === 'aggregators' ? 'on' : ''} onClick={() => setView('aggregators')}>By Customer</button>
               <button className={view === 'routing' ? 'on' : ''} onClick={() => setView('routing')}>Routing Errors{(t?.misrouted ?? 0) > 0 ? ` (${data?.routing.length ?? 0})` : ''}</button>
+              <button className={view === 'new-senders' ? 'on' : ''} onClick={() => setView('new-senders')}>New Senders</button>
             </span>
-            <input className="edr-inp" type="text" placeholder="Search sender / customer…" value={search} onChange={(e) => setSearch(e.target.value)} />
-            <select className="edr-inp" style={{ width: 190 }} value={amFilter} onChange={(e) => setAmFilter(e.target.value)} title="Filter by account manager">
-              <option value="all">All Account Managers</option>
-              {accountManagers.map((am) => <option key={am} value={am}>{am}</option>)}
+            <select className="edr-inp" style={{ width: 170 }} value={supplier} onChange={(e) => setSupplier(e.target.value)} title="Filter by terminating supplier">
+              <option value="">All Suppliers</option>
+              {(data?.suppliers ?? []).map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
-            <button className={`edr-tbtn${misOnly ? ' an' : ''}`} onClick={() => setMisOnly((v) => !v)}>Mis-routed only</button>
-            {view === 'senders' && (
-              <span className="edr-seg" title="Show only senders currently flagged with this status (last 6h)">
-                {([['new', 'New'], ['spike', 'Spike'], ['stopped', 'Stopped'], ['lowdlr', 'Delivery ≤ 50%']] as [string, string][]).map(([k, label]) => (
-                  <button key={k} className={statusFilters.has(k) ? 'on' : ''}
-                    onClick={() => setStatusFilters((s) => { const nx = new Set(s); nx.has(k) ? nx.delete(k) : nx.add(k); return nx; })}>{label}</button>
-                ))}
-              </span>
+            <input className="edr-inp" type="text" placeholder="Search sender / customer…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            {view !== 'new-senders' && (
+              <>
+                <select className="edr-inp" style={{ width: 190 }} value={amFilter} onChange={(e) => setAmFilter(e.target.value)} title="Filter by account manager">
+                  <option value="all">All Account Managers</option>
+                  {accountManagers.map((am) => <option key={am} value={am}>{am}</option>)}
+                </select>
+                <button className={`edr-tbtn${misOnly ? ' an' : ''}`} onClick={() => setMisOnly((v) => !v)}>Mis-routed only</button>
+                {view === 'senders' && (
+                  <span className="edr-seg" title="Show only senders currently flagged with this status (last 6h)">
+                    {([['new', 'New'], ['spike', 'Spike'], ['stopped', 'Stopped'], ['lowdlr', 'Delivery ≤ 50%']] as [string, string][]).map(([k, label]) => (
+                      <button key={k} className={statusFilters.has(k) ? 'on' : ''}
+                        onClick={() => setStatusFilters((s) => { const nx = new Set(s); nx.has(k) ? nx.delete(k) : nx.add(k); return nx; })}>{label}</button>
+                    ))}
+                  </span>
+                )}
+                <button className="edr-tbtn" onClick={load}>Refresh</button>
+              </>
             )}
-            <button className="edr-tbtn" onClick={load}>Refresh</button>
             {hasFilter && (
               <button className="edr-clr" onClick={() => { setSearch(''); setAmFilter('all'); setMisOnly(false); setStatusFilters(new Set()); }}>Clear filters</button>
             )}
           </div>
 
+          {view === 'new-senders' && <NewSendersView supplier={supplier} search={search} />}
+
+          {view !== 'new-senders' && (<>
           <div className="edr-tbl-wrap">
             {loading ? <Skel /> : (
               <table className="edr-tbl">
@@ -590,7 +778,8 @@ export default function ZamaniSenderIdPage() {
             <div className="edr-footer">{sorted.length.toLocaleString()} of {baseRows.length.toLocaleString()} {view === 'senders' ? 'sender IDs' : view === 'aggregators' ? 'customers' : 'routing errors'}</div>
           )}
 
-          <TrendChart senders={data?.senders ?? []} aggregators={data?.aggregators ?? []} preset={preset} customFrom={customFrom} customTo={customTo} reloadKey={lastLoaded?.getTime()} />
+          <TrendChart senders={data?.senders ?? []} aggregators={data?.aggregators ?? []} preset={preset} customFrom={customFrom} customTo={customTo} supplier={supplier} reloadKey={lastLoaded?.getTime()} />
+          </>)}
 
         </div>
       </div>
