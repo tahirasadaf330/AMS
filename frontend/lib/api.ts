@@ -423,6 +423,25 @@ export const zamaniApi = {
     api.get('/reports/zamani/investment-recovery', { params: { trailingDays } }),
 };
 
+// ── ZAMANI TRAFFIC INCLUDE TESTING (Zamani_Niger + Innovatio suppliers) ──
+export const zamaniTestingApi = {
+  getFilters: () => api.get('/reports/zamani-testing/filters'),
+  getYesterday: (params: Record<string, string>) => api.get('/reports/zamani-testing/yesterday', { params }),
+  getComparison: (params: Record<string, string>) => api.get('/reports/zamani-testing/comparison', { params }),
+  getNewSenders: (params: Record<string, string>) => api.get('/reports/zamani-testing/new-senders', { params }),
+  getMtd: (params: Record<string, string>) => api.get('/reports/zamani-testing/mtd', { params }),
+  getProjections: (params: Record<string, string>) => api.get('/reports/zamani-testing/projections', { params }),
+  upsertTarget: (data: { year: number; month: number; messages_target: number; revenue_target: number }) =>
+    api.post('/reports/zamani-testing/targets', data),
+  getCostVsRevenue: (params?: Record<string, string>) =>
+    api.get<Array<{ month_label: string; year: number; month_num: number; revenue: number; cost: number }>>(
+      '/reports/zamani-testing/cost-vs-revenue',
+      { params },
+    ),
+  getInvestmentRecovery: (trailingDays = 7) =>
+    api.get('/reports/zamani-testing/investment-recovery', { params: { trailingDays } }),
+};
+
 // ── ZAMANI SENDER ID (near-real-time destination monitoring) ──
 export const zamaniSenderIdApi = {
   getData: (params?: { from?: string; to?: string }) =>

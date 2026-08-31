@@ -58,6 +58,7 @@ import { McpModule } from "./mcp/mcp.module";
 import { AccessModule } from "./common/access/access.module";
 import { VoiceOutliersModule } from "./reports/voice-outliers/voice-outliers.module";
 import { InnovatioTrafficModule } from "./reports/innovatio-traffic/innovatio-traffic.module";
+import { ZamaniTestingModule } from "./reports/zamani-testing/zamani-testing.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -121,6 +122,7 @@ import { InnovatioTrafficModule } from "./reports/innovatio-traffic/innovatio-tr
     WebsocketModule,
     SystemModule,
     ZamaniReportModule,
+    ZamaniTestingModule,
     VcsBalanceModule,
     SmsCreditLimitModule,
     GoogleMoModule,

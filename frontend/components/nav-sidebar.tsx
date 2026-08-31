@@ -57,6 +57,7 @@ const REPORT_LINKS: ReportLink[] = ([
   { slug: 'negative-margin', href: '/reports/negative-margin', label: 'Voice Negative Margin', section: 'voice' },
   { slug: 'voice-outliers', href: '/reports/voice-outliers', label: 'Voice Smart Outliers', section: 'voice' },
   { slug: 'zamani', href: '/reports/zamani-traffic', label: 'Zamani Traffic', section: 'sms' },
+  { slug: 'zamani-testing', href: '/reports/zamani-traffic-testing', label: 'Zamani Traffic include Testing', section: 'sms' },
   { slug: 'zamani-sender-id', href: '/reports/zamani-sender-id', label: 'Zamani Sender ID', section: 'sms' },
   { slug: 'zamani-firewall', href: '/reports/zamani-firewall', label: 'Zamani SMS Firewall', section: 'sms' },
 ] as ReportLink[]).sort((a, b) => a.label.localeCompare(b.label));
