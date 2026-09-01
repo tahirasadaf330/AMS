@@ -1505,7 +1505,6 @@ export default function GoogleMoTrafficPage() {
         {/* ════════════════ COST VS REVENUE ════════════════════ */}
         {tab === 'cost-revenue' && (() => {
           const summary: any[] = cvSort.sort(cvData?.summary ?? []);
-          const monthly: any[] = cvData?.monthly ?? [];
           const schedule: any[] = cvData?.schedule ?? [];
           const months = Number(cvData?.window?.months ?? 0);
           const winLabel = cvData?.window?.start ? `${cvData.window.start} → ${cvData.window.end} · ${months} month${months === 1 ? '' : 's'}` : '';
@@ -1574,43 +1573,6 @@ export default function GoogleMoTrafficPage() {
                             <td>{fR(sum(summary, 'oneoff_fees'))}</td>
                             <td className={totNet < 0 ? 'zneg' : 'zpos'}><b>{fR(totNet)}</b></td>
                           </tr></tfoot>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Monthly breakdown */}
-                  <div className="zpnl" style={{ marginBottom: 16 }}>
-                    <PH title="Monthly Breakdown" right="annual fees ÷12 per month · once off fees not included here" />
-                    {!monthly.length ? (
-                      <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No traffic in the fee countries yet.</div>
-                    ) : (
-                      <div className="tbl-scroll" style={{ overflowX: 'auto', maxHeight: 460 }}>
-                        <table className="zt">
-                          <thead><tr>
-                            <th style={{ textAlign: 'left' }}>Month</th>
-                            <th style={{ textAlign: 'left' }}>Country</th>
-                            <th>Volume</th>
-                            <th>Revenue</th>
-                            <th>Vendor Cost</th>
-                            <th>Margin</th>
-                            <th>Annual Fees ÷12</th>
-                            <th>Net after Fees</th>
-                          </tr></thead>
-                          <tbody>
-                            {monthly.map((r: any, i: number) => (
-                              <tr key={i}>
-                                <td>{r.month_label}</td>
-                                <td><CountryDot name={r.country} /></td>
-                                <td>{fN(r.volume)}</td>
-                                <td>{fR(r.revenue)}</td>
-                                <td>{fR(r.vendor_cost)}</td>
-                                <td className={Number(r.margin) < 0 ? 'zneg' : 'zpos'}>{fR(r.margin)}</td>
-                                <td>{feeCell(r.fee_month)}</td>
-                                <td className={Number(r.net_margin) < 0 ? 'zneg' : 'zpos'}>{fR(r.net_margin)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
                         </table>
                       </div>
                     )}
