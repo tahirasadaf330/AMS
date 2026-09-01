@@ -109,4 +109,10 @@ export class GoogleMoController {
   ) {
     return this.service.getEstimates({ mccmnc, country, operator });
   }
+
+  // Per-country operating fees (USD) vs MO revenue — Cost vs Revenue tab.
+  @Get('cost-vs-revenue')
+  getCostVsRevenue() {
+    return this.service.getCostVsRevenue();
+  }
 }

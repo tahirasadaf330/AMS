@@ -354,11 +354,12 @@ function Paginator({ page, totalPages, setPage, total, pageSize }: {
 /* ════════════════════════════════════════════════════════════════════
    PAGE
 ════════════════════════════════════════════════════════════════════ */
-type Tab = 'data-table' | 'comparison' | 'profit-loss' | 'yesterday' | 'yesterday-iristel';
+type Tab = 'data-table' | 'comparison' | 'profit-loss' | 'cost-revenue' | 'yesterday' | 'yesterday-iristel';
 const TABS: { id: Tab; l: string }[] = [
   { id: 'data-table', l: 'Data Table' },
   { id: 'comparison', l: 'Comparison' },
   { id: 'profit-loss', l: 'Profit and Loss' },
+  { id: 'cost-revenue', l: 'Cost vs Revenue' },
   { id: 'yesterday', l: 'Yesterday Data' },
   { id: 'yesterday-iristel', l: 'Yesterday Data - Iristel' },
 ];
@@ -378,6 +379,11 @@ export default function GoogleMoTrafficPage() {
   const [lastRefresh, setLastRefresh] = React.useState<string | null>(null);
   const [datasetId, setDatasetId] = React.useState<string | null>(null);
   const [refreshTick, setRefreshTick] = React.useState(0);
+
+  /* ── Cost vs Revenue state ─────────────────────────────────── */
+  const [cvData, setCvData] = React.useState<any>(null);
+  const [cvLoad, setCvLoad] = React.useState(false);
+  const cvSort = useSortState('revenue');
 
   /* ── Data Table state ──────────────────────────────────────── */
   const [dtMode, setDtMode] = React.useState<'day' | 'month' | 'range'>('day');
@@ -535,6 +541,12 @@ export default function GoogleMoTrafficPage() {
     if (plMonth) p.month = plMonth;
     googleMoApi.getProfitLoss(p).then(r => setPlData((r as any).data)).catch(console.error).finally(() => setPlLoad(false));
   }, [tab, plMccmnc, plCountry, plOperator, plYear, plMonth, refreshTick]);
+
+  React.useEffect(() => {
+    if (tab !== 'cost-revenue') return;
+    setCvLoad(true);
+    googleMoApi.getCostVsRevenue().then(r => setCvData((r as any).data)).catch(console.error).finally(() => setCvLoad(false));
+  }, [tab, refreshTick]);
 
   // On mount: cascade fetch years → pick best year → fetch months → pick best month
   React.useEffect(() => {
@@ -1489,6 +1501,154 @@ export default function GoogleMoTrafficPage() {
             )}
           </>
         )}
+
+        {/* ════════════════ COST VS REVENUE ════════════════════ */}
+        {tab === 'cost-revenue' && (() => {
+          const summary: any[] = cvSort.sort(cvData?.summary ?? []);
+          const monthly: any[] = cvData?.monthly ?? [];
+          const schedule: any[] = cvData?.schedule ?? [];
+          const months = Number(cvData?.window?.months ?? 0);
+          const winLabel = cvData?.window?.start ? `${cvData.window.start} → ${cvData.window.end} · ${months} month${months === 1 ? '' : 's'}` : '';
+          const sum = (rows: any[], k: string) => rows.reduce((a, r) => a + Number(r[k] ?? 0), 0);
+          const totRevenue = sum(cvData?.summary ?? [], 'revenue');
+          const totMargin = sum(cvData?.summary ?? [], 'margin');
+          const totFees = sum(cvData?.summary ?? [], 'total_fees');
+          const totNet = sum(cvData?.summary ?? [], 'net_margin');
+          const dash = <span style={{ color: 'var(--mu)' }}>—</span>;
+          const feeCell = (v: any) => Number(v) > 0 ? fR(v) : dash;
+          return (
+            <>
+              {cvData && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 18 }}>
+                  <Kpi color="km2" label="MO Revenue" icon={IC_REV} value={fM(totRevenue)} sub={winLabel || 'fee countries'} />
+                  <Kpi color="km3" label="Operating Fees" icon={IC_COST} value={fM(totFees)} sub={`annuals ÷12 × ${months} mo + one-offs`} />
+                  <Kpi color="km1" label="Margin before Fees" icon={IC_TREND} value={fM(totMargin)} sub="revenue − vendor cost" />
+                  <Kpi color="km4" label="Net after Fees" icon={IC_TREND} value={fM(totNet)} sub="margin − operating fees" />
+                </div>
+              )}
+
+              {cvLoad ? <Skel /> : (
+                <>
+                  {/* Per-country summary */}
+                  <div className="zpnl" style={{ marginBottom: 16 }}>
+                    <PH title="Country Summary — Revenue vs Operating Fees (USD)" right={winLabel || undefined} />
+                    {!summary.length ? (
+                      <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No data yet.</div>
+                    ) : (
+                      <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
+                        <table className="zt">
+                          <thead><tr>
+                            {cvSort.th('country', 'Country')}
+                            {cvSort.th('volume', 'Volume')}
+                            {cvSort.th('revenue', 'Revenue')}
+                            {cvSort.th('vendor_cost', 'Vendor Cost')}
+                            {cvSort.th('margin', 'Margin')}
+                            {cvSort.th('fee_month', 'Fees / Month')}
+                            {cvSort.th('amortized_fees', `Annual Fees (${months} mo)`)}
+                            {cvSort.th('oneoff_fees', 'One-off Fees')}
+                            {cvSort.th('net_margin', 'Net after Fees')}
+                          </tr></thead>
+                          <tbody>
+                            {summary.map((r: any, i: number) => (
+                              <tr key={i}>
+                                <td><CountryDot name={r.country} /></td>
+                                <td>{fN(r.volume)}</td>
+                                <td>{fR(r.revenue)}</td>
+                                <td>{fR(r.vendor_cost)}</td>
+                                <td className={Number(r.margin) < 0 ? 'zneg' : 'zpos'}>{fR(r.margin)}</td>
+                                <td>{feeCell(r.fee_month)}</td>
+                                <td>{feeCell(r.amortized_fees)}</td>
+                                <td>{feeCell(r.oneoff_fees)}</td>
+                                <td className={Number(r.net_margin) < 0 ? 'zneg' : 'zpos'}><b>{fR(r.net_margin)}</b></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot><tr>
+                            <td>Total</td>
+                            <td>{fN(sum(summary, 'volume'))}</td>
+                            <td>{fR(totRevenue)}</td>
+                            <td>{fR(sum(summary, 'vendor_cost'))}</td>
+                            <td className={totMargin < 0 ? 'zneg' : 'zpos'}>{fR(totMargin)}</td>
+                            <td>{fR(sum(summary, 'fee_month'))}</td>
+                            <td>{fR(sum(summary, 'amortized_fees'))}</td>
+                            <td>{fR(sum(summary, 'oneoff_fees'))}</td>
+                            <td className={totNet < 0 ? 'zneg' : 'zpos'}><b>{fR(totNet)}</b></td>
+                          </tr></tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Monthly breakdown */}
+                  <div className="zpnl" style={{ marginBottom: 16 }}>
+                    <PH title="Monthly Breakdown" right="annual fees ÷12 per month · one-off fees not included here" />
+                    {!monthly.length ? (
+                      <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No traffic in the fee countries yet.</div>
+                    ) : (
+                      <div className="tbl-scroll" style={{ overflowX: 'auto', maxHeight: 460 }}>
+                        <table className="zt">
+                          <thead><tr>
+                            <th style={{ textAlign: 'left' }}>Month</th>
+                            <th style={{ textAlign: 'left' }}>Country</th>
+                            <th>Volume</th>
+                            <th>Revenue</th>
+                            <th>Vendor Cost</th>
+                            <th>Margin</th>
+                            <th>Fees (month)</th>
+                            <th>Net</th>
+                          </tr></thead>
+                          <tbody>
+                            {monthly.map((r: any, i: number) => (
+                              <tr key={i}>
+                                <td>{r.month_label}</td>
+                                <td><CountryDot name={r.country} /></td>
+                                <td>{fN(r.volume)}</td>
+                                <td>{fR(r.revenue)}</td>
+                                <td>{fR(r.vendor_cost)}</td>
+                                <td className={Number(r.margin) < 0 ? 'zneg' : 'zpos'}>{fR(r.margin)}</td>
+                                <td>{feeCell(r.fee_month)}</td>
+                                <td className={Number(r.net_margin) < 0 ? 'zneg' : 'zpos'}>{fR(r.net_margin)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Fee schedule */}
+                  <div className="zpnl">
+                    <PH title="Fee Schedule (USD)" right="fixed values · annual fees amortized ÷12 · updated 1 Sep 2026" />
+                    <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
+                      <table className="zt">
+                        <thead><tr>
+                          <th style={{ textAlign: 'left' }}>Country</th>
+                          <th>VAS License (annual)</th>
+                          <th>Company / Trade License (annual)</th>
+                          <th>Set Up Fee (one-off)</th>
+                          <th>SC Fee (annual)</th>
+                          <th>Other One-off Fees</th>
+                        </tr></thead>
+                        <tbody>
+                          {schedule.map((f: any, i: number) => (
+                            <tr key={i}>
+                              <td><CountryDot name={f.country} /></td>
+                              <td>{feeCell(f.vas_license)}</td>
+                              <td>{feeCell(f.company_license)}</td>
+                              <td>{feeCell(f.setup_fee)}</td>
+                              <td>{feeCell(f.sc_fee)}</td>
+                              <td>{feeCell(f.other_oneoff)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
+          );
+        })()}
 
         {/* ════════════════ YESTERDAY DATA ═════════════════════ */}
         {tab === 'yesterday' && (
