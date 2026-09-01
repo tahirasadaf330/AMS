@@ -1521,7 +1521,7 @@ export default function GoogleMoTrafficPage() {
               {cvData && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 18 }}>
                   <Kpi color="km2" label="MO Revenue" icon={IC_REV} value={fM(totRevenue)} sub={winLabel || 'fee countries'} />
-                  <Kpi color="km3" label="Operating Fees" icon={IC_COST} value={fM(totFees)} sub={`annuals ÷12 × ${months} mo + one-offs`} />
+                  <Kpi color="km3" label="Operating Fees" icon={IC_COST} value={fM(totFees)} sub={`annual fees ÷12 × ${months} months + once off fees`} />
                   <Kpi color="km1" label="Margin before Fees" icon={IC_TREND} value={fM(totMargin)} sub="revenue − vendor cost" />
                   <Kpi color="km4" label="Net after Fees" icon={IC_TREND} value={fM(totNet)} sub="margin − operating fees" />
                 </div>
@@ -1543,9 +1543,9 @@ export default function GoogleMoTrafficPage() {
                             {cvSort.th('revenue', 'Revenue')}
                             {cvSort.th('vendor_cost', 'Vendor Cost')}
                             {cvSort.th('margin', 'Margin')}
-                            {cvSort.th('fee_month', 'Fees / Month')}
-                            {cvSort.th('amortized_fees', `Annual Fees (${months} mo)`)}
-                            {cvSort.th('oneoff_fees', 'One-off Fees')}
+                            {cvSort.th('fee_month', 'Annual Fees / Month')}
+                            {cvSort.th('amortized_fees', `Annual Fees (${months} Months)`)}
+                            {cvSort.th('oneoff_fees', 'Once Off Fees')}
                             {cvSort.th('net_margin', 'Net after Fees')}
                           </tr></thead>
                           <tbody>
@@ -1581,7 +1581,7 @@ export default function GoogleMoTrafficPage() {
 
                   {/* Monthly breakdown */}
                   <div className="zpnl" style={{ marginBottom: 16 }}>
-                    <PH title="Monthly Breakdown" right="annual fees ÷12 per month · one-off fees not included here" />
+                    <PH title="Monthly Breakdown" right="annual fees ÷12 per month · once off fees not included here" />
                     {!monthly.length ? (
                       <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No traffic in the fee countries yet.</div>
                     ) : (
@@ -1594,8 +1594,8 @@ export default function GoogleMoTrafficPage() {
                             <th>Revenue</th>
                             <th>Vendor Cost</th>
                             <th>Margin</th>
-                            <th>Fees (month)</th>
-                            <th>Net</th>
+                            <th>Annual Fees ÷12</th>
+                            <th>Net after Fees</th>
                           </tr></thead>
                           <tbody>
                             {monthly.map((r: any, i: number) => (
@@ -1623,11 +1623,11 @@ export default function GoogleMoTrafficPage() {
                       <table className="zt">
                         <thead><tr>
                           <th style={{ textAlign: 'left' }}>Country</th>
-                          <th>VAS License (annual)</th>
-                          <th>Company / Trade License (annual)</th>
-                          <th>Set Up Fee (one-off)</th>
-                          <th>SC Fee (annual)</th>
-                          <th>Other One-off Fees</th>
+                          <th>VAS License</th>
+                          <th>Company/Trade License Fee (Annual)</th>
+                          <th>Set Up Fee</th>
+                          <th>SC Fee (Annual)</th>
+                          <th>Other Once Off Fees</th>
                         </tr></thead>
                         <tbody>
                           {schedule.map((f: any, i: number) => (
