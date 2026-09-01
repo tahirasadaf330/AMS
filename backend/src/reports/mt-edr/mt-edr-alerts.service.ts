@@ -270,11 +270,40 @@ const SPIKE_BODY = String.raw`
     rows = cur.fetchall()
     if not rows:
         fail("No per-minute traffic spikes (>= ${SPIKE_PER_MIN}/min) in the last 15 minutes")
+    # Route breakdown of each spiking customer's PEAK minute (NOC request 2026-09-01):
+    # which destination country/network (MCC-MNC) and vendor carried the burst, with each
+    # route's share of that minute.
+    cur.execute("""
+        WITH per_min AS (
+            SELECT customer_company AS co, date_trunc('minute', submit_datetime) AS m, COUNT(*) AS c
+            FROM stage_mt_edr_monitoring
+            WHERE submit_datetime >= now() - interval '15 minutes'
+            GROUP BY 1, 2
+        ),
+        peaks AS (
+            SELECT DISTINCT ON (co) co, m, c FROM per_min ORDER BY co, c DESC
+        )
+        SELECT s.customer_company, COALESCE(s.vendor_name, '(none)'),
+               COALESCE(s.network_name, '(unmapped)'), COALESCE(s.mcc_mnc, '?'),
+               COUNT(*) AS msgs, ROUND(COUNT(*) * 100.0 / p.c, 1) AS share
+        FROM stage_mt_edr_monitoring s
+        JOIN peaks p ON p.co = s.customer_company
+                    AND date_trunc('minute', s.submit_datetime) = p.m
+        WHERE p.c >= ${SPIKE_PER_MIN}
+        GROUP BY 1, 2, 3, 4, p.c
+        ORDER BY 1, 5 DESC
+    """)
+    vrows = cur.fetchall()
     trows = [[esc(r[0]), esc(r[1]), fi(r[2]), esc(r[3]) + " UTC"] for r in rows]
     inner = table(["Customer", "Account Manager", "Peak msgs / min", "At"],
                   ["left", "left", "right", "left"], trows)
+    btrows = [[esc(v[0]), esc(v[1]), esc(v[2]), esc(v[3]), fi(v[4]), fp(v[5])] for v in vrows]
+    inner += ('<div style="margin:14px 0 6px;font-weight:700;color:' + NAVY + ';font-size:13px;">Spike breakdown — peak minute by route</div>'
+              + table(["Customer", "Vendor", "Country / Network", "MCC-MNC", "Msgs (peak min)", "Share"],
+                      ["left", "left", "left", "left", "right", "right"], btrows))
     intro = ("Sudden traffic spike: &ge; <b>${SPIKE_PER_MIN} messages in one minute</b> within the last 15 minutes "
-             "(the same spike rule the MT EDR report flags). Verify it is expected campaign traffic.")
+             "(the same spike rule the MT EDR report flags). The breakdown shows which destination network and "
+             "vendor carried each customer's peak minute. Verify it is expected campaign traffic.")
     # Dedup key = identity only (customer): a sustained spike shifts its peak minute every tick and
     # would re-email otherwise; a NEW spiking customer still alerts immediately.
     drows = sorted([{"customer": r[0]} for r in rows], key=lambda d: str(d["customer"]))
