@@ -1519,14 +1519,15 @@ export default function GoogleMoTrafficPage() {
           /* ── Zamani-style month table: rows = months, columns = fee types ── */
           const fUsd = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n);
           const byMonth = new Map<string, any>();
+          const monthRows: any[] = [];
           for (const r of (cvData?.monthly ?? [])) {
             const k = `${r.year}-${String(r.month_num).padStart(2, '0')}`;
-            const m = byMonth.get(k) ?? { key: k, month_label: r.month_label, revenue: 0, vendor_cost: 0 };
+            let m = byMonth.get(k);
+            if (!m) { m = { key: k, month_label: r.month_label, revenue: 0, vendor_cost: 0 }; byMonth.set(k, m); monthRows.push(m); }
             m.revenue += Number(r.revenue ?? 0);
             m.vendor_cost += Number(r.vendor_cost ?? 0);
-            byMonth.set(k, m);
           }
-          const monthRows = [...byMonth.values()].sort((a, b) => a.key.localeCompare(b.key));
+          monthRows.sort((a, b) => a.key.localeCompare(b.key));
           // Monthly ÷12 amount per annual fee type, summed over all fee countries.
           const vasM = sum(schedule, 'vas_license') / 12;
           const companyM = sum(schedule, 'company_license') / 12;
