@@ -67,8 +67,10 @@ const CSS = `
 .sa{font-size:.56rem;margin-left:3px;opacity:.4}
 `;
 
-const fN    = (n: any) => n != null ? Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
-const fRate = (n: any) => n != null ? Number(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 }) : '—';
+// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
+const zz    = (s: string) => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
+const fN    = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })) : '—';
+const fRate = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 })) : '—';
 
 type SortDir = 'asc' | 'desc' | null;
 

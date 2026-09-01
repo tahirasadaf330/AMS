@@ -131,9 +131,11 @@ function Skel() {
   );
 }
 
-const fN = (n: any, d = 0) => n != null ? Number(n).toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d }) : '—';
-const fRate = (n: any) => n != null ? Number(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 }) : '—';
-const fPct = (n: any) => n != null ? `${Number(n).toFixed(1)}%` : '—';
+// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
+const zz = (s: string) => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
+const fN = (n: any, d = 0) => n != null ? zz(Number(n).toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d })) : '—';
+const fRate = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 })) : '—';
+const fPct = (n: any) => n != null ? zz(`${Number(n).toFixed(1)}%`) : '—';
 const MNS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const fDate = (s: string | null) => {
   if (!s) return '—';

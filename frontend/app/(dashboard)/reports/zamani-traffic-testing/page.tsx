@@ -14,10 +14,12 @@ const MNS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','
 
 const yd  = () => { const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); };
 const dby = () => { const d = new Date(); d.setDate(d.getDate()-2); return d.toISOString().slice(0,10); };
-const fN  = (n: any) => n != null ? Number(n).toLocaleString('en-US',{maximumFractionDigits:0}) : '—';
-const fR  = (n: any) => n != null ? `€${Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
-const fM  = (n: any) => { if (n==null) return '—'; const v=Number(n); return v>=1e6?`€${(v/1e6).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}M`:v>=1e3?`€${(v/1e3).toLocaleString('en-US',{minimumFractionDigits:1,maximumFractionDigits:1})}K`:`€${v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`; };
-const fP  = (n: any) => n != null ? `${Number(n).toFixed(1)}%` : '—';
+// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
+const zz  = (s: string) => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
+const fN  = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US',{maximumFractionDigits:0})) : '—';
+const fR  = (n: any) => n != null ? zz(`€${Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`) : '—';
+const fM  = (n: any) => { if (n==null) return '—'; const v=Number(n); return zz(v>=1e6?`€${(v/1e6).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}M`:v>=1e3?`€${(v/1e3).toLocaleString('en-US',{minimumFractionDigits:1,maximumFractionDigits:1})}K`:`€${v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`); };
+const fP  = (n: any) => n != null ? zz(`${Number(n).toFixed(1)}%`) : '—';
 const fDate=(s: string) => {
   if (!s) return '';
   const d = new Date(s+'T00:00:00');
@@ -1280,7 +1282,7 @@ const TABS: { id: Tab; l: string }[] = [
           const netMargin    = totRevenue - totalDeductions;
 
           const fD = (n: number) =>
-            new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(n);
+            zz(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(n));
 
           const cellStyle = (n: number, forceColor?: boolean): React.CSSProperties => ({
             textAlign: 'right' as const,
@@ -1383,7 +1385,7 @@ const TABS: { id: Tab; l: string }[] = [
 
         {tab === 'investment-recovery' && (() => {
           const fD = (n: number) =>
-            new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(n);
+            zz(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(n));
 
           return (
             <div className="zpnl">

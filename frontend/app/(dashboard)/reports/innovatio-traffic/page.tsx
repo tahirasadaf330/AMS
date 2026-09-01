@@ -53,7 +53,9 @@ const CSS = `
 .it-bar{display:inline-block;height:8px;background:rgba(37,99,235,.35);border-radius:4px;vertical-align:middle;margin-right:8px}
 `;
 
-const fN = (n: any) => (n != null ? Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—');
+// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
+const zz = (s: string) => (s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s);
+const fN = (n: any) => (n != null ? zz(Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })) : '—');
 
 type Tab = 'detail' | 'client' | 'sender';
 type SortDir = 'asc' | 'desc';

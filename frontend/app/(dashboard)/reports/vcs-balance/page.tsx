@@ -171,7 +171,9 @@ const fmtCur = (n: any, currency?: string): string => {
 
 const fmtRev = (n: any) =>
   n != null ? `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
-const fmtPct = (n: any) => n != null ? `${Number(n).toFixed(1)}%` : '—';
+// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
+const zz = (s: string) => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
+const fmtPct = (n: any) => n != null ? zz(`${Number(n).toFixed(1)}%`) : '—';
 
 function RemainingBadge({ pct }: { pct: number | null }) {
   if (pct == null) return <span style={{ color: 'var(--mu)' }}>—</span>;

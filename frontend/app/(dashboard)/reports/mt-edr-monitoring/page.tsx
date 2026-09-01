@@ -209,8 +209,10 @@ const fmtTime = (dt: string | null) =>
   dt ? new Date(dt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
 
 const fmtDT   = (dt: string | null) => dt ? new Date(dt).toLocaleString('en-GB') : '—';
-const fmtN    = (n: number | null)  => n  != null ? Number(n).toLocaleString() : '—';
-const fmtRate = (n: number | null)  => n  != null ? Number(n).toFixed(6) : '—';
+// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
+const zz      = (s: string) => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
+const fmtN    = (n: number | null)  => n  != null ? zz(Number(n).toLocaleString()) : '—';
+const fmtRate = (n: number | null)  => n  != null ? zz(Number(n).toFixed(6)) : '—';
 
 // datetime-local input value (browser local tz) for the From/To time-window filters.
 const toLocalInput = (d: Date) => {

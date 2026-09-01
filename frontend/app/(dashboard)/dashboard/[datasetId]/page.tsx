@@ -127,9 +127,11 @@ export default function DatasetDashboardPage() {
   const voiceTotals = React.useMemo<Record<string, string> | undefined>(() => {
     const t = tableData?.totals;
     if (!t) return undefined;
-    const fmtInt = (n: number | null) => (n == null ? '—' : Number(n).toLocaleString('en-US'));
-    const fmtDec = (n: number | null) => (n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-    const fmtPct = (n: number | null) => (n == null ? '—' : `${Number(n).toFixed(2)}%`);
+    // A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
+    const zz = (s: string) => (s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s);
+    const fmtInt = (n: number | null) => (n == null ? '—' : zz(Number(n).toLocaleString('en-US')));
+    const fmtDec = (n: number | null) => (n == null ? '—' : zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })));
+    const fmtPct = (n: number | null) => (n == null ? '—' : zz(`${Number(n).toFixed(2)}%`));
     return {
       attempts: fmtInt(t.attempts),
       acd: fmtDec(t.acd),

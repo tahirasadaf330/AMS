@@ -12,23 +12,25 @@ const PAL = ['#3498db', '#1abc9c', '#9b59b6', '#e67e22', '#e74c3c', '#f1c40f', '
 const MNF = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const MNS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const fN = (n: any) => n != null ? Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
+// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
+const zz = (s: string) => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
+const fN = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })) : '—';
 const fV = (n: any) => {
   if (n == null) return '—';
   const v = Number(n);
-  if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
-  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  if (v >= 1e6) return zz(`${(v / 1e6).toFixed(2)}M`);
+  if (v >= 1e3) return zz(`${(v / 1e3).toFixed(1)}K`);
   return fN(v);
 };
-const fR = (n: any) => n != null ? `$${Number(n).toFixed(4)}` : '—';
+const fR = (n: any) => n != null ? zz(`$${Number(n).toFixed(4)}`) : '—';
 const fM = (n: any) => {
   if (n == null) return '—';
   const v = Number(n);
-  if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
-  if (v >= 1e3) return `$${(v / 1e3).toFixed(1)}K`;
-  return `$${v.toFixed(2)}`;
+  if (v >= 1e6) return zz(`$${(v / 1e6).toFixed(2)}M`);
+  if (v >= 1e3) return zz(`$${(v / 1e3).toFixed(1)}K`);
+  return zz(`$${v.toFixed(2)}`);
 };
-const fP = (n: any) => n != null ? `${Number(n).toFixed(2)}%` : '—';
+const fP = (n: any) => n != null ? zz(`${Number(n).toFixed(2)}%`) : '—';
 const fDate = (s: string) => {
   if (!s) return '';
   const d = new Date(s + 'T00:00:00');
@@ -1517,7 +1519,7 @@ export default function GoogleMoTrafficPage() {
           const feeCell = (v: any) => Number(v) > 0 ? fR(v) : dash;
 
           /* ── Zamani-style month table: rows = months, columns = fee types ── */
-          const fUsd = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n);
+          const fUsd = (n: number) => zz(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n));
           const byMonth = new Map<string, any>();
           const monthRows: any[] = [];
           for (const r of (cvData?.monthly ?? [])) {

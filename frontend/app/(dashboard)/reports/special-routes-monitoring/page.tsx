@@ -59,10 +59,12 @@ const CSS = `
 .sa{font-size:.56rem;margin-left:3px;opacity:.4}
 `;
 
-const fN    = (n: any) => n != null ? Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
-const fMin  = (n: any) => n != null ? Number(n).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—';
-const fRate = (n: any) => n != null ? Number(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 }) : '—';
-const fPct  = (n: any) => n != null ? `${Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 })}%` : '—';
+// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
+const zz    = (s: string) => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
+const fN    = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })) : '—';
+const fMin  = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })) : '—';
+const fRate = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 })) : '—';
+const fPct  = (n: any) => n != null ? zz(`${Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 })}%`) : '—';
 
 type SortDir = 'asc' | 'desc' | null;
 

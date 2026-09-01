@@ -116,8 +116,10 @@ type Kind = 'src' | 'dst';
 interface SortState { key: string | null; dir: SortDir; set: (k: string) => void }
 type NumRange = { min: string; max: string };
 
-const fmtInt = (n: any): string => n == null ? '—' : Number(n).toLocaleString('en-US');
-const fmtDec = (n: any): string => n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
+const zz = (s: string): string => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
+const fmtInt = (n: any): string => n == null ? '—' : zz(Number(n).toLocaleString('en-US'));
+const fmtDec = (n: any): string => n == null ? '—' : zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
 function useOutsideClose(open: boolean, ref: React.RefObject<HTMLDivElement>, close: () => void) {
   React.useEffect(() => {

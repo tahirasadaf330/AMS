@@ -54,9 +54,11 @@ const CSS = `
 .neg{color:#dc2626}
 `;
 
-const fN = (n: any) => (n != null ? Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—');
-const fM = (n: any) => (n != null ? Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—');
-const fP = (n: any) => (n != null ? `${Number(n).toFixed(2)}%` : '—');
+// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
+const zz = (s: string) => (s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s);
+const fN = (n: any) => (n != null ? zz(Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })) : '—');
+const fM = (n: any) => (n != null ? zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '—');
+const fP = (n: any) => (n != null ? zz(`${Number(n).toFixed(2)}%`) : '—');
 
 type Tab = 'funnel' | 'detail' | 'client' | 'vendor';
 type SortDir = 'asc' | 'desc';

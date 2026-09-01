@@ -94,9 +94,11 @@ type SortDir = 'asc' | 'desc';
 interface SortState { key: string | null; dir: SortDir; set: (k: string) => void }
 type NumRange = { min: string; max: string };
 
-const fmtInt = (n: any): string => n == null ? '—' : Number(n).toLocaleString('en-US');
-const fmtDec = (n: any): string => n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtPct = (n: any): string => n == null ? '—' : `${Number(n).toFixed(2)}%`;
+// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
+const zz = (s: string): string => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
+const fmtInt = (n: any): string => n == null ? '—' : zz(Number(n).toLocaleString('en-US'));
+const fmtDec = (n: any): string => n == null ? '—' : zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const fmtPct = (n: any): string => n == null ? '—' : zz(`${Number(n).toFixed(2)}%`);
 
 // ASR (Answer-Seizure Ratio) health colours — higher is healthier.
 function asrColours(pct: number | null): [string, string] {
