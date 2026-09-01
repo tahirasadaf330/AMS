@@ -19,9 +19,15 @@ const addDays   = (isoStr: string, n: number) => { const d = new Date(isoStr.sli
 const monthStart= () => { const d = new Date(); return `${d.getFullYear()}-${zp(d.getMonth()+1)}-01`; };
 const monthEnd  = (m: string) => { const [y, mo] = m.split('-').map(Number); return `${m}-${zp(new Date(y, mo, 0).getDate())}`; };
 
-const fN  = (n: any) => n != null ? Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
-const fR  = (n: any) => { if (n == null) return '—'; const v = Number(n); return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
-const fM  = (n: any) => { if (n == null) return '—'; const v = Number(n); return v >= 1e6 ? `$${(v/1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(1)}K` : `$${v.toFixed(2)}`; };
+// A value that rounds to zero must display as "0", never "-0" (Math.round(-0.4) is
+// negative zero and Intl formats it with the minus sign) — normalize before formatting.
+const noNegZero = (v: number, decimals = 0) => {
+  const f = Math.pow(10, decimals);
+  return Math.round(v * f) === 0 ? Math.abs(v) : v;
+};
+const fN  = (n: any) => n != null ? noNegZero(Number(n)).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
+const fR  = (n: any) => { if (n == null) return '—'; const v = noNegZero(Number(n), 2); return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
+const fM  = (n: any) => { if (n == null) return '—'; const v = noNegZero(Number(n), 2); return v >= 1e6 ? `$${(v/1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(1)}K` : `$${v.toFixed(2)}`; };
 const fP  = (n: any) => n != null ? `${Number(n).toFixed(1)}%` : '—';
 const fDate = (s: string) => {
   if (!s) return '';
