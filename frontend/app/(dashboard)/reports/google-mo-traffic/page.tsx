@@ -1515,6 +1515,30 @@ export default function GoogleMoTrafficPage() {
           const totNet = sum(cvData?.summary ?? [], 'net_margin');
           const dash = <span style={{ color: 'var(--mu)' }}>—</span>;
           const feeCell = (v: any) => Number(v) > 0 ? fR(v) : dash;
+
+          /* ── Zamani-style month table: rows = months, columns = fee types ── */
+          const fUsd = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n);
+          const byMonth = new Map<string, any>();
+          for (const r of (cvData?.monthly ?? [])) {
+            const k = `${r.year}-${String(r.month_num).padStart(2, '0')}`;
+            const m = byMonth.get(k) ?? { key: k, month_label: r.month_label, revenue: 0, vendor_cost: 0 };
+            m.revenue += Number(r.revenue ?? 0);
+            m.vendor_cost += Number(r.vendor_cost ?? 0);
+            byMonth.set(k, m);
+          }
+          const monthRows = [...byMonth.values()].sort((a, b) => a.key.localeCompare(b.key));
+          // Monthly ÷12 amount per annual fee type, summed over all fee countries.
+          const vasM = sum(schedule, 'vas_license') / 12;
+          const companyM = sum(schedule, 'company_license') / 12;
+          const scM = sum(schedule, 'sc_fee') / 12;
+          const setupTotal = sum(schedule, 'setup_fee');
+          const otherTotal = sum(schedule, 'other_oneoff');
+          const tblRevenue = sum(monthRows, 'revenue');
+          const tblVendor = sum(monthRows, 'vendor_cost');
+          const nMonths = monthRows.length;
+          const totalDeductions = tblVendor + (vasM + companyM + scM) * nMonths + setupTotal + otherTotal;
+          const tblNet = tblRevenue - totalDeductions;
+          const red = { textAlign: 'right' as const, color: '#f87171', fontWeight: 600 };
           return (
             <>
               {cvData && (
@@ -1528,6 +1552,73 @@ export default function GoogleMoTrafficPage() {
 
               {cvLoad ? <Skel /> : (
                 <>
+                  {/* Zamani-style Cost Vs Revenue table: month rows × fee-type columns */}
+                  <div className="zpnl" style={{ marginBottom: 16 }}>
+                    <PH title="Cost Vs Revenue" right="All figures in USD · annual fees ÷12 per month" />
+                    {!monthRows.length ? (
+                      <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No traffic in the fee countries yet.</div>
+                    ) : (
+                      <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
+                        <table className="zt">
+                          <thead><tr>
+                            <th style={{ textAlign: 'left', minWidth: 110 }}>Month</th>
+                            <th style={{ textAlign: 'right' }}>Revenue</th>
+                            <th style={{ textAlign: 'right' }}>Vendor Cost</th>
+                            <th style={{ textAlign: 'right' }}>VAS License</th>
+                            <th style={{ textAlign: 'right' }}>Company/Trade License Fee (Annual)</th>
+                            <th style={{ textAlign: 'right' }}>SC Fee (Annual)</th>
+                            <th style={{ textAlign: 'right' }}>Set Up Fee</th>
+                            <th style={{ textAlign: 'right' }}>Other Once Off Fees</th>
+                          </tr></thead>
+                          <tbody>
+                            {monthRows.map((m: any, i: number) => (
+                              <tr key={i}>
+                                <td style={{ fontWeight: 600 }}>{m.month_label}</td>
+                                <td>{fUsd(m.revenue)}</td>
+                                <td style={{ color: '#f87171' }}>{fUsd(m.vendor_cost)}</td>
+                                <td style={{ color: vasM > 0 ? '#f87171' : 'var(--mu)' }}>{vasM > 0 ? fUsd(vasM) : '—'}</td>
+                                <td style={{ color: companyM > 0 ? '#f87171' : 'var(--mu)' }}>{companyM > 0 ? fUsd(companyM) : '—'}</td>
+                                <td style={{ color: scM > 0 ? '#f87171' : 'var(--mu)' }}>{scM > 0 ? fUsd(scM) : '—'}</td>
+                                <td style={{ color: 'var(--mu)' }}>—</td>
+                                <td style={{ color: 'var(--mu)' }}>—</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            {/* One-time costs row */}
+                            <tr style={{ borderTop: '1px solid var(--lns)', background: 'var(--sf2)' }}>
+                              <td style={{ fontWeight: 600, color: 'var(--inks)', fontSize: 11 }}>ONE-TIME COSTS</td>
+                              <td /><td /><td /><td /><td />
+                              <td style={red}>{fUsd(setupTotal)}</td>
+                              <td style={red}>{fUsd(otherTotal)}</td>
+                            </tr>
+                            {/* Column totals */}
+                            <tr style={{ borderTop: '2px solid var(--lns)', fontWeight: 700 }}>
+                              <td>Total</td>
+                              <td>{fUsd(tblRevenue)}</td>
+                              <td style={red}>{fUsd(tblVendor)}</td>
+                              <td style={red}>{vasM > 0 ? fUsd(vasM * nMonths) : '—'}</td>
+                              <td style={red}>{companyM > 0 ? fUsd(companyM * nMonths) : '—'}</td>
+                              <td style={red}>{scM > 0 ? fUsd(scM * nMonths) : '—'}</td>
+                              <td style={red}>{fUsd(setupTotal)}</td>
+                              <td style={red}>{fUsd(otherTotal)}</td>
+                            </tr>
+                            {/* Net margin */}
+                            <tr style={{ borderTop: '2px solid var(--lns)', background: tblNet >= 0 ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)' }}>
+                              <td style={{ fontWeight: 800, fontSize: 13 }}>Net Margin</td>
+                              <td colSpan={6} style={{ textAlign: 'right', fontSize: 11, color: 'var(--mu)', fontStyle: 'italic', paddingRight: 8 }}>
+                                {fUsd(tblRevenue)} − {fUsd(totalDeductions)}
+                              </td>
+                              <td style={{ textAlign: 'right', fontSize: 15, fontWeight: 800, color: tblNet >= 0 ? '#4ade80' : '#f87171' }}>
+                                {fUsd(tblNet)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Per-country summary */}
                   <div className="zpnl" style={{ marginBottom: 16 }}>
                     <PH title="Country Summary — Revenue vs Operating Fees (USD)" right={winLabel || undefined} />
