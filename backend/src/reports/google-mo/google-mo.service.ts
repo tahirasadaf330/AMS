@@ -1250,6 +1250,11 @@ export class GoogleMoService implements OnModuleInit {
       const cells: string[] = [];
       row.eachCell({ includeEmpty: true }, (cell) => {
         let val: any = cell.value;
+        // Formula / shared-formula cells: use the computed result (the sheet's fee
+        // columns are formulas like =2075/12/3 — without this they stringify to
+        // "[object Object]" and import as 0).
+        if (val && typeof val === "object" && "result" in val) val = (val as any).result;
+        if (val && typeof val === "object" && "error" in val) val = "";
         if (val && typeof val === "object" && "text" in val) val = (val as any).text;
         if (val && typeof val === "object" && "richText" in val)
           val = (val as any).richText.map((rt: any) => rt.text).join("");
