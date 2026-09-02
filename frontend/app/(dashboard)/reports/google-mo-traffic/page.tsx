@@ -169,7 +169,8 @@ const CSS = `
 .zbt:hover{filter:brightness(1.06)}.zbt:active{transform:translateY(2px);box-shadow:0 1px 0 var(--green-sea)}
 .zt{width:100%;border-collapse:collapse;font-size:13.5px}
 .zt thead th{text-align:right;font-weight:700;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
-  color:var(--mu);padding:10px 16px 10px;border-bottom:2px solid var(--lns);cursor:pointer;user-select:none;white-space:nowrap}
+  color:var(--mu);padding:10px 16px 10px;border-bottom:2px solid var(--lns);cursor:pointer;user-select:none;white-space:nowrap;
+  position:sticky;top:0;background:var(--sf);z-index:1}
 .zt thead th:first-child{text-align:left}
 .zt thead th.zs{color:var(--turquoise)}
 .tbl-scroll::-webkit-scrollbar{height:10px;width:10px}
@@ -756,7 +757,6 @@ export default function GoogleMoTrafficPage() {
 
   const plRows = plData?.rows ?? [];
   const plSorted = plSort.sort(plRows);
-  const plPag = usePagination(plSorted.length, 12);
   const plTotals = React.useMemo(() => {
     if (!plRows.length) return null;
     return plRows.reduce((acc: any, r: any) => ({
@@ -1454,7 +1454,8 @@ export default function GoogleMoTrafficPage() {
                   <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No data for the selected period.<br />Trigger a refresh first, then add cost entries for the P&amp;L margin.</div>
                 ) : (
                   <>
-                    <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
+                    {/* All rows in one scrollable body (no pagination); header stays sticky. */}
+                    <div className="tbl-scroll" style={{ overflow: 'auto', maxHeight: 560 }}>
                       <table className="zt">
                         <thead><tr>
                           {plSort.th('month_name', 'Month Name')}
@@ -1468,7 +1469,7 @@ export default function GoogleMoTrafficPage() {
                           {plSort.th('margin', 'Margin')}
                         </tr></thead>
                         <tbody>
-                          {plSorted.slice(plPag.start, plPag.end).map((r: any, i: number) => (
+                          {plSorted.map((r: any, i: number) => (
                             <tr key={i}>
                               <td>{r.month_name?.trim()}</td>
                               <td><CountryDot name={r.country_name} /></td>
@@ -1496,7 +1497,9 @@ export default function GoogleMoTrafficPage() {
                         )}
                       </table>
                     </div>
-                    <Paginator page={plPag.page} totalPages={plPag.totalPages} setPage={plPag.setPage} total={plSorted.length} pageSize={12} />
+                    <div style={{ padding: '10px 18px', fontSize: 12, color: 'var(--mu)', textAlign: 'right' }}>
+                      {plSorted.length.toLocaleString()} rows
+                    </div>
                   </>
                 )}
               </div>
