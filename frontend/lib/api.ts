@@ -470,7 +470,6 @@ export const googleMoApi = {
   getYesterdayIristelFilters: () => api.get('/reports/google-mo/yesterday-iristel-filters'),
   getYesterdayIristel: (params: Record<string, string>) => api.get('/reports/google-mo/yesterday-iristel', { params }),
   getEstimates: (params?: Record<string, string>) => api.get('/reports/google-mo/estimates', { params }),
-  getCostVsRevenue: () => api.get('/reports/google-mo/cost-vs-revenue'),
 };
 
 // ── GOOGLE MO IMPORT (admin) ──────────────────────────────────

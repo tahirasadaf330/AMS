@@ -12,26 +12,6 @@ const COST_TABLE = "google_mo_cost";
 const ASMSC_DATASOURCE_NAME = "ASMSC";
 const DATASET_NAME = "Google MO Traffic";
 
-// Per-country operating fees in USD (Sales schedule, 2026-09-01). `country` must match
-// google_mo_traffic.countryname exactly (note: Ivory Coast is stored as "Cote d'Ivoire").
-// Annual fees (vas_license, company_license, sc_fee) are amortized ÷12 per month on the
-// Cost vs Revenue tab; setup_fee and other_oneoff count once per window. Values are fixed
-// by design (Bilal, 2026-09-01) — edit here and redeploy to change them.
-const COUNTRY_FEES = [
-  { country: "Niger",         vas_license: 0,    company_license: 1075, setup_fee: 877,  sc_fee: 1000, other_oneoff: 0 },
-  { country: "Rwanda",        vas_license: 0,    company_license: 0,    setup_fee: 0,    sc_fee: 0,    other_oneoff: 811 },
-  { country: "Benin",         vas_license: 0,    company_license: 542,  setup_fee: 3200, sc_fee: 0,    other_oneoff: 0 },
-  { country: "Malawi",        vas_license: 0,    company_license: 650,  setup_fee: 230,  sc_fee: 0,    other_oneoff: 0 },
-  { country: "Zambia",        vas_license: 0,    company_license: 0,    setup_fee: 1461, sc_fee: 0,    other_oneoff: 0 },
-  { country: "Mali",          vas_license: 0,    company_license: 0,    setup_fee: 0,    sc_fee: 0,    other_oneoff: 740 },
-  { country: "Sri Lanka",     vas_license: 0,    company_license: 0,    setup_fee: 0,    sc_fee: 0,    other_oneoff: 0 },
-  { country: "Nigeria",       vas_license: 0,    company_license: 750,  setup_fee: 90,   sc_fee: 0,    other_oneoff: 0 },
-  { country: "Cote d'Ivoire", vas_license: 0,    company_license: 0,    setup_fee: 3135, sc_fee: 3200, other_oneoff: 0 },
-  { country: "Botswana",      vas_license: 0,    company_license: 250,  setup_fee: 0,    sc_fee: 0,    other_oneoff: 0 },
-  { country: "Cameroon",      vas_license: 0,    company_license: 550,  setup_fee: 0,    sc_fee: 0,    other_oneoff: 0 },
-  { country: "Liberia",       vas_license: 2175, company_license: 0,    setup_fee: 0,    sc_fee: 0,    other_oneoff: 0 },
-];
-
 // Aggregated daily MSSQL query — each row = one date/mccmnc/country/operator/vendor/customer combination.
 // Column names match sanitizeRowKeys() output (lowercase, non-alnum → stripped).
 const SEED_SQL = `\
@@ -1471,90 +1451,5 @@ export class GoogleMoService implements OnModuleInit {
     if (!country) return null;
     const estimation = parseFloat(estStr.replace(/[,$\s]/g, ""));
     return { country, estimation: isNaN(estimation) ? 0 : estimation };
-  }
-
-  // ── Cost vs Revenue (per-country operating fees, USD) ─────────────────────
-  // MO revenue for the fee-schedule countries vs their operating fees over the stage's
-  // retained window (~6 months): annual fees amortized ÷12 per month present in the
-  // window, one-off fees (setup + other) counted once. Fee countries with no traffic
-  // (e.g. Sri Lanka) still get a summary row so the schedule stays visible.
-  async getCostVsRevenue() {
-    const feeCountriesLower = COUNTRY_FEES.map((f) => f.country.toLowerCase());
-
-    const [monthly, [win]] = await Promise.all([
-      this.dataSource.query(
-        `SELECT TO_CHAR(DATE_TRUNC('month', receiveddate), 'Mon YYYY') AS month_label,
-                EXTRACT(YEAR FROM receiveddate)::int  AS year,
-                EXTRACT(MONTH FROM receiveddate)::int AS month_num,
-                countryname                           AS country,
-                SUM(volume)::bigint                   AS volume,
-                ROUND(SUM(revenue)::numeric, 2)       AS revenue,
-                ROUND(SUM(vendorcost)::numeric, 2)    AS vendor_cost,
-                ROUND(SUM(margin)::numeric, 2)        AS margin
-         FROM ${STAGE}
-         WHERE customername = 'Google_DIR'
-           AND COALESCE(vendorname, '') <> 'Iristel_p2p'
-           AND LOWER(countryname) = ANY($1)
-         GROUP BY 1, 2, 3, 4
-         ORDER BY year, month_num, country`,
-        [feeCountriesLower],
-      ),
-      this.dataSource.query(
-        `SELECT MIN(receiveddate)::text AS start_date, MAX(receiveddate)::text AS end_date,
-                COUNT(DISTINCT DATE_TRUNC('month', receiveddate))::int AS months
-         FROM ${STAGE}
-         WHERE customername = 'Google_DIR' AND COALESCE(vendorname, '') <> 'Iristel_p2p'`,
-      ),
-    ]);
-
-    const monthsInWindow = Number(win?.months ?? 0);
-    const r2 = (n: number) => Math.round(n * 100) / 100;
-    const feeByLower = new Map(COUNTRY_FEES.map((f) => [f.country.toLowerCase(), f]));
-    const annualTotal = (f: (typeof COUNTRY_FEES)[number]) => f.vas_license + f.company_license + f.sc_fee;
-    const oneoffTotal = (f: (typeof COUNTRY_FEES)[number]) => f.setup_fee + f.other_oneoff;
-
-    const monthlyOut = monthly.map((r: any) => {
-      const f = feeByLower.get(String(r.country).toLowerCase());
-      const feeMonth = f ? r2(annualTotal(f) / 12) : 0;
-      return { ...r, fee_month: feeMonth, net_margin: r2(Number(r.margin) - feeMonth) };
-    });
-
-    const sumMap = new Map<string, { volume: number; revenue: number; vendor_cost: number; margin: number; months: number }>();
-    for (const r of monthlyOut) {
-      const k = String(r.country).toLowerCase();
-      const s = sumMap.get(k) ?? { volume: 0, revenue: 0, vendor_cost: 0, margin: 0, months: 0 };
-      s.volume += Number(r.volume);
-      s.revenue += Number(r.revenue);
-      s.vendor_cost += Number(r.vendor_cost);
-      s.margin += Number(r.margin);
-      s.months += 1;
-      sumMap.set(k, s);
-    }
-
-    const summary = COUNTRY_FEES.map((f) => {
-      const s = sumMap.get(f.country.toLowerCase()) ?? { volume: 0, revenue: 0, vendor_cost: 0, margin: 0, months: 0 };
-      const feeMonth = r2(annualTotal(f) / 12);
-      const amortized = r2(feeMonth * monthsInWindow);
-      const oneoff = oneoffTotal(f);
-      return {
-        country: f.country,
-        volume: s.volume,
-        revenue: r2(s.revenue),
-        vendor_cost: r2(s.vendor_cost),
-        margin: r2(s.margin),
-        fee_month: feeMonth,
-        amortized_fees: amortized,
-        oneoff_fees: oneoff,
-        total_fees: r2(amortized + oneoff),
-        net_margin: r2(s.margin - amortized - oneoff),
-      };
-    }).sort((a, b) => b.revenue - a.revenue);
-
-    return {
-      window: { start: win?.start_date ?? null, end: win?.end_date ?? null, months: monthsInWindow },
-      monthly: monthlyOut,
-      summary,
-      schedule: COUNTRY_FEES,
-    };
   }
 }

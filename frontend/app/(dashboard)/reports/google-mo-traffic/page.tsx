@@ -356,12 +356,11 @@ function Paginator({ page, totalPages, setPage, total, pageSize }: {
 /* ════════════════════════════════════════════════════════════════════
    PAGE
 ════════════════════════════════════════════════════════════════════ */
-type Tab = 'data-table' | 'comparison' | 'profit-loss' | 'cost-revenue' | 'yesterday' | 'yesterday-iristel';
+type Tab = 'data-table' | 'comparison' | 'profit-loss' | 'yesterday' | 'yesterday-iristel';
 const TABS: { id: Tab; l: string }[] = [
   { id: 'data-table', l: 'Data Table' },
   { id: 'comparison', l: 'Comparison' },
   { id: 'profit-loss', l: 'Profit and Loss' },
-  { id: 'cost-revenue', l: 'Cost vs Revenue' },
   { id: 'yesterday', l: 'Yesterday Data' },
   { id: 'yesterday-iristel', l: 'Yesterday Data - Iristel' },
 ];
@@ -382,10 +381,6 @@ export default function GoogleMoTrafficPage() {
   const [datasetId, setDatasetId] = React.useState<string | null>(null);
   const [refreshTick, setRefreshTick] = React.useState(0);
 
-  /* ── Cost vs Revenue state ─────────────────────────────────── */
-  const [cvData, setCvData] = React.useState<any>(null);
-  const [cvLoad, setCvLoad] = React.useState(false);
-  const cvSort = useSortState('revenue');
 
   /* ── Data Table state ──────────────────────────────────────── */
   const [dtMode, setDtMode] = React.useState<'day' | 'month' | 'range'>('day');
@@ -543,12 +538,6 @@ export default function GoogleMoTrafficPage() {
     if (plMonth) p.month = plMonth;
     googleMoApi.getProfitLoss(p).then(r => setPlData((r as any).data)).catch(console.error).finally(() => setPlLoad(false));
   }, [tab, plMccmnc, plCountry, plOperator, plYear, plMonth, refreshTick]);
-
-  React.useEffect(() => {
-    if (tab !== 'cost-revenue') return;
-    setCvLoad(true);
-    googleMoApi.getCostVsRevenue().then(r => setCvData((r as any).data)).catch(console.error).finally(() => setCvLoad(false));
-  }, [tab, refreshTick]);
 
   // On mount: cascade fetch years → pick best year → fetch months → pick best month
   React.useEffect(() => {
@@ -1503,208 +1492,6 @@ export default function GoogleMoTrafficPage() {
             )}
           </>
         )}
-
-        {/* ════════════════ COST VS REVENUE ════════════════════ */}
-        {tab === 'cost-revenue' && (() => {
-          const summary: any[] = cvSort.sort(cvData?.summary ?? []);
-          const schedule: any[] = cvData?.schedule ?? [];
-          const months = Number(cvData?.window?.months ?? 0);
-          const winLabel = cvData?.window?.start ? `${cvData.window.start} → ${cvData.window.end} · ${months} month${months === 1 ? '' : 's'}` : '';
-          const sum = (rows: any[], k: string) => rows.reduce((a, r) => a + Number(r[k] ?? 0), 0);
-          const totRevenue = sum(cvData?.summary ?? [], 'revenue');
-          const totMargin = sum(cvData?.summary ?? [], 'margin');
-          const totFees = sum(cvData?.summary ?? [], 'total_fees');
-          const totNet = sum(cvData?.summary ?? [], 'net_margin');
-          const dash = <span style={{ color: 'var(--mu)' }}>—</span>;
-          const feeCell = (v: any) => Number(v) > 0 ? fR(v) : dash;
-
-          /* ── Zamani-style month table: rows = months, columns = fee types ── */
-          const fUsd = (n: number) => zz(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n));
-          const byMonth = new Map<string, any>();
-          const monthRows: any[] = [];
-          for (const r of (cvData?.monthly ?? [])) {
-            const k = `${r.year}-${String(r.month_num).padStart(2, '0')}`;
-            let m = byMonth.get(k);
-            if (!m) { m = { key: k, month_label: r.month_label, revenue: 0, vendor_cost: 0 }; byMonth.set(k, m); monthRows.push(m); }
-            m.revenue += Number(r.revenue ?? 0);
-            m.vendor_cost += Number(r.vendor_cost ?? 0);
-          }
-          monthRows.sort((a, b) => a.key.localeCompare(b.key));
-          // Monthly ÷12 amount per annual fee type, summed over all fee countries.
-          const vasM = sum(schedule, 'vas_license') / 12;
-          const companyM = sum(schedule, 'company_license') / 12;
-          const scM = sum(schedule, 'sc_fee') / 12;
-          const setupTotal = sum(schedule, 'setup_fee');
-          const otherTotal = sum(schedule, 'other_oneoff');
-          const tblRevenue = sum(monthRows, 'revenue');
-          const tblVendor = sum(monthRows, 'vendor_cost');
-          const nMonths = monthRows.length;
-          const totalDeductions = tblVendor + (vasM + companyM + scM) * nMonths + setupTotal + otherTotal;
-          const tblNet = tblRevenue - totalDeductions;
-          const red = { textAlign: 'right' as const, color: '#f87171', fontWeight: 600 };
-          return (
-            <>
-              {cvData && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 18 }}>
-                  <Kpi color="km2" label="MO Revenue" icon={IC_REV} value={fM(totRevenue)} sub={winLabel || 'fee countries'} />
-                  <Kpi color="km3" label="Operating Fees" icon={IC_COST} value={fM(totFees)} sub={`annual fees ÷12 × ${months} months + once off fees`} />
-                  <Kpi color="km1" label="Margin before Fees" icon={IC_TREND} value={fM(totMargin)} sub="revenue − vendor cost" />
-                  <Kpi color="km4" label="Net after Fees" icon={IC_TREND} value={fM(totNet)} sub="margin − operating fees" />
-                </div>
-              )}
-
-              {cvLoad ? <Skel /> : (
-                <>
-                  {/* Zamani-style Cost Vs Revenue table: month rows × fee-type columns */}
-                  <div className="zpnl" style={{ marginBottom: 16 }}>
-                    <PH title="Cost Vs Revenue" right="All figures in USD · annual fees ÷12 per month" />
-                    {!monthRows.length ? (
-                      <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No traffic in the fee countries yet.</div>
-                    ) : (
-                      <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
-                        <table className="zt">
-                          <thead><tr>
-                            <th style={{ textAlign: 'left', minWidth: 110 }}>Month</th>
-                            <th style={{ textAlign: 'right' }}>Revenue</th>
-                            <th style={{ textAlign: 'right' }}>Vendor Cost</th>
-                            <th style={{ textAlign: 'right' }}>VAS License</th>
-                            <th style={{ textAlign: 'right' }}>Company/Trade License Fee (Annual)</th>
-                            <th style={{ textAlign: 'right' }}>SC Fee (Annual)</th>
-                            <th style={{ textAlign: 'right' }}>Set Up Fee</th>
-                            <th style={{ textAlign: 'right' }}>Other Once Off Fees</th>
-                          </tr></thead>
-                          <tbody>
-                            {monthRows.map((m: any, i: number) => (
-                              <tr key={i}>
-                                <td style={{ fontWeight: 600 }}>{m.month_label}</td>
-                                <td>{fUsd(m.revenue)}</td>
-                                <td style={{ color: '#f87171' }}>{fUsd(m.vendor_cost)}</td>
-                                <td style={{ color: vasM > 0 ? '#f87171' : 'var(--mu)' }}>{vasM > 0 ? fUsd(vasM) : '—'}</td>
-                                <td style={{ color: companyM > 0 ? '#f87171' : 'var(--mu)' }}>{companyM > 0 ? fUsd(companyM) : '—'}</td>
-                                <td style={{ color: scM > 0 ? '#f87171' : 'var(--mu)' }}>{scM > 0 ? fUsd(scM) : '—'}</td>
-                                <td style={{ color: 'var(--mu)' }}>—</td>
-                                <td style={{ color: 'var(--mu)' }}>—</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot>
-                            {/* One-time costs row */}
-                            <tr style={{ borderTop: '1px solid var(--lns)', background: 'var(--sf2)' }}>
-                              <td style={{ fontWeight: 600, color: 'var(--inks)', fontSize: 11 }}>ONE-TIME COSTS</td>
-                              <td /><td /><td /><td /><td />
-                              <td style={red}>{fUsd(setupTotal)}</td>
-                              <td style={red}>{fUsd(otherTotal)}</td>
-                            </tr>
-                            {/* Column totals */}
-                            <tr style={{ borderTop: '2px solid var(--lns)', fontWeight: 700 }}>
-                              <td>Total</td>
-                              <td>{fUsd(tblRevenue)}</td>
-                              <td style={red}>{fUsd(tblVendor)}</td>
-                              <td style={red}>{vasM > 0 ? fUsd(vasM * nMonths) : '—'}</td>
-                              <td style={red}>{companyM > 0 ? fUsd(companyM * nMonths) : '—'}</td>
-                              <td style={red}>{scM > 0 ? fUsd(scM * nMonths) : '—'}</td>
-                              <td style={red}>{fUsd(setupTotal)}</td>
-                              <td style={red}>{fUsd(otherTotal)}</td>
-                            </tr>
-                            {/* Net margin */}
-                            <tr style={{ borderTop: '2px solid var(--lns)', background: tblNet >= 0 ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)' }}>
-                              <td style={{ fontWeight: 800, fontSize: 13 }}>Net Margin</td>
-                              <td colSpan={6} style={{ textAlign: 'right', fontSize: 11, color: 'var(--mu)', fontStyle: 'italic', paddingRight: 8 }}>
-                                {fUsd(tblRevenue)} − {fUsd(totalDeductions)}
-                              </td>
-                              <td style={{ textAlign: 'right', fontSize: 15, fontWeight: 800, color: tblNet >= 0 ? '#4ade80' : '#f87171' }}>
-                                {fUsd(tblNet)}
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Per-country summary */}
-                  <div className="zpnl" style={{ marginBottom: 16 }}>
-                    <PH title="Country Summary — Revenue vs Operating Fees (USD)" right={winLabel || undefined} />
-                    {!summary.length ? (
-                      <div style={{ padding: 40, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No data yet.</div>
-                    ) : (
-                      <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
-                        <table className="zt">
-                          <thead><tr>
-                            {cvSort.th('country', 'Country')}
-                            {cvSort.th('volume', 'Volume')}
-                            {cvSort.th('revenue', 'Revenue')}
-                            {cvSort.th('vendor_cost', 'Vendor Cost')}
-                            {cvSort.th('margin', 'Margin')}
-                            {cvSort.th('fee_month', 'Annual Fees / Month')}
-                            {cvSort.th('amortized_fees', `Annual Fees (${months} Months)`)}
-                            {cvSort.th('oneoff_fees', 'Once Off Fees')}
-                            {cvSort.th('net_margin', 'Net after Fees')}
-                          </tr></thead>
-                          <tbody>
-                            {summary.map((r: any, i: number) => (
-                              <tr key={i}>
-                                <td><CountryDot name={r.country} /></td>
-                                <td>{fN(r.volume)}</td>
-                                <td>{fR(r.revenue)}</td>
-                                <td>{fR(r.vendor_cost)}</td>
-                                <td className={Number(r.margin) < 0 ? 'zneg' : 'zpos'}>{fR(r.margin)}</td>
-                                <td>{feeCell(r.fee_month)}</td>
-                                <td>{feeCell(r.amortized_fees)}</td>
-                                <td>{feeCell(r.oneoff_fees)}</td>
-                                <td className={Number(r.net_margin) < 0 ? 'zneg' : 'zpos'}><b>{fR(r.net_margin)}</b></td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot><tr>
-                            <td>Total</td>
-                            <td>{fN(sum(summary, 'volume'))}</td>
-                            <td>{fR(totRevenue)}</td>
-                            <td>{fR(sum(summary, 'vendor_cost'))}</td>
-                            <td className={totMargin < 0 ? 'zneg' : 'zpos'}>{fR(totMargin)}</td>
-                            <td>{fR(sum(summary, 'fee_month'))}</td>
-                            <td>{fR(sum(summary, 'amortized_fees'))}</td>
-                            <td>{fR(sum(summary, 'oneoff_fees'))}</td>
-                            <td className={totNet < 0 ? 'zneg' : 'zpos'}><b>{fR(totNet)}</b></td>
-                          </tr></tfoot>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Fee schedule */}
-                  <div className="zpnl">
-                    <PH title="Fee Schedule (USD)" right="fixed values · annual fees amortized ÷12 · updated 1 Sep 2026" />
-                    <div className="tbl-scroll" style={{ overflowX: 'auto' }}>
-                      <table className="zt">
-                        <thead><tr>
-                          <th style={{ textAlign: 'left' }}>Country</th>
-                          <th>VAS License</th>
-                          <th>Company/Trade License Fee (Annual)</th>
-                          <th>Set Up Fee</th>
-                          <th>SC Fee (Annual)</th>
-                          <th>Other Once Off Fees</th>
-                        </tr></thead>
-                        <tbody>
-                          {schedule.map((f: any, i: number) => (
-                            <tr key={i}>
-                              <td><CountryDot name={f.country} /></td>
-                              <td>{feeCell(f.vas_license)}</td>
-                              <td>{feeCell(f.company_license)}</td>
-                              <td>{feeCell(f.setup_fee)}</td>
-                              <td>{feeCell(f.sc_fee)}</td>
-                              <td>{feeCell(f.other_oneoff)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </>
-              )}
-            </>
-          );
-        })()}
 
         {/* ════════════════ YESTERDAY DATA ═════════════════════ */}
         {tab === 'yesterday' && (
