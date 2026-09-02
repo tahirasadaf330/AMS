@@ -1085,6 +1085,23 @@ export class GoogleMoService implements OnModuleInit {
     }
     const aggregated = Array.from(aggMap.values());
 
+    // "Once off" fees are one-time by definition, but the sheet repeats some of them on
+    // every month row (e.g. Niger's 877 filled down Jan→Sep). Charge each country's
+    // identical once-off total only in its FIRST month; identical repeats in later
+    // months are zeroed. A different amount in a later month is a new charge and counts.
+    aggregated.sort((a, b) => a.year - b.year || a.month - b.month);
+    const chargedOnceOff = new Map<string, number>();
+    for (const r of aggregated) {
+      if (r.once_off <= 0) continue;
+      const key = r.country.toLowerCase();
+      const prev = chargedOnceOff.get(key);
+      if (prev != null && Math.abs(prev - r.once_off) < 0.01) {
+        r.once_off = 0;
+      } else {
+        chargedOnceOff.set(key, r.once_off);
+      }
+    }
+
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
