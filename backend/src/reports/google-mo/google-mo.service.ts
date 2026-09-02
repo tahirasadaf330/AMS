@@ -25,7 +25,9 @@ WITH MoData AS (
         mo.CustomerConnectionId
     FROM SMSCEdr.dbo.MoEdr AS mo WITH(NOLOCK)
     WHERE mo.MccMnc IS NOT NULL
-      AND mo.ReceivedDateTime >= DATEADD(MONTH, -6, GETDATE())
+      -- Full 2026 history (was rolling 6 months, which starved the P&L tab of Jan/Feb
+      -- once the window slid past them — user request 2026-09-02).
+      AND mo.ReceivedDateTime >= '2026-01-01'
 
     UNION ALL
 
@@ -38,7 +40,9 @@ WITH MoData AS (
         mo.CustomerConnectionId
     FROM SMSCArchiveEdr.dbo.ArchiveMoEdr AS mo WITH(NOLOCK)
     WHERE mo.MccMnc IS NOT NULL
-      AND mo.ReceivedDateTime >= DATEADD(MONTH, -6, GETDATE())
+      -- Full 2026 history (was rolling 6 months, which starved the P&L tab of Jan/Feb
+      -- once the window slid past them — user request 2026-09-02).
+      AND mo.ReceivedDateTime >= '2026-01-01'
 )
 SELECT
     CAST(mo.ReceivedDateTime AS DATE)                                                              AS ReceivedDate,
