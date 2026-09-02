@@ -8,9 +8,11 @@ import { NotificationsService } from '../../notifications/notifications.service'
 
 const ALERT_NAME = 'Zamani Weekly Sales Report';
 // Recipients are code-managed (set authoritatively on startup). Update here to change them.
-// Testing phase: developer only. The sales distribution list is added once the content is signed off.
+// Review phase: the developer plus Mladen, who is checking the numbers. The wider sales
+// distribution list is added once he signs the content off.
 const TO: string[] = [
   'muhammad.sulman@hayo.net',
+  'mladen.jankovic@hayo.net',  // Mladen Jankovic — Deputy Commercial Operations (reviewing)
 ];
 const CC: string[] = [];
 
