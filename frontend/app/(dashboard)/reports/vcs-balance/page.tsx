@@ -171,9 +171,14 @@ const fmtCur = (n: any, currency?: string): string => {
 
 const fmtRev = (n: any) =>
   n != null ? `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
-// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
-const zz = (s: string) => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
-const fmtPct = (n: any) => n != null ? zz(`${Number(n).toFixed(1)}%`) : '—';
+// Zero-looking values: a real non-zero that would display as "0"/"-0" is revealed with
+// enough decimals to act on (e.g. -0.4, -0.004); an exact zero never shows a minus sign.
+const zz = (v: number, s: string) => {
+  if (/[1-9]/.test(s)) return s;
+  if (v !== 0 && Number.isFinite(v)) return s.replace(/-?[\d.,]+/, v.toLocaleString('en-US', { maximumSignificantDigits: 2 }));
+  return s.includes('-') ? s.replace('-', '') : s;
+};
+const fmtPct = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(v, `${v.toFixed(1)}%`); };
 
 function RemainingBadge({ pct }: { pct: number | null }) {
   if (pct == null) return <span style={{ color: 'var(--mu)' }}>—</span>;

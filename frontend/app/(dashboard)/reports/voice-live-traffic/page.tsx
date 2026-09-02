@@ -94,11 +94,16 @@ type SortDir = 'asc' | 'desc';
 interface SortState { key: string | null; dir: SortDir; set: (k: string) => void }
 type NumRange = { min: string; max: string };
 
-// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
-const zz = (s: string): string => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
-const fmtInt = (n: any): string => n == null ? '—' : zz(Number(n).toLocaleString('en-US'));
-const fmtDec = (n: any): string => n == null ? '—' : zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-const fmtPct = (n: any): string => n == null ? '—' : zz(`${Number(n).toFixed(2)}%`);
+// Zero-looking values: a real non-zero that would display as "0"/"-0" is revealed with
+// enough decimals to act on (e.g. -0.4, -0.004); an exact zero never shows a minus sign.
+const zz = (v: number, s: string): string => {
+  if (/[1-9]/.test(s)) return s;
+  if (v !== 0 && Number.isFinite(v)) return s.replace(/-?[\d.,]+/, v.toLocaleString('en-US', { maximumSignificantDigits: 2 }));
+  return s.includes('-') ? s.replace('-', '') : s;
+};
+const fmtInt = (n: any): string => { if (n == null) return '—'; const v = Number(n); return zz(v, v.toLocaleString('en-US')); };
+const fmtDec = (n: any): string => { if (n == null) return '—'; const v = Number(n); return zz(v, v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })); };
+const fmtPct = (n: any): string => { if (n == null) return '—'; const v = Number(n); return zz(v, `${v.toFixed(2)}%`); };
 
 // ASR (Answer-Seizure Ratio) health colours — higher is healthier.
 function asrColours(pct: number | null): [string, string] {

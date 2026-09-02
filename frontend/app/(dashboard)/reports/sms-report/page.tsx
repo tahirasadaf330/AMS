@@ -19,12 +19,17 @@ const addDays   = (isoStr: string, n: number) => { const d = new Date(isoStr.sli
 const monthStart= () => { const d = new Date(); return `${d.getFullYear()}-${zp(d.getMonth()+1)}-01`; };
 const monthEnd  = (m: string) => { const [y, mo] = m.split('-').map(Number); return `${m}-${zp(new Date(y, mo, 0).getDate())}`; };
 
-// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
-const zz  = (s: string) => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
-const fN  = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })) : '—';
-const fR  = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(`$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`); };
-const fM  = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(v >= 1e6 ? `$${(v/1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(1)}K` : `$${v.toFixed(2)}`); };
-const fP  = (n: any) => n != null ? zz(`${Number(n).toFixed(1)}%`) : '—';
+// Zero-looking values: a real non-zero that would display as "0"/"-0" is revealed with
+// enough decimals to act on (e.g. -0.4, -0.004); an exact zero never shows a minus sign.
+const zz  = (v: number, s: string) => {
+  if (/[1-9]/.test(s)) return s;
+  if (v !== 0 && Number.isFinite(v)) return s.replace(/-?[\d.,]+/, v.toLocaleString('en-US', { maximumSignificantDigits: 2 }));
+  return s.includes('-') ? s.replace('-', '') : s;
+};
+const fN  = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(v, v.toLocaleString('en-US', { maximumFractionDigits: 0 })); };
+const fR  = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(v, `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`); };
+const fM  = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(v, v >= 1e6 ? `$${(v/1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(1)}K` : `$${v.toFixed(2)}`); };
+const fP  = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(v, `${v.toFixed(1)}%`); };
 const fDate = (s: string) => {
   if (!s) return '';
   const d = new Date(s.slice(0,10) + 'T00:00:00');
@@ -794,7 +799,7 @@ function ProfitDataTab({ rows, lastRefreshed }: ProfitTabProps) {
   })),[mtdByMgrRaw,projFactor]);
 
   const togglePr=(name:string)=>{const n=new Set(prExpand);n.has(name)?n.delete(name):n.add(name);setPrExpand(n);};
-  const f2 = (n:number)=>zz(Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}));
+  const f2 = (n:number)=>zz(Number(n), Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}));
 
   // ── BI-style table: Monthly Target / Achieved Margin / Pending / Projected (EOM) ──
   const BiProfitTable = ({ title, range, data, sort }: { title:string; range:string; data:any[]; sort:ReturnType<typeof useSortState> }) => {

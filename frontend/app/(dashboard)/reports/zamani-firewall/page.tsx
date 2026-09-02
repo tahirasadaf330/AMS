@@ -177,11 +177,16 @@ const IC = {
   warn: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>,
 };
 
-// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
-const zz = (s: string) => (s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s);
-const fN = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : zz(Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })));
-const f2 = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })));
-const fPct = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : zz(`${Number(n).toFixed(1)}%`));
+// Zero-looking values: a real non-zero that would display as "0"/"-0" is revealed with
+// enough decimals to act on (e.g. -0.4, -0.004); an exact zero never shows a minus sign.
+const zz = (v: number, s: string) => {
+  if (/[1-9]/.test(s)) return s;
+  if (v !== 0 && Number.isFinite(v)) return s.replace(/-?[\d.,]+/, v.toLocaleString('en-US', { maximumSignificantDigits: 2 }));
+  return s.includes('-') ? s.replace('-', '') : s;
+};
+const fN = (n: any) => { if (n == null || !Number.isFinite(Number(n))) return '—'; const v = Number(n); return zz(v, v.toLocaleString('en-US', { maximumFractionDigits: 0 })); };
+const f2 = (n: any) => { if (n == null || !Number.isFinite(Number(n))) return '—'; const v = Number(n); return zz(v, v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })); };
+const fPct = (n: any) => { if (n == null || !Number.isFinite(Number(n))) return '—'; const v = Number(n); return zz(v, `${v.toFixed(1)}%`); };
 
 const STREAM_LABEL: Record<string, string> = { ss7: 'SS7', smpp: 'SMPP', sri: 'SRI', sri_req: 'SRI' };
 

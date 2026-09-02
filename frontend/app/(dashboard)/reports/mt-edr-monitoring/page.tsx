@@ -209,10 +209,15 @@ const fmtTime = (dt: string | null) =>
   dt ? new Date(dt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
 
 const fmtDT   = (dt: string | null) => dt ? new Date(dt).toLocaleString('en-GB') : '—';
-// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
-const zz      = (s: string) => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
-const fmtN    = (n: number | null)  => n  != null ? zz(Number(n).toLocaleString()) : '—';
-const fmtRate = (n: number | null)  => n  != null ? zz(Number(n).toFixed(6)) : '—';
+// Zero-looking values: a real non-zero that would display as "0"/"-0" is revealed with
+// enough decimals to act on (e.g. -0.4, -0.004); an exact zero never shows a minus sign.
+const zz      = (v: number, s: string) => {
+  if (/[1-9]/.test(s)) return s;
+  if (v !== 0 && Number.isFinite(v)) return s.replace(/-?[\d.,]+/, v.toLocaleString('en-US', { maximumSignificantDigits: 2 }));
+  return s.includes('-') ? s.replace('-', '') : s;
+};
+const fmtN    = (n: number | null)  => { if (n == null) return '—'; const v = Number(n); return zz(v, v.toLocaleString()); };
+const fmtRate = (n: number | null)  => { if (n == null) return '—'; const v = Number(n); return zz(v, v.toFixed(6)); };
 
 // datetime-local input value (browser local tz) for the From/To time-window filters.
 const toLocalInput = (d: Date) => {

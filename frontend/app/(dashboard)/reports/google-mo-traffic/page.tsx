@@ -12,25 +12,30 @@ const PAL = ['#3498db', '#1abc9c', '#9b59b6', '#e67e22', '#e74c3c', '#f1c40f', '
 const MNF = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const MNS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
-const zz = (s: string) => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
-const fN = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })) : '—';
+// Zero-looking values: a real non-zero that would display as "0"/"-0" is revealed with
+// enough decimals to act on (e.g. -0.4, -0.004); an exact zero never shows a minus sign.
+const zz = (v: number, s: string) => {
+  if (/[1-9]/.test(s)) return s;
+  if (v !== 0 && Number.isFinite(v)) return s.replace(/-?[\d.,]+/, v.toLocaleString('en-US', { maximumSignificantDigits: 2 }));
+  return s.includes('-') ? s.replace('-', '') : s;
+};
+const fN = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(v, v.toLocaleString('en-US', { maximumFractionDigits: 0 })); };
 const fV = (n: any) => {
   if (n == null) return '—';
   const v = Number(n);
-  if (v >= 1e6) return zz(`${(v / 1e6).toFixed(2)}M`);
-  if (v >= 1e3) return zz(`${(v / 1e3).toFixed(1)}K`);
+  if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
   return fN(v);
 };
-const fR = (n: any) => n != null ? zz(`$${Number(n).toFixed(4)}`) : '—';
+const fR = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(v, `$${v.toFixed(4)}`); };
 const fM = (n: any) => {
   if (n == null) return '—';
   const v = Number(n);
-  if (v >= 1e6) return zz(`$${(v / 1e6).toFixed(2)}M`);
-  if (v >= 1e3) return zz(`$${(v / 1e3).toFixed(1)}K`);
-  return zz(`$${v.toFixed(2)}`);
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
+  if (v >= 1e3) return `$${(v / 1e3).toFixed(1)}K`;
+  return zz(v, `$${v.toFixed(2)}`);
 };
-const fP = (n: any) => n != null ? zz(`${Number(n).toFixed(2)}%`) : '—';
+const fP = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(v, `${v.toFixed(2)}%`); };
 const fDate = (s: string) => {
   if (!s) return '';
   const d = new Date(s + 'T00:00:00');

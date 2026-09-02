@@ -108,8 +108,13 @@ const resolveCode = (name?: string): string | null => {
   return CURRENCY_MAP[name.toLowerCase()] ?? null;
 };
 
-// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
-const zz = (s: string): string => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
+// Zero-looking values: a real non-zero that would display as "0"/"-0" is revealed with
+// enough decimals to act on (e.g. -0.4, -0.004); an exact zero never shows a minus sign.
+const zz = (v: number, s: string): string => {
+  if (/[1-9]/.test(s)) return s;
+  if (v !== 0 && Number.isFinite(v)) return s.replace(/-?[\d.,]+/, v.toLocaleString('en-US', { maximumSignificantDigits: 2 }));
+  return s.includes('-') ? s.replace('-', '') : s;
+};
 
 const fmtCur = (n: any, currency?: string): string => {
   if (n == null) return '—';
@@ -117,14 +122,17 @@ const fmtCur = (n: any, currency?: string): string => {
   const code = resolveCode(currency);
   if (code) {
     try {
-      return zz(new Intl.NumberFormat('en-US', { style: 'currency', currency: code, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num));
+      return zz(num, new Intl.NumberFormat('en-US', { style: 'currency', currency: code, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num));
     } catch { /* fall through */ }
   }
-  return zz(`$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+  return zz(num, `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 };
 
-const fmtNum = (n: any) =>
-  n != null ? zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '—';
+const fmtNum = (n: any) => {
+  if (n == null) return '—';
+  const v = Number(n);
+  return zz(v, v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+};
 
 type SortDir = 'asc' | 'desc';
 interface SortState { key: string | null; dir: SortDir; set: (k: string) => void }
@@ -392,7 +400,7 @@ export default function PrepaymentClPage() {
                         Total ({rows.length} clients)
                       </td>
                       <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--lns)', background: 'var(--sf2)' }}>
-                        {zz(`$${Number(totalBalance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}
+                        {zz(Number(totalBalance), `$${Number(totalBalance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}
                       </td>
                       <td colSpan={5} style={{ padding: '10px 10px', borderTop: '2px solid var(--lns)', background: 'var(--sf2)' }} />
                     </tr>

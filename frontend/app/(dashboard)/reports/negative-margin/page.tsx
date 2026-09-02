@@ -94,11 +94,16 @@ const CSS = `
 .sa{font-size:.56rem;margin-left:3px;opacity:.4}
 `;
 
-// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
-const zz    = (s: string) => s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s;
-const fN    = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })) : '—';
-const fRate = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 })) : '—';
-const fProfit = (n: any) => n != null ? zz(Number(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })) : '—';
+// Zero-looking values: a real non-zero that would display as "0"/"-0" is revealed with
+// enough decimals to act on (e.g. -0.4, -0.004); an exact zero never shows a minus sign.
+const zz    = (v: number, s: string) => {
+  if (/[1-9]/.test(s)) return s;
+  if (v !== 0 && Number.isFinite(v)) return s.replace(/-?[\d.,]+/, v.toLocaleString('en-US', { maximumSignificantDigits: 2 }));
+  return s.includes('-') ? s.replace('-', '') : s;
+};
+const fN    = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(v, v.toLocaleString('en-US', { maximumFractionDigits: 0 })); };
+const fRate = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(v, v.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 })); };
+const fProfit = (n: any) => { if (n == null) return '—'; const v = Number(n); return zz(v, v.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })); };
 
 type SortDir = 'asc' | 'desc' | null;
 

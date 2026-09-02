@@ -118,9 +118,14 @@ const SERIES_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ec4899', '#8b5cf6', '#
 const TIP = { contentStyle: { background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 8, fontSize: 12 }, labelStyle: { color: 'var(--mu)' } };
 const AX = { tick: { fontSize: 10, fill: 'var(--mu)' }, axisLine: false, tickLine: false } as const;
 
-// A formatted number with a minus sign but no non-zero digit is a "-0" — never show the sign.
-const zz = (s: string) => (s.includes('-') && !/[1-9]/.test(s) ? s.replace('-', '') : s);
-const fmtN = (n: number | null) => (n != null ? zz(Number(n).toLocaleString()) : '—');
+// Zero-looking values: a real non-zero that would display as "0"/"-0" is revealed with
+// enough decimals to act on (e.g. -0.4, -0.004); an exact zero never shows a minus sign.
+const zz = (v: number, s: string) => {
+  if (/[1-9]/.test(s)) return s;
+  if (v !== 0 && Number.isFinite(v)) return s.replace(/-?[\d.,]+/, v.toLocaleString('en-US', { maximumSignificantDigits: 2 }));
+  return s.includes('-') ? s.replace('-', '') : s;
+};
+const fmtN = (n: number | null) => { if (n == null) return '—'; const v = Number(n); return zz(v, v.toLocaleString()); };
 const dlrCls = (p: number) => (p >= 80 ? 'dlr-good' : p >= 50 ? 'dlr-ok' : 'dlr-bad');
 
 const toLocalInput = (d: Date) => {
