@@ -711,66 +711,72 @@ export class GoogleMoService implements OnModuleInit {
     if (!(await this.stageExists())) return { rows: [], totals: null };
 
     const args: unknown[] = [];
-    const conds: string[] = [];
+    if (params.mccmnc) args.push(params.mccmnc);
+    if (params.year) args.push(params.year);
+    if (params.month) args.push(params.month);
+    if (params.countries?.length) args.push(params.countries);
+    if (params.operators?.length) args.push(params.operators);
 
-    if (params.mccmnc) conds.push(`t.mccmnc = $${args.push(params.mccmnc)}`);
-    if (params.year)
-      conds.push(
-        `EXTRACT(YEAR  FROM t.receiveddate) = $${args.push(params.year)}`,
-      );
-    if (params.month)
-      conds.push(
-        `EXTRACT(MONTH FROM t.receiveddate) = $${args.push(params.month)}`,
-      );
-    if (params.countries?.length)
-      conds.push(
-        `t.countryname = ANY($${args.push(params.countries)}::text[])`,
-      );
-    if (params.operators?.length)
-      conds.push(
-        `t.operatorname = ANY($${args.push(params.operators)}::text[])`,
-      );
+    // Traffic-side filters go inside the traffic CTE; year/month/country filters apply to
+    // the joined frame so cost-only rows are filtered consistently.
+    const trafficConds: string[] = [];
+    if (params.mccmnc) trafficConds.push(`mccmnc = $${args.indexOf(params.mccmnc) + 1}`);
+    if (params.operators?.length) trafficConds.push(`operatorname = ANY($${args.indexOf(params.operators) + 1}::text[])`);
+    const outerConds: string[] = [];
+    if (params.year) outerConds.push(`EXTRACT(YEAR FROM COALESCE(t.m, c.m::timestamp)) = $${args.indexOf(params.year) + 1}`);
+    if (params.month) outerConds.push(`EXTRACT(MONTH FROM COALESCE(t.m, c.m::timestamp)) = $${args.indexOf(params.month) + 1}`);
+    if (params.countries?.length) outerConds.push(`COALESCE(t.country, c.country) = ANY($${args.indexOf(params.countries) + 1}::text[])`);
 
-    const GDIR_FILTER = `t.customername = 'Google_DIR' AND COALESCE(t.vendorname, '') <> 'Iristel_p2p'`;
-    const whereClause = conds.length
-      ? `WHERE ${GDIR_FILTER} AND ${conds.join(" AND ")}`
-      : `WHERE ${GDIR_FILTER}`;
+    // A country can have fees in a month with zero traffic (e.g. Niger's January annual
+    // fees) — those must still appear so revenue vs ALL costs is honest. FULL OUTER JOIN
+    // brings in cost-only country-months; when the view is operator/MCC-scoped the costs
+    // are country-level anyway, so we fall back to the traffic-driven LEFT JOIN.
+    const operatorScoped = !!params.mccmnc || (params.operators?.length ?? 0) > 0;
+    const joinType = operatorScoped ? "LEFT" : "FULL OUTER";
 
     let rows: any[];
     try {
       rows = await this.dataSource.query(
-        `SELECT
-           TO_CHAR(DATE_TRUNC('month', t.receiveddate), 'Month')             AS month_name,
-           EXTRACT(YEAR  FROM DATE_TRUNC('month', t.receiveddate))::int      AS year,
-           EXTRACT(MONTH FROM DATE_TRUNC('month', t.receiveddate))::int      AS month_num,
-           t.countryname                                                      AS country_name,
-           SUM(t.volume)::bigint                                              AS volume,
-           ROUND(SUM(t.revenue)::numeric, 4)                                 AS revenue,
-           ROUND(SUM(t.vendorcost)::numeric, 4)                              AS vendor_cost,
-           ROUND(SUM(t.margin)::numeric, 4)                                  AS stage_margin,
-           COALESCE(gmc.monthly_cost, 0)                                     AS monthly_cost,
-           COALESCE(gmc.miscellaneous, 0)                                    AS miscellaneous,
-           COALESCE(gmc.monthly_cost, 0) + COALESCE(gmc.miscellaneous, 0)   AS monthly_misc_cost,
-           COALESCE(gmc.annual_fees, 0)                                      AS annual_fees,
-           COALESCE(gmc.once_off, 0)                                         AS once_off,
-           ROUND((SUM(t.revenue) - SUM(t.vendorcost)
-             - COALESCE(gmc.monthly_cost, 0)
-             - COALESCE(gmc.miscellaneous, 0)
-             - COALESCE(gmc.annual_fees, 0)
-             - COALESCE(gmc.once_off, 0))::numeric, 4)                       AS margin
-         FROM ${STAGE} t
-         LEFT JOIN ${COST_TABLE} gmc
-           ON LOWER(gmc.country) = LOWER(t.countryname)
-          AND gmc.year  = EXTRACT(YEAR  FROM t.receiveddate)
-          AND gmc.month = EXTRACT(MONTH FROM t.receiveddate)
-         ${whereClause}
-         GROUP BY
-           DATE_TRUNC('month', t.receiveddate),
-           t.countryname,
-           gmc.monthly_cost,
-           gmc.miscellaneous,
-           gmc.annual_fees,
-           gmc.once_off
+        `WITH t AS (
+           SELECT DATE_TRUNC('month', receiveddate) AS m,
+                  countryname                        AS country,
+                  SUM(volume)::bigint                AS volume,
+                  SUM(revenue)                       AS revenue,
+                  SUM(vendorcost)                    AS vendor_cost,
+                  SUM(margin)                        AS stage_margin
+           FROM ${STAGE}
+           WHERE customername = 'Google_DIR' AND COALESCE(vendorname, '') <> 'Iristel_p2p'
+             ${trafficConds.length ? `AND ${trafficConds.join(" AND ")}` : ""}
+           GROUP BY 1, 2
+         ),
+         c AS (
+           SELECT make_date(year, month, 1) AS m, country,
+                  monthly_cost, miscellaneous, annual_fees, once_off
+           FROM ${COST_TABLE}
+         )
+         SELECT
+           TO_CHAR(COALESCE(t.m, c.m::timestamp), 'Month')             AS month_name,
+           EXTRACT(YEAR  FROM COALESCE(t.m, c.m::timestamp))::int      AS year,
+           EXTRACT(MONTH FROM COALESCE(t.m, c.m::timestamp))::int      AS month_num,
+           COALESCE(t.country, c.country)                               AS country_name,
+           COALESCE(t.volume, 0)::bigint                                AS volume,
+           ROUND(COALESCE(t.revenue, 0)::numeric, 4)                   AS revenue,
+           ROUND(COALESCE(t.vendor_cost, 0)::numeric, 4)               AS vendor_cost,
+           ROUND(COALESCE(t.stage_margin, 0)::numeric, 4)              AS stage_margin,
+           COALESCE(c.monthly_cost, 0)                                  AS monthly_cost,
+           COALESCE(c.miscellaneous, 0)                                 AS miscellaneous,
+           COALESCE(c.monthly_cost, 0) + COALESCE(c.miscellaneous, 0)  AS monthly_misc_cost,
+           COALESCE(c.annual_fees, 0)                                   AS annual_fees,
+           COALESCE(c.once_off, 0)                                      AS once_off,
+           ROUND((COALESCE(t.revenue, 0) - COALESCE(t.vendor_cost, 0)
+             - COALESCE(c.monthly_cost, 0)
+             - COALESCE(c.miscellaneous, 0)
+             - COALESCE(c.annual_fees, 0)
+             - COALESCE(c.once_off, 0))::numeric, 4)                    AS margin
+         FROM t
+         ${joinType} JOIN c
+           ON LOWER(c.country) = LOWER(t.country) AND c.m = t.m::date
+         ${outerConds.length ? `WHERE ${outerConds.join(" AND ")}` : ""}
          ORDER BY year DESC, month_num, country_name`,
         args,
       );
