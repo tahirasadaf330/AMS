@@ -141,6 +141,14 @@ export class GoogleMoService implements OnModuleInit {
           CONSTRAINT google_mo_cost_ym_country UNIQUE (country, year, month)
         )
       `);
+      // 2026-09: the Google costs sheet gained "Annual fees" (already ÷12 per month) and
+      // "Once off" columns — both flow into the P&L margin.
+      await this.dataSource.query(
+        `ALTER TABLE ${COST_TABLE} ADD COLUMN IF NOT EXISTS annual_fees NUMERIC(18,4) NOT NULL DEFAULT 0`,
+      );
+      await this.dataSource.query(
+        `ALTER TABLE ${COST_TABLE} ADD COLUMN IF NOT EXISTS once_off NUMERIC(18,4) NOT NULL DEFAULT 0`,
+      );
     } catch (err) {
       this.logger.error("Failed to ensure aux tables", err);
     }
@@ -739,9 +747,13 @@ export class GoogleMoService implements OnModuleInit {
            COALESCE(gmc.monthly_cost, 0)                                     AS monthly_cost,
            COALESCE(gmc.miscellaneous, 0)                                    AS miscellaneous,
            COALESCE(gmc.monthly_cost, 0) + COALESCE(gmc.miscellaneous, 0)   AS monthly_misc_cost,
+           COALESCE(gmc.annual_fees, 0)                                      AS annual_fees,
+           COALESCE(gmc.once_off, 0)                                         AS once_off,
            ROUND((SUM(t.revenue) - SUM(t.vendorcost)
              - COALESCE(gmc.monthly_cost, 0)
-             - COALESCE(gmc.miscellaneous, 0))::numeric, 4)                  AS margin
+             - COALESCE(gmc.miscellaneous, 0)
+             - COALESCE(gmc.annual_fees, 0)
+             - COALESCE(gmc.once_off, 0))::numeric, 4)                       AS margin
          FROM ${STAGE} t
          LEFT JOIN ${COST_TABLE} gmc
            ON LOWER(gmc.country) = LOWER(t.countryname)
@@ -752,7 +764,9 @@ export class GoogleMoService implements OnModuleInit {
            DATE_TRUNC('month', t.receiveddate),
            t.countryname,
            gmc.monthly_cost,
-           gmc.miscellaneous
+           gmc.miscellaneous,
+           gmc.annual_fees,
+           gmc.once_off
          ORDER BY year DESC, month_num, country_name`,
         args,
       );
@@ -761,7 +775,15 @@ export class GoogleMoService implements OnModuleInit {
       throw err;
     }
 
-    return { rows, totals: this.sumTotals(rows) };
+    // P&L totals also carry the cost columns (sumTotals only covers the traffic ones).
+    const sumCol = (k: string) => rows.reduce((a: number, r: any) => a + Number(r[k] ?? 0), 0);
+    const totals = {
+      ...this.sumTotals(rows),
+      monthly_misc_cost: sumCol("monthly_misc_cost"),
+      annual_fees: sumCol("annual_fees"),
+      once_off: sumCol("once_off"),
+    };
+    return { rows, totals };
   }
 
   // ── Yesterday ──────────────────────────────────────────────────
@@ -1047,7 +1069,7 @@ export class GoogleMoService implements OnModuleInit {
     // Aggregate multiple vendor rows into one record per country+year+month
     const aggMap = new Map<
       string,
-      { country: string; year: number; month: number; monthly_cost: number; miscellaneous: number }
+      { country: string; year: number; month: number; monthly_cost: number; miscellaneous: number; annual_fees: number; once_off: number }
     >();
     for (const r of records) {
       const key = `${r.country.toLowerCase()}|${r.year}|${r.month}`;
@@ -1055,6 +1077,8 @@ export class GoogleMoService implements OnModuleInit {
       if (existing) {
         existing.monthly_cost += r.monthly_cost;
         existing.miscellaneous += r.miscellaneous;
+        existing.annual_fees += r.annual_fees;
+        existing.once_off += r.once_off;
       } else {
         aggMap.set(key, { ...r });
       }
@@ -1067,13 +1091,15 @@ export class GoogleMoService implements OnModuleInit {
     try {
       for (const r of aggregated) {
         await qr.query(
-          `INSERT INTO ${COST_TABLE} (country, year, month, monthly_cost, miscellaneous)
-           VALUES ($1, $2, $3, $4, $5)
+          `INSERT INTO ${COST_TABLE} (country, year, month, monthly_cost, miscellaneous, annual_fees, once_off)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            ON CONFLICT ON CONSTRAINT google_mo_cost_ym_country
            DO UPDATE SET monthly_cost   = EXCLUDED.monthly_cost,
                          miscellaneous  = EXCLUDED.miscellaneous,
+                         annual_fees    = EXCLUDED.annual_fees,
+                         once_off       = EXCLUDED.once_off,
                          updated_at     = NOW()`,
-          [r.country, r.year, r.month, r.monthly_cost, r.miscellaneous],
+          [r.country, r.year, r.month, r.monthly_cost, r.miscellaneous, r.annual_fees, r.once_off],
         );
       }
       await qr.commitTransaction();
@@ -1424,9 +1450,17 @@ export class GoogleMoService implements OnModuleInit {
     const costStr = this.pickField(row, "monthly cost", "monthlycost", "cost");
     const miscStr =
       this.pickField(row, "miscellaneous", "misc", "miscellaneouscost") || "0";
+    // New sheet columns (2026-09): "Annual fees" (already amortized ÷12 per month row)
+    // and "Once off" (one-time fees, charged in the month they appear).
+    const annualStr =
+      this.pickField(row, "annual fees", "annualfees", "annual fee", "annualfee") || "0";
+    const onceStr =
+      this.pickField(row, "once off", "onceoff", "one off", "oneoff", "once off fees", "onceofffees") || "0";
 
     const monthly_cost = parseFloat(costStr.replace(/[,$\s]/g, ""));
     const miscellaneous = parseFloat(miscStr.replace(/[,$\s]/g, ""));
+    const annual_fees = parseFloat(annualStr.replace(/[,$\s]/g, ""));
+    const once_off = parseFloat(onceStr.replace(/[,$\s]/g, ""));
 
     return {
       country,
@@ -1434,6 +1468,8 @@ export class GoogleMoService implements OnModuleInit {
       month,
       monthly_cost: isNaN(monthly_cost) ? 0 : monthly_cost,
       miscellaneous: isNaN(miscellaneous) ? 0 : miscellaneous,
+      annual_fees: isNaN(annual_fees) ? 0 : annual_fees,
+      once_off: isNaN(once_off) ? 0 : once_off,
     };
   }
 

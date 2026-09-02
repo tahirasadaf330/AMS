@@ -1458,6 +1458,8 @@ export default function GoogleMoTrafficPage() {
                           {plSort.th('vendor_cost', 'Vendor Cost')}
                           {plSort.th('volume', 'Volume')}
                           {plSort.th('monthly_misc_cost', 'Monthly & Miscellaneous Cost')}
+                          {plSort.th('annual_fees', 'Annual Fees')}
+                          {plSort.th('once_off', 'Once Off Fees')}
                           {plSort.th('margin', 'Margin')}
                         </tr></thead>
                         <tbody>
@@ -1469,6 +1471,8 @@ export default function GoogleMoTrafficPage() {
                               <td>{fR(r.vendor_cost)}</td>
                               <td>{fN(r.volume)}</td>
                               <td>{Number(r.monthly_misc_cost) > 0 ? fR(r.monthly_misc_cost) : <span style={{ color: 'var(--mu)' }}>—</span>}</td>
+                              <td>{Number(r.annual_fees) > 0 ? fR(r.annual_fees) : <span style={{ color: 'var(--mu)' }}>—</span>}</td>
+                              <td>{Number(r.once_off) > 0 ? fR(r.once_off) : <span style={{ color: 'var(--mu)' }}>—</span>}</td>
                               <td className={Number(r.margin) < 0 ? 'zneg' : 'zpos'}>{fR(r.margin)}</td>
                             </tr>
                           ))}
@@ -1480,6 +1484,8 @@ export default function GoogleMoTrafficPage() {
                             <td>{fR(plTotals.vendor_cost)}</td>
                             <td>{fN(plTotals.volume)}</td>
                             <td>{fR(plTotals.monthly_misc_cost)}</td>
+                            <td>{fR(plTotals.annual_fees)}</td>
+                            <td>{fR(plTotals.once_off)}</td>
                             <td className={Number(plTotals.margin) < 0 ? 'zneg' : 'zpos'}>{fR(plTotals.margin)}</td>
                           </tr></tfoot>
                         )}
