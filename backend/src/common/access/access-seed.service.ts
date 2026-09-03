@@ -14,7 +14,7 @@ export const SEEDED_ROLES: Array<{ name: string; section: 'sms' | 'voice'; level
 const SMS_DATASETS = [
   'SMS Report', 'SMS Credit Limit', 'MT EDR Monitoring', 'Google MO Traffic',
   'Zamani Traffic', 'Zamani Sender ID', 'Apple Traffic History', 'Apple Traffic Live',
-  'Innovatio Traffic Report', 'Senegal Report',
+  'Innovatio Traffic Report', 'Senegal Report', 'Vendor Bind Status',
 ];
 const VOICE_DATASETS = [
   'Voice Credit Limit', 'Voice Live Traffic - Data', 'Voice Negative Margin', 'Deals Automation',

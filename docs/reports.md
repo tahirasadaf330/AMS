@@ -28,6 +28,7 @@ access list is auto-discovered from those decorators
 | [Senegal Report](#senegal-report) | sms | `reports/senegal-report` | ASMSC (MSSQL) |
 | [Zamani Traffic](#zamani-traffic) | sms | `reports/zamani` | ASMSC (MSSQL) |
 | [Zamani Sender ID](#zamani-sender-id) | sms | `reports/zamani-sender-id` | ASMSC (MSSQL) |
+| [Vendor Bind Status](#vendor-bind-status) | sms | `reports/vendor-bind-status` | ASMSC (MSSQL) |
 
 ---
 
@@ -218,3 +219,93 @@ Sender-ID monitoring for Zamani across five alerts. Recipients are code-managed 
 all five on boot via `ensureCondition`, but the **schedule is user-managed**: a sensible default is
 seeded for a fresh condition and never overridden afterwards. Thresholds are data-informed
 (Zamani runs at roughly 460 msg/hr) and kept as plain SQL constants so they are easy to retune.
+
+## Vendor Bind Status
+
+`vendor-bind-status` · sms · ASMSC (MSSQL) · stage table `stage_vendor_bind_status` · module
+`backend/src/reports/vendor-bind-status/`.
+
+Is each MT vendor's SMPP bind up, and is traffic still being pushed at it? One row per
+(UTC date × vendor connection × customer connection × MCC-MNC) over the last **48 hours** —
+about 1.3k rows, query ~3s, **full-replace** every 10 minutes (`*/10 * * * *`). The SQL returns
+rows every cycle, so the 0-row guard never trips and none of the incremental machinery is needed.
+
+Three aSMSC facts are stitched together, and they are **not** interchangeable:
+
+| Column | Source | Nature |
+|---|---|---|
+| Status | `SMSCPhoenix.MtVendorSmppConnectionStatus.ConnectionStatus` | current state, no history |
+| Disconnection Time | `SMSCLog.AlarmLog` where `AlarmId = 2` | event (a transition) |
+| Traffic Volume | `SMSCEdr.MTEdr.PartsSent` | facts over a window |
+
+Country/Operator resolve `MccMncDb.OperatorName` and `MccMncDb.CountryId → Countries.CountryName`,
+the same lookup MT EDR Monitoring uses. Rows are **traffic-driven** (inner join from `MTEdr`): a
+vendor with no traffic in the window does not appear, because customer connection / country /
+operator / MCC-MNC only exist by way of a message.
+
+**Status is per-session, not per-vendor.** A vendor runs 1–24 SMPP sessions, so it is judged by how
+many are `Bound`: none = `disconnected`, some = `partial`, all = `connected`. Two traps sit here:
+
+- `ConnectedDateTime` is **NULL on every non-Bound row** — the platform wipes it when a bind drops,
+  so this table can never say *when* something went down. That is the whole reason `AlarmLog` is
+  joined at all.
+- HTTP vendor connections (`ConnectionMode = 'Http'`) always have `ConnectionStatus = NULL`, because
+  HTTP is stateless and has no bind. They are labelled `http_no_bind`, never `disconnected` —
+  otherwise every HTTP vendor carrying traffic alerts forever.
+
+**Disconnection Time is display-only and must never gate an alert.** `AlarmId = 2` fires on the
+*transition*, so a vendor that has been down for days has no recent alarm: of 38 currently-closed
+vendors, 1 had any alarm on record and 0 within the hour (measured 2026-09-02). An alert clause like
+`mins_since_disconnect <= 60` would suppress essentially every real alert.
+
+### The two volumes
+
+A dataset condition reads the **full stage snapshot** (`ConditionSchedulerService.runDatasetCycle`)
+and cannot express a time window of its own. With 48 hours in the table, a threshold on the daily
+figure would keep matching traffic from 47 hours ago. So the dataset carries the window as a column:
+
+- `traffic_volume` — the row's whole UTC date → what the **report** shows
+- `recent_traffic_volume` — the last **10 minutes**, recomputed every refresh → what the **alert** tests
+- `noconn_volume` — parts rejected with `SubmissionErrorCodeId = 51` (`SMPPCLIENT_NOCONN`), i.e.
+  messages the platform pushed at a vendor with no live bind. The sharpest signal available, and the
+  only one that also catches partial-bind loss.
+
+### What the page shows
+
+The report displays ten columns — Date, Vendor Name, Status, Traffic Volume, Recent (10m),
+Disconnection Time, Customer Connection, Country, Operator, MCC MNC — with per-column filters on all
+of those except the two volumes and Disconnection Time (a value picker over thousands of distinct
+numbers or instants is unusable; sorting covers it). Rows matching the alert predicate are tinted.
+
+`noconn_volume`, `bound_sessions` and `total_sessions` are **dataset-only**: `status` is derived from
+the session counts, and `noconn_volume` is kept for Atlas and any future alert, but the page renders
+none of them and `getData()` does not ship them.
+
+`getData()` returns the whole snapshot in one payload and the page filters, sorts, pages and totals
+client-side, so there is no per-filter refetch. Refreshes triggered by the dataset WebSocket or by
+the tab regaining focus are **background** fetches that swap rows into the mounted table; only the
+first load shows a skeleton, and the focus refetch is throttled to 30s. Tearing the table down on
+every refresh was a visible glitch worth avoiding — Voice Live Traffic still has it.
+
+The intended alert is a **dataset** condition created in the Alerts UI (this report seeds none):
+
+```
+status                == disconnected
+recent_traffic_volume >  20
+```
+
+It is self-limiting: once routing fails over, the 10-minute figure drops and the alert goes quiet
+without any cooldown clause. Note that dataset conditions have **no duplicate suppression** (that is
+python-only, `channel = 'script'`), so a sustained outage re-notifies every cycle until it is fixed
+or traffic drains.
+
+**Cron offset matters.** The refresh and the condition are independent crons with no ordering
+guarantee, so a condition on `*/10` can read the snapshot the refresh has not yet replaced and
+evaluate a window that closed 10 minutes ago. Run the dataset on `*/10 * * * *` and the condition
+one minute later on `1-59/10 * * * *` (the convention Voice Smart Outliers already uses).
+
+Two `AS`-level details worth keeping: `GETUTCDATE()` everywhere, never `GETDATE()` (the MSSQL server
+clock is not UTC — see [innovatio-traffic.md](innovatio-traffic.md)); and `getData()` emits `date`
+through `to_char(...)` rather than as a bare `DATE`, because the `pg` driver parses a `DATE` into a
+JS Date at local midnight, which serialises as the previous day on a UTC+ host (the trap documented
+in `deals-automation.service.ts`).

@@ -53,6 +53,7 @@ import { VoiceLiveTrafficModule } from "./reports/voice-live-traffic/voice-live-
 import { AppleTrafficModule } from "./reports/apple-traffic/apple-traffic.module";
 import { SrcDstNumberMonitoringModule } from "./reports/src-dst-number-monitoring/src-dst-number-monitoring.module";
 import { SpecialRoutesMonitoringModule } from "./reports/special-routes-monitoring/special-routes-monitoring.module";
+import { VendorBindStatusModule } from "./reports/vendor-bind-status/vendor-bind-status.module";
 import { CostChangesModule } from "./reports/cost-changes/cost-changes.module";
 import { McpModule } from "./mcp/mcp.module";
 import { AccessModule } from "./common/access/access.module";
@@ -138,6 +139,7 @@ import { SenegalReportModule } from "./reports/senegal-report/senegal-report.mod
     AppleTrafficModule,
     SrcDstNumberMonitoringModule,
     SpecialRoutesMonitoringModule,
+    VendorBindStatusModule,
     CostChangesModule,
     ReportsRegistryModule,
     AdminGroupsModule,

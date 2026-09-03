@@ -54,6 +54,7 @@ const REPORT_LINKS: ReportLink[] = ([
   { slug: 'special-routes-monitoring', href: '/reports/special-routes-monitoring', label: 'Special Routes Monitoring', section: 'voice' },
   { slug: 'src-dst-number-monitoring', href: '/reports/src-dst-number-monitoring', label: 'SRC/DST Number Monitoring', section: 'voice' },
   { slug: 'vcs-balance', href: '/reports/vcs-balance', label: 'Voice Credit Limit', section: 'voice' },
+  { slug: 'vendor-bind-status', href: '/reports/vendor-bind-status', label: 'Vendor Bind Status', section: 'sms' },
   { slug: 'voice-live-traffic', href: '/reports/voice-live-traffic', label: 'Voice Live Traffic', section: 'voice' },
   { slug: 'negative-margin', href: '/reports/negative-margin', label: 'Voice Negative Margin', section: 'voice' },
   { slug: 'voice-outliers', href: '/reports/voice-outliers', label: 'Voice Smart Outliers', section: 'voice' },
