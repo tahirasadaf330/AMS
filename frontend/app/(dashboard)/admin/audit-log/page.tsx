@@ -85,12 +85,21 @@ export default function AuditLogPage() {
     [actionDebounced, userFilter, from, to, page],
   );
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['admin', 'audit-log', filters],
     queryFn: async () => { const { data } = await auditLogApi.list(filters); return data; },
     enabled: isAdmin,
     placeholderData: (prev) => prev,
   });
+
+  // A failed request used to fall through to the "no entries" empty state, making a broken
+  // endpoint look identical to an empty log. Surface the status so it can be told apart.
+  const errorDetail = React.useMemo(() => {
+    if (!isError) return null;
+    const res = (error as { response?: { status?: number; data?: { message?: string } } })?.response;
+    const status = res?.status;
+    return [status ? `HTTP ${status}` : 'Network error', res?.data?.message].filter(Boolean).join(' — ');
+  }, [isError, error]);
 
   const { data: users } = useQuery({
     queryKey: ['admin', 'users'],
@@ -169,7 +178,14 @@ export default function AuditLogPage() {
 
       {/* Table — fixed-height viewport so the page never grows past one screen;
           the header stays put while the rows scroll under it. */}
-      {isLoading && !data ? <SkeletonTable rows={10} cols={6} /> : rows.length === 0 ? (
+      {isLoading && !data ? <SkeletonTable rows={10} cols={6} /> : isError ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
+          <ScrollText className="h-10 w-10 opacity-30 text-red-400" />
+          <p className="text-sm text-red-500 dark:text-red-400">Could not load the audit log.</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{errorDetail}</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">Entries may still be recording — this is a read failure, not proof the log is empty.</p>
+        </div>
+      ) : rows.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400 dark:text-gray-500">
           <ScrollText className="h-10 w-10 opacity-30" />
           <p className="text-sm">No audit entries match your filter.</p>
