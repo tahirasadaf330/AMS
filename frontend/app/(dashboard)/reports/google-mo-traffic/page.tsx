@@ -167,6 +167,14 @@ const CSS = `
 .zbt{border:0;background:var(--turquoise);color:#fff;font-family:'Hanken Grotesk',sans-serif;font-weight:700;
   font-size:13px;padding:9px 18px;border-radius:7px;cursor:pointer;box-shadow:0 3px 0 var(--green-sea);transition:.12s;white-space:nowrap}
 .zbt:hover{filter:brightness(1.06)}.zbt:active{transform:translateY(2px);box-shadow:0 1px 0 var(--green-sea)}
+/* Segmented toggle (P&L Monthly / By Destination). Distinct from .zbt, which is always a solid
+   turquoise action button — a toggle needs a visibly UNSELECTED state, so inactive is outlined and
+   only the selected option is filled. */
+.ztg{background:var(--sf);color:var(--inks);border:1px solid var(--lns);font-family:'Hanken Grotesk',sans-serif;
+  font-weight:600;font-size:13px;padding:9px 18px;border-radius:7px;cursor:pointer;transition:.12s;white-space:nowrap}
+.ztg:hover{border-color:var(--turquoise);color:var(--ink)}
+.ztg.za{background:var(--turquoise);color:#fff;border-color:var(--green-sea);font-weight:700;box-shadow:0 3px 0 var(--green-sea)}
+.ztg.za:active{transform:translateY(2px);box-shadow:0 1px 0 var(--green-sea)}
 .zt{width:100%;border-collapse:collapse;font-size:13.5px}
 .zt thead th{text-align:right;font-weight:700;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
   color:var(--mu);padding:10px 16px 10px;border-bottom:2px solid var(--lns);cursor:pointer;user-select:none;white-space:nowrap;
@@ -1459,8 +1467,8 @@ export default function GoogleMoTrafficPage() {
               <div className="zff">
                 <label>View</label>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button className={`zbt${plMode === 'month' ? ' za' : ''}`} onClick={() => setPlMode('month')}>Monthly</button>
-                  <button className={`zbt${plMode === 'destination' ? ' za' : ''}`} onClick={() => setPlMode('destination')}>By Destination</button>
+                  <button className={`ztg${plMode === 'month' ? ' za' : ''}`} onClick={() => setPlMode('month')}>Monthly</button>
+                  <button className={`ztg${plMode === 'destination' ? ' za' : ''}`} onClick={() => setPlMode('destination')}>By Destination</button>
                 </div>
               </div>
               <div style={{ alignSelf: 'flex-end' }}>
