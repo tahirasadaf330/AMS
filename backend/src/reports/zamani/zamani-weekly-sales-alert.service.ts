@@ -8,13 +8,30 @@ import { NotificationsService } from '../../notifications/notifications.service'
 
 const ALERT_NAME = 'Zamani Weekly Sales Report';
 // Recipients are code-managed (set authoritatively on startup). Update here to change them.
-// Review phase: the developer plus Mladen, who is checking the numbers. The wider sales
-// distribution list is added once he signs the content off.
+// To = the sales owners of Zamani; Cc = management and the reviewer.
 const TO: string[] = [
-  'muhammad.sulman@hayo.net',
-  'mladen.jankovic@hayo.net',  // Mladen Jankovic — Deputy Commercial Operations (reviewing)
+  'gabriela@hayo.net',         // Gabriela
+  'ghazal@hayo.net',           // Ghazal Khonyagar (account manager on Zamani traffic)
+  'franz.stiglich@hayo.net',   // Franz Stiglich (account manager on Zamani traffic)
 ];
-const CC: string[] = [];
+const CC: string[] = [
+  'sarkari@hayo.net',          // Mohammad Sarkari
+  'lauren@hayo.net',           // Lauren
+  'mladen.jankovic@hayo.net',  // Mladen Jankovic — Deputy Commercial Operations
+];
+
+// Sales want 07:00 CET every Monday. CET is UTC+1 in winter and UTC+2 in summer (CEST), so no
+// single UTC hour holds year-round, and ConditionSchedulerService runs every DB cron in UTC.
+// Rather than teach the shared scheduler about timezones, this alert fires at BOTH 05:00 and
+// 06:00 UTC and the script suppresses whichever firing is not 07:00 in Europe/Berlin:
+//   winter (CET,  UTC+1): 05:00 UTC = 06:00 CET  -> skipped;  06:00 UTC = 07:00 CET  -> sent
+//   summer (CEST, UTC+2): 05:00 UTC = 07:00 CEST -> sent;     06:00 UTC = 08:00 CEST -> skipped
+// The DST changeovers (last Sunday of March / October) therefore need no intervention, and no
+// other alert is affected. Cost: one "skipped" row in notification_log each Monday.
+const TRIGGER_CRON = '0 5,6 * * 1';
+// Earlier seeded default, migrated once to TRIGGER_CRON. A cron an operator has customised in the
+// Alerts UI is never touched — the same convention innovatio-traffic uses for its LEGACY_CRONS.
+const LEGACY_CRONS = ['0 12 * * 1'];
 
 // Self-contained Python report. Uses String.raw so backslash escapes survive; contains no `${`
 // or backticks. Answers the six questions Sales asked, in their order:
@@ -36,8 +53,8 @@ const CC: string[] = [];
 //     reports 01-01 Sep, on Mon 7 Sep 01-06 Sep, on Wed 9 Sep 01-08 Sep.
 //   * week-on-week comparisons and section 6 use the last COMPLETE week (Mon-Sun), because
 //     comparing a part-week against a whole one is meaningless.
-// On the Monday 12:00 UTC cadence yesterday IS that Sunday, so the two coincide and the scheduled
-// email is unaffected; only manual mid-week triggers differ.
+// On the Monday cadence yesterday IS that Sunday, so the two coincide and the scheduled email is
+// unaffected; only manual mid-week triggers differ.
 //
 // Two source tables, deliberately:
 //   * zamani_traffic_testing — the "Zamani Traffic include Testing" dataset, which is the Zamani
@@ -187,6 +204,20 @@ def dlr_of(a):
     return (a[1] / a[0] * 100.0) if a[0] else 0.0
 
 try:
+    # ---- 07:00 CET gate ----
+    # The condition fires at 05:00 AND 06:00 UTC on Mondays so one of them is 07:00 in Europe/Berlin
+    # whatever the DST offset; this suppresses the other. Postgres resolves the zone (its tz
+    # database is always present, unlike Python's zoneinfo on Windows). The gate deliberately only
+    # applies during those two UTC hours, so a manual Trigger Now at any other time still sends.
+    cur.execute(
+        "SELECT EXTRACT(HOUR FROM (now() AT TIME ZONE 'UTC'))::int, "
+        "       EXTRACT(HOUR FROM (now() AT TIME ZONE 'Europe/Berlin'))::int"
+    )
+    utc_hour, cet_hour = cur.fetchone()
+    if utc_hour in (5, 6) and cet_hour != 7:
+        fail("skipped: " + str(utc_hour) + ":00 UTC is " + str(cet_hour) +
+             ":00 Europe/Berlin, not 07:00 - the other Monday firing sends this week's report")
+
     cur.execute("SELECT to_regclass('public.zamani_traffic_testing')")
     if cur.fetchone()[0] is None:
         fail("zamani_traffic_testing table not found")
@@ -495,7 +526,7 @@ try:
     footer = ('<div style="margin-top:18px;padding-top:10px;border-top:1px solid #e4e9ec;'
               'font-family:Segoe UI,Arial,sans-serif;font-size:11px;color:#999;">'
               'This report is generated automatically by AMS (Alert Management System) every Monday at '
-              '12:00 UTC for the last complete week. Please do not reply to this email.</div>')
+              '07:00 CET for the last complete week. Please do not reply to this email.</div>')
 
     html = ('<div style="font-family:Segoe UI,Arial,sans-serif;background:#ffffff;padding:16px;">'
             + header + intro + s1 + s2 + s4 + s5 + s6 + footer + '</div>')
@@ -534,8 +565,8 @@ export class ZamaniWeeklySalesAlertService implements OnModuleInit {
             name: ALERT_NAME,
             type: 'python',
             pythonScript: ZAMANI_WEEKLY_SCRIPT,
-            // Mondays 12:00 PM UTC — ConditionSchedulerService runs DB crons in UTC.
-            triggerCron: '0 12 * * 1',
+            // Mondays 05:00 + 06:00 UTC; the script keeps whichever is 07:00 CET. See TRIGGER_CRON.
+            triggerCron: TRIGGER_CRON,
             logic: 'AND',
             conditionRows: [],
             channels: { email: { enabled: true, recipients: TO, cc: CC } },
@@ -548,8 +579,13 @@ export class ZamaniWeeklySalesAlertService implements OnModuleInit {
         return;
       }
 
-      const patch: { pythonScript?: string; channels?: ConditionChannels } = {};
+      const patch: { pythonScript?: string; channels?: ConditionChannels; triggerCron?: string } = {};
       if (existing.pythonScript !== ZAMANI_WEEKLY_SCRIPT) patch.pythonScript = ZAMANI_WEEKLY_SCRIPT;
+      // One-time move off the old 12:00 UTC default. Anything else an operator has set is left
+      // alone — the schedule stays user-managed once it differs from a default we seeded.
+      if (existing.triggerCron && LEGACY_CRONS.includes(existing.triggerCron)) {
+        patch.triggerCron = TRIGGER_CRON;
+      }
       const email = existing.channels?.email;
       const curTo = email?.recipients ?? [];
       const curCc = email?.cc ?? [];
