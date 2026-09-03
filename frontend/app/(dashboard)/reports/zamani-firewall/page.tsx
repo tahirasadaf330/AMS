@@ -302,7 +302,7 @@ const MSG_TAB_META: Record<MsgStream, { title: string; note: string }> = {
     title: 'SMPP messages',
     note: 'SMPP request PDUs only (submit-sm / deliver-sm) — acknowledgements are excluded, so totals reconcile '
       + 'with the Traffic Overview tab. Traffic source is the logical bind (per-connection suffix stripped); '
-      + 'hayosms1 is displayed as Hayo.',
+      + 'any source starting with hayo is displayed as Hayo.',
   },
   srism: {
     title: 'SRI-for-SM lookups',

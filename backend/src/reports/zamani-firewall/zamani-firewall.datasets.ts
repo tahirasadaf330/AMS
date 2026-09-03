@@ -331,7 +331,7 @@ const SMPP_MESSAGES_COLUMNS: ColumnDef[] = [
   { key: 'direction',           label: 'Direction',      type: 'text',      description: 'Traffic direction as logged.' },
   { key: 'sender_id',           label: 'Sender ID',      type: 'text',      description: 'Originating address of the message.' },
   { key: 'final_action',        label: 'Final Action',   type: 'text',      description: 'What the firewall ultimately did with the message.' },
-  { key: 'traffic_source_name', label: 'Traffic Source', type: 'text',      description: 'Logical SMPP source — the bind name with its per-connection _mpN_smscN_ip_port suffix stripped (e.g. hayosms1, wirepick). Display maps hayosms1 → Hayo.' },
+  { key: 'traffic_source_name', label: 'Traffic Source', type: 'text',      description: 'Logical SMPP source — the bind name with its per-connection _mpN_smscN_ip_port suffix stripped (e.g. hayosms1, wirepick). Display shows any hayo* source as Hayo.' },
   { key: 'messages',            label: 'Messages',       type: 'numeric',   description: 'SMPP request PDUs for this combination in the hour.' },
 ];
 

@@ -756,11 +756,15 @@ export class ZamaniFirewallService implements OnModuleInit {
   }
 
   /**
-   * Display-only label overrides for SMPP traffic sources, keyed lowercase — on the wire the bind
-   * names are lowercase ('hayosms1…'), the requirement spells it Hayosms1, and neither should
-   * break the mapping. Stored stage values stay untouched.
+   * Display-only source labeling for the SMPP tab, per ops: any bind whose name starts with
+   * "hayo" (case-insensitive) is Hayo traffic. Raw binds are per-TCP-connection names like
+   * 'hayosms1_mp1_smsc1_172_26_15_196_43482', so a prefix rule survives new bind variants that an
+   * exact-name map would miss. Stored stage values stay untouched.
    */
-  private static readonly TRAFFIC_SOURCE_LABELS: Record<string, string> = { hayosms1: 'Hayo' };
+  private static displayTrafficSource(v: any): string {
+    const s = String(v ?? '');
+    return /^hayo/i.test(s) ? 'Hayo' : s;
+  }
 
   /**
    * Messages tabs (SS7 / SMPP / SRISM): windowed re-aggregation of the hourly stage rows onto
@@ -801,10 +805,18 @@ export class ZamaniFirewallService implements OnModuleInit {
          LIMIT ${CAP}`, params)
       ).map((r: any) => ({
         ...r,
-        traffic_source_name:
-          ZamaniFirewallService.TRAFFIC_SOURCE_LABELS[String(r.traffic_source_name ?? '').toLowerCase()]
-          ?? r.traffic_source_name,
+        traffic_source_name: ZamaniFirewallService.displayTrafficSource(r.traffic_source_name),
       }));
+      // The display label can fold several stored sources into one (hayo* → Hayo), which would
+      // otherwise surface as duplicate-looking rows — merge them after mapping.
+      const merged = new Map<string, any>();
+      for (const r of rows) {
+        const k = `${r.message_type}|${r.direction}|${r.sender_id}|${r.final_action}|${r.traffic_source_name}`;
+        const prev = merged.get(k);
+        if (prev) prev.messages = Number(prev.messages) + Number(r.messages);
+        else merged.set(k, { ...r, messages: Number(r.messages) });
+      }
+      rows = [...merged.values()].sort((a, b) => Number(b.messages) - Number(a.messages));
       totalSql = `SELECT COALESCE(SUM(messages), 0) AS total FROM ${stage} WHERE ${win}`;
     } else {
       // SRISM reuses the existing SRI stage: grain='smsc' rows already carry calling_party × smsc
