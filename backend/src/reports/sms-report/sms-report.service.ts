@@ -660,10 +660,15 @@ export class SmsReportService implements OnModuleInit {
       );
     }
 
+    // `$n::timestamp AT TIME ZONE 'UTC'` — NOT `$n::timestamptz`. The latter
+    // resolves the bound against the session's TimeZone; the app pins that to
+    // UTC, but the same table is also read by psql sessions and the MCP pool,
+    // and this server's Postgres default is US/Eastern. Spelling the zone out
+    // makes an hour mean the same instant no matter who is asking.
     const params: any[]        = [toHourWire(lo), toHourWire(hi)];
     const conditions: string[] = [
-      `bucket_hour >= $1::timestamptz`,
-      `bucket_hour <  $2::timestamptz`,
+      `bucket_hour >= ($1::timestamp AT TIME ZONE 'UTC')`,
+      `bucket_hour <  ($2::timestamp AT TIME ZONE 'UTC')`,
     ];
     if (opts.accountManager && opts.accountManager !== 'all') {
       params.push(opts.accountManager);
@@ -722,7 +727,8 @@ export class SmsReportService implements OnModuleInit {
 
       this.dataSource.query<any[]>(
         `SELECT DISTINCT account_manager FROM ${STAGE}
-          WHERE bucket_hour >= $1::timestamptz AND bucket_hour < $2::timestamptz
+          WHERE bucket_hour >= ($1::timestamp AT TIME ZONE 'UTC')
+            AND bucket_hour <  ($2::timestamp AT TIME ZONE 'UTC')
             AND account_manager IS NOT NULL AND account_manager <> ''
           ORDER BY account_manager`,
         [params[0], params[1]],
