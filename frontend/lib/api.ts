@@ -587,6 +587,9 @@ export const prepaymentClApi = {
 export const smsReportApi = {
   getData: (params?: { startDate?: string; endDate?: string; accountManager?: string; company?: string }) =>
     api.get('/reports/sms-report/data', { params }),
+  // Hourly grain — `from` inclusive, `to` exclusive, both UTC hours.
+  getHourly: (params?: { from?: string; to?: string; accountManager?: string; company?: string }) =>
+    api.get('/reports/sms-report/hourly', { params }),
 };
 
 // ── SYSTEM ────────────────────────────────────────────────────

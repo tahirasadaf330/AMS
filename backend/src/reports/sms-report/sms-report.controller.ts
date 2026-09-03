@@ -19,4 +19,18 @@ export class SmsReportController {
   ) {
     return this.service.getData(startDate, endDate, accountManager, company);
   }
+
+  /**
+   * Hourly grain for the Sale tab's Hour filter. `from` inclusive, `to`
+   * exclusive, both UTC hours; defaults to the last few buckets that exist.
+   */
+  @Get('hourly')
+  getHourly(
+    @Query('from')           from?: string,
+    @Query('to')             to?: string,
+    @Query('accountManager') accountManager?: string,
+    @Query('company')        company?: string,
+  ) {
+    return this.service.getHourlyData({ from, to, accountManager, company });
+  }
 }
