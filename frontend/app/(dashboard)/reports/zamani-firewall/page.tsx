@@ -161,6 +161,15 @@ const CSS = `
 .zsq.missing{background:var(--alizarin)}
 .zstrip-lbl{font-size:11px;color:var(--inks);width:64px;flex-shrink:0;font-weight:600}
 .zstrip-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+
+/* ── messages tabs (SS7 / SMPP / SRISM) ── */
+.zth-sort{cursor:pointer;user-select:none}
+.zth-sort .zsa{margin-left:5px;font-size:9px;opacity:.6}
+.zdt{font-family:'JetBrains Mono',monospace;font-size:12px;padding:6px 9px;border:1px solid var(--lns);
+  border-radius:7px;background:var(--sf);color:var(--ink)}
+.zt tfoot td{padding:10px 14px;border-top:2px solid var(--lns);text-align:right;font-family:'JetBrains Mono',monospace;
+  font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink);background:var(--sf);position:sticky;bottom:0}
+.zt tfoot td:first-child{text-align:left;font-family:'Hanken Grotesk',sans-serif}
 `;
 
 const IC = {
@@ -206,14 +215,19 @@ const txt = (v: any): string => {
 /** Safe for a className: only a known stream slug, never arbitrary payload text. */
 const slug = (v: any): string => (typeof v === 'string' && /^[a-z0-9_-]+$/i.test(v) ? v : '');
 
-type TabId = 'traffic' | 'firewall' | 'delivery' | 'network' | 'pipeline';
+type MsgStream = 'ss7' | 'smpp' | 'srism';
+type TabId = 'traffic' | 'firewall' | 'delivery' | 'network' | 'pipeline' | MsgStream;
 const TABS: { id: TabId; l: string }[] = [
   { id: 'traffic',  l: 'Traffic Overview' },
   { id: 'firewall', l: 'Firewall Effectiveness' },
   { id: 'delivery', l: 'Delivery Quality' },
   { id: 'network',  l: 'Network & SRI' },
   { id: 'pipeline', l: 'Pipeline Health' },
+  { id: 'ss7',      l: 'SS7' },
+  { id: 'smpp',     l: 'SMPP' },
+  { id: 'srism',    l: 'SRISM' },
 ];
+const isMsgStream = (t: TabId): t is MsgStream => t === 'ss7' || t === 'smpp' || t === 'srism';
 
 const WINDOWS = [{ h: 6, l: '6h' }, { h: 24, l: '24h' }, { h: 72, l: '3d' }, { h: 168, l: '7d' }];
 
@@ -226,6 +240,189 @@ const DLR_COLOR: Record<string, string> = {
 };
 const CODING_LABEL: Record<number, string> = { 0: 'GSM 7-bit (0)', 3: 'Latin-1 (3)', 8: 'UCS2 (8)', [-1]: 'unset' };
 
+// ── Messages tabs (SS7 / SMPP / SRISM) — shared Date/Time slicer + self-fetching table ───────────
+// Slicer behavior is ported from the Zamani Sender ID report: relative presets plus a custom
+// From/To pair. The window lives in the page container so it survives switching among the three
+// tabs — the requirement is that all three always show the same range.
+
+type MsgPreset = '1h' | '6h' | '24h' | '48h' | '7d' | 'custom';
+export type MsgWin = { preset: MsgPreset; from: string; to: string };
+const MSG_PRESETS: Exclude<MsgPreset, 'custom'>[] = ['1h', '6h', '24h', '48h', '7d'];
+const MSG_PRESET_MS: Record<Exclude<MsgPreset, 'custom'>, number> = {
+  '1h': 3_600_000, '6h': 6 * 3_600_000, '24h': 24 * 3_600_000, '48h': 48 * 3_600_000, '7d': 7 * 24 * 3_600_000,
+};
+const DEFAULT_MSG_WIN: MsgWin = { preset: '24h', from: '', to: '' };
+
+const toLocalInput = (d: Date) => {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+/** Resolve the slicer to ISO bounds. An unparseable custom bound degrades to "unbounded". */
+function msgWindowISO(w: MsgWin): { from?: string; to?: string } {
+  if (w.preset === 'custom') {
+    const p = (s: string) => {
+      if (!s) return undefined;
+      const d = new Date(s);
+      return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+    };
+    return { from: p(w.from), to: p(w.to) };
+  }
+  const end = new Date();
+  return { from: new Date(end.getTime() - MSG_PRESET_MS[w.preset]).toISOString(), to: end.toISOString() };
+}
+
+const MSG_TAB_COLS: Record<MsgStream, { key: string; label: string }[]> = {
+  ss7: [
+    { key: 'callingParty', label: 'Calling Party' },
+    { key: 'finalAction',  label: 'Final Action' },
+    { key: 'direction',    label: 'Direction' },
+  ],
+  smpp: [
+    { key: 'messageType',       label: 'Message Type' },
+    { key: 'direction',         label: 'Direction' },
+    { key: 'senderId',          label: 'Sender ID' },
+    { key: 'finalAction',       label: 'Final Action' },
+    { key: 'trafficSourceName', label: 'Traffic Source' },
+  ],
+  srism: [
+    { key: 'callingParty', label: 'Calling Party' },
+    { key: 'smsc',         label: 'SMSC' },
+  ],
+};
+
+const MSG_TAB_META: Record<MsgStream, { title: string; note: string }> = {
+  ss7: {
+    title: 'SS7 messages',
+    note: 'Corrected SS7 messages (multipart reassembled) grouped by calling party — the SMSC global title the '
+      + 'message arrived from, not the sender ID — final firewall action and direction. Totals reconcile with the '
+      + 'Traffic Overview tab for the same window.',
+  },
+  smpp: {
+    title: 'SMPP messages',
+    note: 'SMPP request PDUs only (submit-sm / deliver-sm) — acknowledgements are excluded, so totals reconcile '
+      + 'with the Traffic Overview tab. Traffic source is the logical bind (per-connection suffix stripped); '
+      + 'hayosms1 is displayed as Hayo.',
+  },
+  srism: {
+    title: 'SRI-for-SM lookups',
+    note: 'Messages here are SRI-for-SM requests, grouped by the global title that issued the lookup and the '
+      + 'querying SMSC. One row in the source log is one lookup, so no dedupe applies.',
+  },
+};
+
+type MsgSort = { key: string; dir: 'asc' | 'desc' };
+
+function MsgTH({ label, k, sort, onSort }: { label: string; k: string; sort: MsgSort; onSort: (k: string) => void }) {
+  const active = sort.key === k;
+  return (
+    <th className="zth-sort" onClick={() => onSort(k)}>
+      {label}<span className="zsa">{active ? (sort.dir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+    </th>
+  );
+}
+
+/**
+ * One messages tab. Self-fetching (the endpoint re-aggregates hourly stage rows server-side), so
+ * the main getData payload and the five existing tabs are untouched. Mounted once for all three
+ * streams — switching tabs changes the `stream` prop, and the effect refetches.
+ */
+function MessagesTab({ stream, win }: { stream: MsgStream; win: MsgWin }) {
+  const [payload, setPayload] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [sort, setSort] = React.useState<MsgSort>({ key: 'messages', dir: 'desc' });
+
+  React.useEffect(() => { setSort({ key: 'messages', dir: 'desc' }); }, [stream]);
+
+  React.useEffect(() => {
+    let dead = false;
+    setLoading(true); setError(null);
+    // The ISO window is computed inside the effect: presets anchor on "now", and computing that
+    // during render would produce a new value every render and refetch forever.
+    const w = msgWindowISO(win);
+    zamaniFirewallApi.getMessagesTab({ stream, from: w.from, to: w.to })
+      .then((r) => { if (!dead) setPayload(camelizeKeys<any>(r.data)); })
+      .catch((e: any) => { if (!dead) setError(e?.response?.data?.message ?? e?.message ?? 'Failed to load data'); })
+      .finally(() => { if (!dead) setLoading(false); });
+    return () => { dead = true; };
+  }, [stream, win.preset, win.from, win.to]);
+
+  const cols = MSG_TAB_COLS[stream];
+  const meta = MSG_TAB_META[stream];
+  const rows: any[] = Array.isArray(payload?.rows) ? payload.rows : [];
+
+  const sorted = React.useMemo(() => {
+    const mul = sort.dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const av = a?.[sort.key]; const bv = b?.[sort.key];
+      const an = Number(av); const bn = Number(bv);
+      if (Number.isFinite(an) && Number.isFinite(bn)) return (an - bn) * mul;
+      return String(av ?? '').localeCompare(String(bv ?? '')) * mul;
+    });
+  }, [rows, sort]);
+
+  const onSort = (k: string) =>
+    setSort((s) => (s.key === k ? { key: k, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key: k, dir: 'desc' }));
+
+  const total = Number(payload?.totalMessages ?? 0);
+  const capped = Number(payload?.rowCap) > 0 && rows.length >= Number(payload.rowCap);
+  const winLabel = win.preset === 'custom'
+    ? `${win.from || 'start of retention'} → ${win.to || 'now'}`
+    : `last ${win.preset}`;
+
+  return (
+    <>
+      <div className="znote">{meta.note}</div>
+      {!!error && <div className="zerr">Could not load data: {error}</div>}
+      <div className="zpnl">
+        <div className="zph">
+          <div className="zph-t">{meta.title}</div>
+          <div className="zph-s">
+            {winLabel} · {fN(total)} messages · {fN(rows.length)} row{rows.length === 1 ? '' : 's'}
+            {capped ? ` (top ${fN(payload.rowCap)} by messages — total row still covers everything)` : ''}
+            {' · refreshed '}{stamp(payload?.refreshedAt)}
+          </div>
+        </div>
+        <div className="tbl-scroll" style={{ maxHeight: 560 }}>
+          {loading && !payload ? <div className="zpb"><div className="zskel" /></div>
+            : sorted.length === 0 ? <div className="zempty">No traffic in this window.</div> : (
+            <table className="zt">
+              <thead>
+                <tr>
+                  {cols.map((c) => <MsgTH key={c.key} label={c.label} k={c.key} sort={sort} onSort={onSort} />)}
+                  <MsgTH label="Messages" k="messages" sort={sort} onSort={onSort} />
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((r, i) => (
+                  <tr key={`${i}-${txt(r?.[cols[0].key])}`}>
+                    {cols.map((c) => <td key={c.key}>{txt(r?.[c.key])}</td>)}
+                    <td>{fN(r?.messages)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={cols.length}>Total</td>
+                  <td>{fN(total)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+        <div className="zpb" style={{ paddingTop: 10, paddingBottom: 12 }}>
+          <div style={{ fontSize: 11.5, color: 'var(--mu)', lineHeight: 1.5 }}>
+            Data is aggregated per UTC hour, so the window snaps to the hours it touches; the last
+            {' '}{fN(payload?.retentionDays ?? 7)} days are retained. All times UTC.
+            {loading && payload ? ' Refreshing…' : ''}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 /** Data container: owns fetching, the window selector and the live-refresh socket. */
 export default function ZamaniFirewallPage() {
   const [data, setData] = React.useState<any>(null);
@@ -233,6 +430,9 @@ export default function ZamaniFirewallPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState<TabId>('traffic');
   const [hours, setHours] = React.useState(24);
+  // Shared window for the SS7 / SMPP / SRISM tabs. Held here, not in the tab, so the selected
+  // range survives switching among the three and they always show the same slice.
+  const [msgWin, setMsgWin] = React.useState<MsgWin>(DEFAULT_MSG_WIN);
   const [datasetId, setDatasetId] = React.useState<string | null>(null);
 
   const load = React.useCallback(() => {
@@ -253,13 +453,15 @@ export default function ZamaniFirewallPage() {
 
   return (
     <FirewallView data={data} loading={loading} error={error}
-      tab={tab} onTab={setTab} hours={hours} onHours={setHours} />
+      tab={tab} onTab={setTab} hours={hours} onHours={setHours}
+      msgWin={msgWin} onMsgWin={setMsgWin} />
   );
 }
 
 export type FirewallViewProps = {
   data: any; loading?: boolean; error?: string | null;
   tab?: TabId; onTab?: (t: TabId) => void; hours?: number; onHours?: (h: number) => void;
+  msgWin?: MsgWin; onMsgWin?: (w: MsgWin) => void;
 };
 
 /**
@@ -269,9 +471,15 @@ export type FirewallViewProps = {
  */
 export function FirewallView({
   data, loading = false, error = null, tab = 'traffic', onTab, hours = 24, onHours,
+  msgWin: msgWinProp, onMsgWin,
 }: FirewallViewProps) {
   const setTab = onTab ?? (() => {});
   const setHours = onHours ?? (() => {});
+  // Local fallback keeps the view usable when rendered standalone (tests render it directly).
+  const [msgWinLocal, setMsgWinLocal] = React.useState<MsgWin>(DEFAULT_MSG_WIN);
+  const msgWin = msgWinProp ?? msgWinLocal;
+  const setMsgWin = onMsgWin ?? setMsgWinLocal;
+  const isMsgTab = isMsgStream(tab);
   const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
   const arr = (v: any): any[] => (Array.isArray(v) ? v : []);
 
@@ -483,15 +691,51 @@ export function FirewallView({
             ))}
           </div>
 
-          <div className="zbtrow">
-            {WINDOWS.map((w) => (
-              <button key={w.h} className={`zbt${hours === w.h ? ' za' : ''}`} onClick={() => setHours(w.h)}>Last {w.l}</button>
-            ))}
-            {loading ? <span style={{ fontSize: 12, color: 'var(--mu)' }}>refreshing…</span> : null}
-          </div>
+          {!isMsgTab && (
+            <div className="zbtrow">
+              {WINDOWS.map((w) => (
+                <button key={w.h} className={`zbt${hours === w.h ? ' za' : ''}`} onClick={() => setHours(w.h)}>Last {w.l}</button>
+              ))}
+              {loading ? <span style={{ fontSize: 12, color: 'var(--mu)' }}>refreshing…</span> : null}
+            </div>
+          )}
 
-          {!!error && <div className="zerr">Could not load data: {error}</div>}
-          {loading && !data && <div className="zskel" />}
+          {isMsgTab && (
+            <div className="zbtrow">
+              {MSG_PRESETS.map((p) => (
+                <button key={p} className={`zbt${msgWin.preset === p ? ' za' : ''}`}
+                  onClick={() => setMsgWin({ ...msgWin, preset: p })}>
+                  Last {p}
+                </button>
+              ))}
+              <button className={`zbt${msgWin.preset === 'custom' ? ' za' : ''}`}
+                onClick={() => {
+                  if (msgWin.preset === 'custom') return;
+                  // Prefill the pickers with the preset just left, so "custom" starts from
+                  // something sensible instead of an unbounded window.
+                  const end = new Date();
+                  const start = new Date(end.getTime() - MSG_PRESET_MS[msgWin.preset]);
+                  setMsgWin({ preset: 'custom', from: msgWin.from || toLocalInput(start), to: msgWin.to || toLocalInput(end) });
+                }}>
+                Custom
+              </button>
+              {msgWin.preset === 'custom' && (
+                <>
+                  <input type="datetime-local" className="zdt" value={msgWin.from}
+                    onChange={(e) => setMsgWin({ ...msgWin, from: e.target.value })} />
+                  <span style={{ color: 'var(--mu)', fontSize: 12 }}>→</span>
+                  <input type="datetime-local" className="zdt" value={msgWin.to}
+                    onChange={(e) => setMsgWin({ ...msgWin, to: e.target.value })} />
+                </>
+              )}
+              <span style={{ fontSize: 11.5, color: 'var(--mu)' }}>
+                one window for SS7 · SMPP · SRISM — switching tabs keeps it
+              </span>
+            </div>
+          )}
+
+          {!isMsgTab && !!error && <div className="zerr">Could not load data: {error}</div>}
+          {!isMsgTab && loading && !data && <div className="zskel" />}
 
           {/* ═══ TAB 1 · TRAFFIC OVERVIEW ═══════════════════════════════════════════════ */}
           {tab === 'traffic' && !!data && (
@@ -1077,6 +1321,9 @@ export function FirewallView({
               </Panel>
             </>
           )}
+
+          {/* ═══ MESSAGES TABS · SS7 / SMPP / SRISM ═════════════════════════════════════ */}
+          {isMsgTab && <MessagesTab stream={tab as MsgStream} win={msgWin} />}
         </div>
       </div>
     </>

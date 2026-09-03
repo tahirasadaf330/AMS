@@ -273,6 +273,69 @@ const CONTENT_COLUMNS: ColumnDef[] = [
 ];
 
 // =================================================================================================
+// Messages tabs · SS7 / SMPP hourly breakdowns on the exact dimensions the tabs display
+// =================================================================================================
+
+// Both read the message-grain views, so SS7 multipart dedupe and the SMPP requests-only rule come
+// for free and the tab totals reconcile with the Traffic Overview page. traffic_source_name is
+// stored RAW (e.g. Hayosms1) — the Hayo display label is applied in the service, never persisted.
+
+const SS7_ACTIONS_SQL = `
+SELECT
+    ${TS('bucket_hour')}    AS bucket_hour,
+    business_date           AS date,
+    COALESCE(calling_party, '(unknown)') AS calling_party,
+    COALESCE(final_action, 'unknown')    AS final_action,
+    COALESCE(direction, 'unknown')       AS direction,
+    COUNT(*)                AS messages
+FROM zamani.v_ss7_messages
+${WINDOW}
+GROUP BY bucket_hour, business_date, 3, 4, 5
+`;
+
+const SS7_ACTIONS_COLUMNS: ColumnDef[] = [
+  { key: 'bucket_hour',   label: 'Hour (UTC)',    type: 'timestamp', description: 'Start of the UTC hour.' },
+  { key: 'date',          label: 'Date (UTC)',    type: 'date',      description: 'UTC calendar date; drives the retention prune.' },
+  { key: 'calling_party', label: 'Calling Party', type: 'text',      description: 'SMSC global title the message arrived from — the interconnect identity, never the message sender.' },
+  { key: 'final_action',  label: 'Final Action',  type: 'text',      description: 'What the firewall ultimately did: send, lookup, modify, drop, negative_ack…' },
+  { key: 'direction',     label: 'Direction',     type: 'text',      description: 'Traffic direction as logged (e.g. incoming / outgoing).' },
+  { key: 'messages',      label: 'Messages',      type: 'numeric',   description: 'Corrected SS7 messages (multipart reassembled) for this combination in the hour.' },
+];
+
+// SMPP traffic_source_name on the wire is a per-TCP-connection bind name —
+// 'hayosms1_mp1_smsc1_172_26_15_196_44930' (source_mpN_smscN_ip_port) — and every reconnect mints
+// a new port. Grouping on the raw value would split one logical source across dozens of rows, so
+// the connection suffix is stripped here and the stage stores the logical source ('hayosms1',
+// 'wirepick', …). Names without the suffix pass through unchanged.
+const SMPP_SOURCE = `regexp_replace(COALESCE(traffic_source_name, '(unknown)'), '_mp[0-9]+_smsc[0-9]+_.*$', '')`;
+
+const SMPP_MESSAGES_SQL = `
+SELECT
+    ${TS('bucket_hour')}    AS bucket_hour,
+    business_date           AS date,
+    message_type,
+    COALESCE(direction, 'unknown')             AS direction,
+    COALESCE(sender_id, '(none)')              AS sender_id,
+    COALESCE(final_action, 'unknown')          AS final_action,
+    ${SMPP_SOURCE}                             AS traffic_source_name,
+    COUNT(*)                AS messages
+FROM zamani.v_smpp_messages
+${WINDOW}
+GROUP BY bucket_hour, business_date, 3, 4, 5, 6, 7
+`;
+
+const SMPP_MESSAGES_COLUMNS: ColumnDef[] = [
+  { key: 'bucket_hour',         label: 'Hour (UTC)',     type: 'timestamp', description: 'Start of the UTC hour.' },
+  { key: 'date',                label: 'Date (UTC)',     type: 'date',      description: 'UTC calendar date; drives the retention prune.' },
+  { key: 'message_type',        label: 'Message Type',   type: 'text',      description: 'submit-sm or deliver-sm — requests only, acknowledgements are excluded by the view.' },
+  { key: 'direction',           label: 'Direction',      type: 'text',      description: 'Traffic direction as logged.' },
+  { key: 'sender_id',           label: 'Sender ID',      type: 'text',      description: 'Originating address of the message.' },
+  { key: 'final_action',        label: 'Final Action',   type: 'text',      description: 'What the firewall ultimately did with the message.' },
+  { key: 'traffic_source_name', label: 'Traffic Source', type: 'text',      description: 'Logical SMPP source — the bind name with its per-connection _mpN_smscN_ip_port suffix stripped (e.g. hayosms1, wirepick). Display maps hayosms1 → Hayo.' },
+  { key: 'messages',            label: 'Messages',       type: 'numeric',   description: 'SMPP request PDUs for this combination in the hour.' },
+];
+
+// =================================================================================================
 
 /**
  * Crons are staggered on purpose. The SS7 datasets each scan millions of rows, and firing them on
@@ -338,6 +401,26 @@ export const EXTRA_DATASETS: DatasetDef[] = [
       + '(UTF-8 bytes declared as Latin-1). Broken out per data_coding because an overall rate moves with the encoding '
       + 'mix and would mask whether the source bug itself changed.',
     sql: CONTENT_SQL, columns: CONTENT_COLUMNS, cron: '25,55 * * * *',
+    overlapMinutes: OVERLAP, retentionDays: RETENTION,
+  },
+  {
+    stage: 'stage_zfw_ss7_actions',
+    name: 'Zamani Firewall SS7 Messages',
+    description:
+      'Zamani SMS Firewall — SS7 messages per hour by calling party (SMSC GT), final firewall action and direction, '
+      + 'backing the SS7 messages tab. Counted in corrected messages (multipart reassembled), so tab totals reconcile '
+      + 'with the Traffic Overview page.',
+    sql: SS7_ACTIONS_SQL, columns: SS7_ACTIONS_COLUMNS, cron: '12,42 * * * *',
+    overlapMinutes: OVERLAP, retentionDays: RETENTION,
+  },
+  {
+    stage: 'stage_zfw_smpp_messages',
+    name: 'Zamani Firewall SMPP Messages',
+    description:
+      'Zamani SMS Firewall — SMPP request PDUs per hour by message type, direction, sender ID, final action and '
+      + 'traffic source, backing the SMPP messages tab. Requests only (submit-sm / deliver-sm — acknowledgements '
+      + 'excluded). traffic_source_name is stored raw; the Hayosms1 → Hayo label is display-only.',
+    sql: SMPP_MESSAGES_SQL, columns: SMPP_MESSAGES_COLUMNS, cron: '7,37 * * * *',
     overlapMinutes: OVERLAP, retentionDays: RETENTION,
   },
 ];

@@ -755,9 +755,91 @@ export class ZamaniFirewallService implements OnModuleInit {
     };
   }
 
-  private async q(sql: string): Promise<any[]> {
+  /**
+   * Display-only label overrides for SMPP traffic sources, keyed lowercase — on the wire the bind
+   * names are lowercase ('hayosms1…'), the requirement spells it Hayosms1, and neither should
+   * break the mapping. Stored stage values stay untouched.
+   */
+  private static readonly TRAFFIC_SOURCE_LABELS: Record<string, string> = { hayosms1: 'Hayo' };
+
+  /**
+   * Messages tabs (SS7 / SMPP / SRISM): windowed re-aggregation of the hourly stage rows onto
+   * exactly the columns each tab displays, plus the Messages sum. Bounds are optional ISO instants;
+   * `from` is truncated down to its hour so a partial first hour is included rather than silently
+   * dropped — stage rows are whole-hour buckets, which makes the slicer hour-granular by design.
+   * The total is computed by its own SUM over the window, so the Total row stays exact even when
+   * the row list is capped.
+   */
+  async getMessagesTab(stream: 'ss7' | 'smpp' | 'srism', from?: string, to?: string): Promise<any> {
+    const win = `($1::timestamptz IS NULL OR bucket_hour >= date_trunc('hour', $1::timestamptz))
+                 AND ($2::timestamptz IS NULL OR bucket_hour <= $2::timestamptz)`;
+    const params = [from ?? null, to ?? null];
+    const CAP = 2000;
+
+    let stage: string;
+    let rows: any[];
+    let totalSql: string;
+    if (stream === 'ss7') {
+      stage = 'stage_zfw_ss7_actions';
+      rows = await this.q(`
+        SELECT calling_party, final_action, direction, SUM(messages) AS messages
+          FROM ${stage}
+         WHERE ${win}
+         GROUP BY calling_party, final_action, direction
+         ORDER BY messages DESC
+         LIMIT ${CAP}`, params);
+      totalSql = `SELECT COALESCE(SUM(messages), 0) AS total FROM ${stage} WHERE ${win}`;
+    } else if (stream === 'smpp') {
+      stage = 'stage_zfw_smpp_messages';
+      rows = (await this.q(`
+        SELECT message_type, direction, sender_id, final_action, traffic_source_name,
+               SUM(messages) AS messages
+          FROM ${stage}
+         WHERE ${win}
+         GROUP BY message_type, direction, sender_id, final_action, traffic_source_name
+         ORDER BY messages DESC
+         LIMIT ${CAP}`, params)
+      ).map((r: any) => ({
+        ...r,
+        traffic_source_name:
+          ZamaniFirewallService.TRAFFIC_SOURCE_LABELS[String(r.traffic_source_name ?? '').toLowerCase()]
+          ?? r.traffic_source_name,
+      }));
+      totalSql = `SELECT COALESCE(SUM(messages), 0) AS total FROM ${stage} WHERE ${win}`;
+    } else {
+      // SRISM reuses the existing SRI stage: grain='smsc' rows already carry calling_party × smsc
+      // × requests per hour. The grain filter is mandatory — 'hour' rows would double-count.
+      stage = 'stage_zfw_sri';
+      rows = await this.q(`
+        SELECT calling_party, smsc, SUM(requests) AS messages
+          FROM ${stage}
+         WHERE grain = 'smsc' AND ${win}
+         GROUP BY calling_party, smsc
+         ORDER BY messages DESC
+         LIMIT ${CAP}`, params);
+      totalSql = `SELECT COALESCE(SUM(requests), 0) AS total FROM ${stage} WHERE grain = 'smsc' AND ${win}`;
+    }
+
+    const [[totalRow], [meta]] = await Promise.all([
+      this.q(totalSql, params),
+      this.q(`SELECT MAX(refreshed_at) AS refreshed_at FROM ${stage}`),
+    ]);
+
+    return {
+      stream,
+      from: from ?? null,
+      to: to ?? null,
+      rows,
+      totalMessages: Number(totalRow?.total ?? 0),
+      rowCap: CAP,
+      refreshedAt: meta?.refreshed_at ?? null,
+      retentionDays: RETENTION_DAYS,
+    };
+  }
+
+  private async q(sql: string, params?: any[]): Promise<any[]> {
     try {
-      return await this.dataSource.query(sql);
+      return await this.dataSource.query(sql, params);
     } catch (e: any) {
       this.logger.error(`Zamani firewall query failed: ${e.message}`);
       return [];
