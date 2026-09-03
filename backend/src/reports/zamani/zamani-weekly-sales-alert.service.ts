@@ -30,9 +30,14 @@ const CC: string[] = [];
 // table and the lost counts were all dropped on Sales' request (2026-09-02), which is why this
 // script imports no matplotlib and runs in well under a second.
 //
-// EVERYTHING anchors to the cut-off Sunday (the last complete week), never to "today". Running on
-// Monday 1 Sep the anchor is Sunday 30 Aug, so "this month" is 1-30 Aug and "last month" is
-// 1-30 Jul — otherwise the first Monday of a month would report an empty MTD.
+// TWO cut-offs, deliberately (Sales request 2026-09-02):
+//   * month / to-date figures (sections 1, 2, 3, 4, and section 5's month rows) run from the 1st
+//     of YESTERDAY's month up to YESTERDAY, whenever the alert runs — triggered Wed 2 Sep it
+//     reports 01-01 Sep, on Mon 7 Sep 01-06 Sep, on Wed 9 Sep 01-08 Sep.
+//   * week-on-week comparisons and section 6 use the last COMPLETE week (Mon-Sun), because
+//     comparing a part-week against a whole one is meaningless.
+// On the Monday 12:00 UTC cadence yesterday IS that Sunday, so the two coincide and the scheduled
+// email is unaffected; only manual mid-week triggers differ.
 //
 // Two source tables, deliberately:
 //   * zamani_traffic_testing — the "Zamani Traffic include Testing" dataset, which is the Zamani
@@ -115,6 +120,14 @@ def esc(s):
 def dfmt(d):
     return d.strftime("%d %b %Y")
 
+def rng(d1, d2):
+    """Compact range for column headers: '01 Sep', '24-30 Aug', or '30 Aug - 05 Sep'."""
+    if d1 == d2:
+        return d1.strftime("%d %b")
+    if (d1.year, d1.month) == (d2.year, d2.month):
+        return d1.strftime("%d") + "-" + d2.strftime("%d %b")
+    return d1.strftime("%d %b") + " - " + d2.strftime("%d %b")
+
 def caption(t):
     return ('<div style="margin:18px 0 6px;font-weight:700;color:#fff;background:' + NAVY +
             ';display:inline-block;padding:5px 12px;border-radius:3px;font-size:13px;">' + esc(t) + '</div>')
@@ -178,14 +191,24 @@ try:
     if cur.fetchone()[0] is None:
         fail("zamani_traffic_testing table not found")
 
-    # ---- Period anchors: the cut-off is the last COMPLETE week (Mon-Sun), in UTC ----
+    # ---- Two independent cut-offs, both in UTC ----
+    # YDAY = yesterday. Every month/to-date figure runs from the 1st of yesterday's month up to
+    # yesterday, whatever day the alert runs (Sales request 2026-09-02): triggered on Wed 2 Sep it
+    # reports 01-01 Sep; on Mon 7 Sep, 01-06 Sep; on Wed 9 Sep, 01-08 Sep. On the Monday cadence
+    # yesterday IS the Sunday anchor, so the scheduled email is unaffected — only manual mid-week
+    # triggers differ, and those used to report the whole previous month.
+    #
+    # ANCHOR = the last COMPLETE week (Mon-Sun). Week-on-week comparisons and the new-sender
+    # section keep this, because comparing a part-week against a whole one is meaningless.
     cur.execute(
-        "SELECT (date_trunc('week', (now() AT TIME ZONE 'UTC')::date)::date - 1) AS anchor, "
+        "SELECT ((now() AT TIME ZONE 'UTC')::date - 1) AS yday, "
+        "       (date_trunc('week', (now() AT TIME ZONE 'UTC')::date)::date - 1) AS anchor, "
         "       MIN(receiveddate)::date AS first_date FROM zamani_traffic_testing"
     )
     row = cur.fetchone()
-    anchor = row[0]                      # last Sunday
-    first_date = row[1]
+    yday = row[0]                        # yesterday
+    anchor = row[1]                      # last Sunday (<= yday, equal on Mondays)
+    first_date = row[2]
     if first_date is None:
         fail("zamani_traffic_testing is empty")
 
@@ -193,8 +216,10 @@ try:
     prev_week_end = anchor - timedelta(days=7)
     prev_week_start = anchor - timedelta(days=13)
 
-    month_start = anchor.replace(day=1)
-    day_n = anchor.day
+    # Month windows hang off yesterday, not the anchor. Using yesterday's month also handles the
+    # 1st of a month correctly: run on 1 Sep, yesterday is 31 Aug, so it reports all of August.
+    month_start = yday.replace(day=1)
+    day_n = yday.day
     prev_month_end = month_start - timedelta(days=1)
     prev_month_start = prev_month_end.replace(day=1)
     # Like-for-like: same day-count window of the previous month, clamped to its length.
@@ -203,19 +228,19 @@ try:
 
     period = dfmt(week_start) + " - " + dfmt(anchor)
 
-    # ---- Q1: since launch / Q2: MTD / Q3: comparisons / weeks ----
-    life = agg(first_date, anchor)
-    mtd = agg(month_start, anchor)
+    # ---- Q1: to date / Q2: MTD / Q3: comparisons / weeks ----
+    life = agg(first_date, yday)         # cumulative, for investment recovery
+    mtd = agg(month_start, yday)
     lfl = agg(prev_month_start, lfl_end)
     pm_full = agg(prev_month_start, prev_month_end)
     wk = agg(week_start, anchor)
     pw = agg(prev_week_start, prev_week_end)
 
     if life[0] == 0:
-        fail("No Zamani traffic on or before " + dfmt(anchor))
+        fail("No Zamani traffic on or before " + dfmt(yday))
 
-    # Run rate: MTD pace projected over the whole anchor month.
-    days_in_month = calendar.monthrange(anchor.year, anchor.month)[1]
+    # Run rate: MTD pace projected over the whole of yesterday's month.
+    days_in_month = calendar.monthrange(yday.year, yday.month)[1]
     proj_rev = (mtd[2] / day_n * days_in_month) if day_n else 0.0
     proj_msgs = (mtd[0] / day_n * days_in_month) if day_n else 0.0
 
@@ -225,19 +250,16 @@ try:
         "SELECT vendorconnection, "
         "  COALESCE(SUM(numbersofmessages) FILTER (WHERE receiveddate BETWEEN %(ws)s AND %(a)s),0)::bigint AS wk_msgs, "
         "  COALESCE(SUM(revenue) FILTER (WHERE receiveddate BETWEEN %(ws)s AND %(a)s AND revenue IS NOT NULL AND revenue::text <> 'NaN'),0)::numeric AS wk_rev, "
-        "  COALESCE(SUM(numbersofmessages) FILTER (WHERE receiveddate BETWEEN %(ms)s AND %(a)s),0)::bigint AS mtd_msgs, "
-        "  COALESCE(SUM(revenue) FILTER (WHERE receiveddate BETWEEN %(ms)s AND %(a)s AND revenue IS NOT NULL AND revenue::text <> 'NaN'),0)::numeric AS mtd_rev, "
-        "  COALESCE(SUM(negativemargin) FILTER (WHERE receiveddate BETWEEN %(ms)s AND %(a)s AND negativemargin IS NOT NULL AND negativemargin::text <> 'NaN'),0)::numeric AS mtd_mrg, "
-        "  COALESCE(SUM(numbersofmessages),0)::bigint AS all_msgs, "
-        "  COALESCE(SUM(revenue) FILTER (WHERE revenue IS NOT NULL AND revenue::text <> 'NaN'),0)::numeric AS all_rev, "
-        "  COALESCE(SUM(negativemargin) FILTER (WHERE negativemargin IS NOT NULL AND negativemargin::text <> 'NaN'),0)::numeric AS all_mrg "
-        "FROM zamani_traffic_testing WHERE receiveddate <= %(a)s "
-        "GROUP BY 1 ORDER BY 8 DESC",
-        {"ws": week_start, "ms": month_start, "a": anchor},
+        "  COALESCE(SUM(numbersofmessages) FILTER (WHERE receiveddate BETWEEN %(ms)s AND %(y)s),0)::bigint AS mtd_msgs, "
+        "  COALESCE(SUM(revenue) FILTER (WHERE receiveddate BETWEEN %(ms)s AND %(y)s AND revenue IS NOT NULL AND revenue::text <> 'NaN'),0)::numeric AS mtd_rev, "
+        "  COALESCE(SUM(negativemargin) FILTER (WHERE receiveddate BETWEEN %(ms)s AND %(y)s AND negativemargin IS NOT NULL AND negativemargin::text <> 'NaN'),0)::numeric AS mtd_mrg "
+        # Spans both windows: the week ends at the anchor, the month at yesterday.
+        "FROM zamani_traffic_testing WHERE receiveddate BETWEEN LEAST(%(ms)s, %(ws)s) AND %(y)s "
+        "GROUP BY 1 ORDER BY 5 DESC",
+        {"ws": week_start, "ms": month_start, "a": anchor, "y": yday},
     )
     suppliers = [(r[0], int(r[1] or 0), float(r[2] or 0), int(r[3] or 0), float(r[4] or 0),
-                  float(r[5] or 0), int(r[6] or 0), float(r[7] or 0), float(r[8] or 0))
-                 for r in cur.fetchall()]
+                  float(r[5] or 0)) for r in cur.fetchall()]
 
     # ---- Q4: investment recovery (revenue-based, per Sales: 546,000 minus total revenue) ----
     cum_rev = life[2]
@@ -265,15 +287,18 @@ try:
         return None
 
     days_left = days_left_for(remaining, trail_avg)
-    proj_date = (anchor + timedelta(days=days_left)) if days_left is not None else None
+    proj_date = (yday + timedelta(days=days_left)) if days_left is not None else None
     # Last week's own view of the finish line, so the email can show whether it moved.
-    prev_days_left = days_left_for(TOTAL_INVESTMENT - (cum_rev - wk[2]), prev_avg)
+    # Cumulative as it stood a week ago, queried rather than derived: cum_rev now runs to yesterday,
+    # so subtracting this week's revenue would leave the days between the anchor and yesterday in.
+    prev_cum = agg(first_date, prev_week_end)[2]
+    prev_days_left = days_left_for(TOTAL_INVESTMENT - prev_cum, prev_avg)
     delta_days = (days_left - prev_days_left) if (days_left is not None and prev_days_left is not None) else None
 
     # ---- Q5: Google ----
     GOOGLE = " AND terminatedsenderid ILIKE 'google' "
-    g_life = agg(first_date, anchor, GOOGLE)
-    g_mtd = agg(month_start, anchor, GOOGLE)
+    g_life = agg(first_date, yday, GOOGLE)
+    g_mtd = agg(month_start, yday, GOOGLE)
     g_lfl = agg(prev_month_start, lfl_end, GOOGLE)
     g_wk = agg(week_start, anchor, GOOGLE)
     g_pw = agg(prev_week_start, prev_week_end, GOOGLE)
@@ -324,53 +349,60 @@ try:
               '<div style="font-family:Segoe UI,Arial,sans-serif;color:' + NAVY +
               ';font-size:20px;font-weight:700;margin-bottom:8px;">Zamani Weekly Sales Report</div>')
     intro = ('<div style="font-family:Segoe UI,Arial,sans-serif;color:#333;font-size:13px;line-height:1.6;margin:6px 0 12px;">'
-             'Hi Team,<br>Zamani (Niger) summary for the week <b>' + esc(period) + '</b>. '
-             'All figures are as of <b>' + esc(dfmt(anchor)) + '</b>, the last complete week.</div>')
+             'Hi Team,<br>Zamani (Niger) summary. Month and to-date figures run to <b>' +
+             esc(dfmt(yday)) + '</b> (yesterday); week-on-week comparisons use the last complete '
+             'week, <b>' + esc(period) + '</b>.</div>')
 
-    # --- 1. Since launch ---
-    s1 = caption("1. Where are we with Zamani traffic - since launch")
-    s1 += topen() + "<tr>" + th("Since", "left") + th("Messages", "right") + th("Delivered", "right") + \
+    # Period labels are shared by sections 1, 2/3 and 5, so they are built before any of them.
+    mtd_label = dfmt(month_start) + " - " + dfmt(yday)
+    lfl_label = dfmt(prev_month_start) + " - " + dfmt(lfl_end)
+
+    # --- 1. Till date ---
+    # Month-to-date, NOT since launch (Sales request 2026-09-02): "stats should be from 1st in the
+    # month till yesterday not from the launch time". On the Monday cadence the anchor IS yesterday.
+    s1 = caption("1. Where we are with Zamani traffic - till date")
+    s1 += topen() + "<tr>" + th("Period", "left") + th("Messages", "right") + th("Delivered", "right") + \
         th("DLR %", "right") + th("Revenue", "right") + th("Cost", "right") + th("Margin", "right") + "</tr>"
-    s1 += "<tr>" + td(esc(dfmt(first_date)) + " - " + esc(dfmt(anchor)), "left") + td(fi(life[0]), "right") + \
-        td(fi(life[1]), "right") + td(fp(dlr_of(life)), "right") + td(fu(life[2]), "right", True) + \
-        td(fu(life[3]), "right") + td(fu(life[4]), "right", True) + "</tr></table>"
-    s1 += note("Both suppliers to the Zamani destination: Zamani_Niger and Innovatio.")
+    s1 += "<tr>" + td(esc(mtd_label), "left") + td(fi(mtd[0]), "right") + \
+        td(fi(mtd[1]), "right") + td(fp(dlr_of(mtd)), "right") + td(fu(mtd[2]), "right", True) + \
+        td(fu(mtd[3]), "right") + td(fu(mtd[4]), "right", True) + "</tr></table>"
+    s1 += note("1st of the month to " + dfmt(yday) + " (yesterday). Both suppliers to the Zamani destination: "
+               "Zamani_Niger and Innovatio.")
 
     if suppliers:
         s1 += ('<div style="font-family:Segoe UI,Arial,sans-serif;font-size:12px;font-weight:700;color:' +
                NAVY + ';margin:14px 0 4px;">By supplier</div>')
-        s1 += topen() + "<tr>" + th("Supplier", "left") + th("Messages (this week)", "right") + \
-            th("Revenue (this week)", "right") + th("Messages (this month)", "right") + \
-            th("Revenue (this month)", "right") + th("Margin (this month)", "right") + \
-            th("Messages (since launch)", "right") + th("Revenue (since launch)", "right") + "</tr>"
-        for sup, wm, wr, mm, mr, mg, am2, ar, ag in suppliers:
+        # Real dates in the headers, not "this week" / "this month": the two windows have
+        # different cut-offs (complete week vs 1st-to-yesterday) and do not always overlap, so
+        # early in a month the month column reads smaller than the week one and looks broken.
+        wk_hdr = "week " + rng(week_start, anchor)
+        mo_hdr = "month " + rng(month_start, yday)
+        s1 += topen() + "<tr>" + th("Supplier", "left") + th("Messages (" + wk_hdr + ")", "right") + \
+            th("Revenue (" + wk_hdr + ")", "right") + th("Messages (" + mo_hdr + ")", "right") + \
+            th("Revenue (" + mo_hdr + ")", "right") + th("Margin (" + mo_hdr + ")", "right") + "</tr>"
+        for sup, wm, wr, mm, mr, mg in suppliers:
             s1 += "<tr>" + td(esc(sup), "left", True) + td(fi(wm), "right") + td(fu(wr), "right") + \
-                td(fi(mm), "right") + td(fu(mr), "right", True) + td(fu(mg), "right") + \
-                td(fi(am2), "right") + td(fu(ar), "right") + "</tr>"
+                td(fi(mm), "right") + td(fu(mr), "right", True) + td(fu(mg), "right") + "</tr>"
         s1 += "<tr>" + td("Total", "left", True) + td(fi(wk[0]), "right", True) + td(fu(wk[2]), "right", True) + \
             td(fi(mtd[0]), "right", True) + td(fu(mtd[2]), "right", True) + td(fu(mtd[4]), "right", True) + \
-            td(fi(life[0]), "right", True) + td(fu(life[2]), "right", True) + "</tr></table>"
+            "</tr></table>"
 
     # --- 2 + 3. This month vs last month ---
-    mtd_label = dfmt(month_start) + " - " + dfmt(anchor)
-    lfl_label = dfmt(prev_month_start) + " - " + dfmt(lfl_end)
     s2 = caption("2 & 3. This month vs last month")
     s2 += note("Like-for-like: the same number of days in each month (" + str(day_n) + " days vs " + str(lfl_days) + " days).")
     s2 += topen() + "<tr>" + th("Metric", "left") + th("This month  " + mtd_label, "right") + \
         th("Same period last month  " + lfl_label, "right") + th("Change", "right") + \
         th("Last month (full)", "right") + "</tr>"
+    # Messages and Revenue only — Cost, Margin and DLR % dropped on Sales' request (2026-09-02).
     rows23 = [
         ("Messages", fi(mtd[0]), fi(lfl[0]), fdelta(pct_change(mtd[0], lfl[0])), fi(pm_full[0])),
         ("Revenue", fu(mtd[2]), fu(lfl[2]), fdelta(pct_change(mtd[2], lfl[2])), fu(pm_full[2])),
-        ("Cost", fu(mtd[3]), fu(lfl[3]), fdelta(pct_change(mtd[3], lfl[3])), fu(pm_full[3])),
-        ("Margin", fu(mtd[4]), fu(lfl[4]), fdelta(pct_change(mtd[4], lfl[4])), fu(pm_full[4])),
-        ("DLR %", fp(dlr_of(mtd)), fp(dlr_of(lfl)), fpp(dlr_of(mtd), dlr_of(lfl)), fp(dlr_of(pm_full))),
     ]
     for lbl, a, b, dl, c in rows23:
         s2 += "<tr>" + td(esc(lbl), "left", True) + td(a, "right", True) + td(b, "right") + \
             td(dl, "right") + td(c, "right") + "</tr>"
     s2 += "</table>"
-    s2 += note("At the current pace " + anchor.strftime("%B") + " projects to about " + fu(proj_rev) +
+    s2 += note("At the current pace " + yday.strftime("%B") + " projects to about " + fu(proj_rev) +
                " revenue on " + fi(proj_msgs) + " messages.")
     s2 += note("Revenue is rated (billed) revenue from the ASMSC records, not cash received.")
 
