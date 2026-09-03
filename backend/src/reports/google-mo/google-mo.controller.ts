@@ -60,6 +60,25 @@ export class GoogleMoController {
     });
   }
 
+  /** P&L aggregated per destination (country × operator × mccmnc) over the selected period —
+   *  the "By Destination" toggle. Year/month optional: omitted = the whole loaded history. */
+  @Get('profit-loss-destinations')
+  getProfitLossByDestination(
+    @Query('mccmnc') mccmnc?: string,
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+    @Query('countries') countries?: string,
+    @Query('operators') operators?: string,
+  ) {
+    return this.service.getProfitLossByDestination({
+      mccmnc,
+      year: year ? Number(year) : undefined,
+      month: month ? Number(month) : undefined,
+      countries: countries ? countries.split(',').filter(Boolean) : [],
+      operators: operators ? operators.split(',').filter(Boolean) : [],
+    });
+  }
+
   @Get('yesterday')
   getYesterday(
     @Query('mccmnc')    mccmnc?: string,

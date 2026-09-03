@@ -441,6 +441,10 @@ export default function GoogleMoTrafficPage() {
   const [plData, setPlData] = React.useState<any>(null);
   const [plLoad, setPlLoad] = React.useState(false);
   const plSort = useSortState('year');
+  // P&L grouping: 'month' = the original month × country rows; 'destination' = one row per
+  // country × operator × MCC/MNC aggregated over the selected period (an overall per-destination view).
+  const [plMode, setPlMode] = React.useState<'month' | 'destination'>('month');
+  const plDestSort = useSortState('margin');
 
   /* Yesterday */
   const [yMccmnc, setYMccmnc] = React.useState('');
@@ -542,8 +546,11 @@ export default function GoogleMoTrafficPage() {
     if (plOperator) p.operators = plOperator;
     if (plYear) p.year = plYear;
     if (plMonth) p.month = plMonth;
-    googleMoApi.getProfitLoss(p).then(r => setPlData((r as any).data)).catch(console.error).finally(() => setPlLoad(false));
-  }, [tab, plMccmnc, plCountry, plOperator, plYear, plMonth, refreshTick]);
+    const req = plMode === 'destination'
+      ? googleMoApi.getProfitLossDestinations(p)
+      : googleMoApi.getProfitLoss(p);
+    req.then(r => setPlData((r as any).data)).catch(console.error).finally(() => setPlLoad(false));
+  }, [tab, plMode, plMccmnc, plCountry, plOperator, plYear, plMonth, refreshTick]);
 
   // On mount: cascade fetch years → pick best year → fetch months → pick best month
   React.useEffect(() => {
@@ -757,15 +764,22 @@ export default function GoogleMoTrafficPage() {
 
   const plRows = plData?.rows ?? [];
   const plSorted = plSort.sort(plRows);
+  // Destination mode reads the same plData (the fetch switches endpoint by plMode) but sorts on
+  // its own key set — default margin ASC so the worst destinations surface first.
+  const plDestSorted = plDestSort.sort(plRows);
   const plTotals = React.useMemo(() => {
     if (!plRows.length) return null;
+    // annual_fees / once_off must be summed too — the footer renders them, and without these
+    // keys fR(undefined) printed an em-dash for both fee columns.
     return plRows.reduce((acc: any, r: any) => ({
       volume: acc.volume + Number(r.volume || 0),
       revenue: acc.revenue + Number(r.revenue || 0),
       vendor_cost: acc.vendor_cost + Number(r.vendor_cost || 0),
       monthly_misc_cost: acc.monthly_misc_cost + Number(r.monthly_misc_cost || 0),
+      annual_fees: acc.annual_fees + Number(r.annual_fees || 0),
+      once_off: acc.once_off + Number(r.once_off || 0),
       margin: acc.margin + Number(r.margin || 0),
-    }), { volume: 0, revenue: 0, vendor_cost: 0, monthly_misc_cost: 0, margin: 0 });
+    }), { volume: 0, revenue: 0, vendor_cost: 0, monthly_misc_cost: 0, annual_fees: 0, once_off: 0, margin: 0 });
   }, [plRows]);
 
   /* ── Date label for KPI cards ───────────────────────────────── */
@@ -1442,6 +1456,13 @@ export default function GoogleMoTrafficPage() {
                   {plAvailableMonths.map((m: number) => <option key={m} value={String(m)}>{MNF[m - 1]}</option>)}
                 </select>
               </div>
+              <div className="zff">
+                <label>View</label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className={`zbt${plMode === 'month' ? ' za' : ''}`} onClick={() => setPlMode('month')}>Monthly</button>
+                  <button className={`zbt${plMode === 'destination' ? ' za' : ''}`} onClick={() => setPlMode('destination')}>By Destination</button>
+                </div>
+              </div>
               <div style={{ alignSelf: 'flex-end' }}>
                 <button className="zbt" onClick={() => { setPlMccmnc(''); setPlCountry(''); setPlOperator(''); setPlYear(''); setPlMonth(''); }}>Reset</button>
               </div>
@@ -1456,6 +1477,53 @@ export default function GoogleMoTrafficPage() {
                   <>
                     {/* All rows in one scrollable body (no pagination); header stays sticky. */}
                     <div className="tbl-scroll" style={{ overflow: 'auto', maxHeight: 560 }}>
+                      {plMode === 'destination' ? (
+                        <table className="zt">
+                          <thead><tr>
+                            {plDestSort.th('country_name', 'Country Name')}
+                            {plDestSort.th('operator_name', 'Operator')}
+                            {plDestSort.th('mccmnc', 'MccMnc')}
+                            {plDestSort.th('revenue', 'Revenue')}
+                            {plDestSort.th('vendor_cost', 'Vendor Cost')}
+                            {plDestSort.th('volume', 'Volume')}
+                            {plDestSort.th('monthly_misc_cost', 'Monthly & Miscellaneous Cost')}
+                            {plDestSort.th('annual_fees', 'Annual Fees')}
+                            {plDestSort.th('once_off', 'Once Off Fees')}
+                            {plDestSort.th('margin', 'Margin')}
+                          </tr></thead>
+                          <tbody>
+                            {plDestSorted.map((r: any, i: number) => (
+                              <tr key={i}>
+                                <td><CountryDot name={r.country_name} /></td>
+                                {/* cost_only = a country-wide fee row with no destination of its own */}
+                                <td>{r.cost_only
+                                  ? <span style={{ color: 'var(--mu)', fontStyle: 'italic' }}>country-wide fees</span>
+                                  : (r.operator_name || <span style={{ color: 'var(--mu)' }}>—</span>)}</td>
+                                <td>{r.mccmnc || <span style={{ color: 'var(--mu)' }}>—</span>}</td>
+                                <td>{fR(r.revenue)}</td>
+                                <td>{fR(r.vendor_cost)}</td>
+                                <td>{fN(r.volume)}</td>
+                                <td>{Number(r.monthly_misc_cost) > 0 ? fR(r.monthly_misc_cost) : <span style={{ color: 'var(--mu)' }}>—</span>}</td>
+                                <td>{Number(r.annual_fees) > 0 ? fR(r.annual_fees) : <span style={{ color: 'var(--mu)' }}>—</span>}</td>
+                                <td>{Number(r.once_off) > 0 ? fR(r.once_off) : <span style={{ color: 'var(--mu)' }}>—</span>}</td>
+                                <td className={Number(r.margin) < 0 ? 'zneg' : 'zpos'}>{fR(r.margin)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          {plTotals && (
+                            <tfoot><tr>
+                              <td colSpan={3}>Total</td>
+                              <td>{fR(plTotals.revenue)}</td>
+                              <td>{fR(plTotals.vendor_cost)}</td>
+                              <td>{fN(plTotals.volume)}</td>
+                              <td>{fR(plTotals.monthly_misc_cost)}</td>
+                              <td>{fR(plTotals.annual_fees)}</td>
+                              <td>{fR(plTotals.once_off)}</td>
+                              <td className={Number(plTotals.margin) < 0 ? 'zneg' : 'zpos'}>{fR(plTotals.margin)}</td>
+                            </tr></tfoot>
+                          )}
+                        </table>
+                      ) : (
                       <table className="zt">
                         <thead><tr>
                           {plSort.th('month_name', 'Month Name')}
@@ -1496,6 +1564,7 @@ export default function GoogleMoTrafficPage() {
                           </tr></tfoot>
                         )}
                       </table>
+                      )}
                     </div>
                     <div style={{ padding: '10px 18px', fontSize: 12, color: 'var(--mu)', textAlign: 'right' }}>
                       {plSorted.length.toLocaleString()} rows

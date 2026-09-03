@@ -464,6 +464,7 @@ export const googleMoApi = {
   getData: (params: Record<string, string>) => api.get('/reports/google-mo/data', { params }),
   getComparison: (params: Record<string, string>) => api.get('/reports/google-mo/comparison', { params }),
   getProfitLoss: (params: Record<string, string>) => api.get('/reports/google-mo/profit-loss', { params }),
+  getProfitLossDestinations: (params: Record<string, string>) => api.get('/reports/google-mo/profit-loss-destinations', { params }),
   getPlYears: () => api.get('/reports/google-mo/pl-years'),
   getPlMonths: (params: Record<string, string>) => api.get('/reports/google-mo/pl-months', { params }),
   getYesterday: (params: Record<string, string>) => api.get('/reports/google-mo/yesterday', { params }),

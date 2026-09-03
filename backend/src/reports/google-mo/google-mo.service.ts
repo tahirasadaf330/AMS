@@ -153,6 +153,20 @@ export class GoogleMoService implements OnModuleInit {
       await this.dataSource.query(
         `ALTER TABLE ${COST_TABLE} ADD COLUMN IF NOT EXISTS once_off NUMERIC(18,4) NOT NULL DEFAULT 0`,
       );
+      // 2026-09: cost rows gained mccmnc so the P&L "By Destination" view can attribute fees per
+      // destination ('' = a country-wide fee row — the shape of every pre-mccmnc row). The unique
+      // key widens from (country, year, month) to include mccmnc; the old constraint must go first
+      // or per-destination rows for the same country-month could never be inserted.
+      await this.dataSource.query(
+        `ALTER TABLE ${COST_TABLE} ADD COLUMN IF NOT EXISTS mccmnc TEXT NOT NULL DEFAULT ''`,
+      );
+      await this.dataSource.query(
+        `ALTER TABLE ${COST_TABLE} DROP CONSTRAINT IF EXISTS google_mo_cost_ym_country`,
+      );
+      await this.dataSource.query(
+        `CREATE UNIQUE INDEX IF NOT EXISTS google_mo_cost_ym_country_mccmnc
+           ON ${COST_TABLE} (country, mccmnc, year, month)`,
+      );
     } catch (err) {
       this.logger.error("Failed to ensure aux tables", err);
     }
@@ -750,9 +764,16 @@ export class GoogleMoService implements OnModuleInit {
            GROUP BY 1, 2
          ),
          c AS (
+           -- Costs may now be stored per (country, mccmnc); the monthly view is country-grained,
+           -- so aggregate here — otherwise a country with N destination fee rows would fan out the
+           -- join N-fold. Country-wide rows (mccmnc = '') sum in transparently.
            SELECT make_date(year, month, 1) AS m, country,
-                  monthly_cost, miscellaneous, annual_fees, once_off
+                  SUM(monthly_cost)  AS monthly_cost,
+                  SUM(miscellaneous) AS miscellaneous,
+                  SUM(annual_fees)   AS annual_fees,
+                  SUM(once_off)      AS once_off
            FROM ${COST_TABLE}
+           GROUP BY 1, 2
          )
          SELECT
            TO_CHAR(COALESCE(t.m, c.m::timestamp), 'Month')             AS month_name,
@@ -792,6 +813,109 @@ export class GoogleMoService implements OnModuleInit {
       monthly_misc_cost: sumCol("monthly_misc_cost"),
       annual_fees: sumCol("annual_fees"),
       once_off: sumCol("once_off"),
+    };
+    return { rows, totals };
+  }
+
+  /**
+   * P&L aggregated PER DESTINATION over the whole selected period (no month rows) — the
+   * "By Destination" toggle on the P&L tab. Grain: country × operator × mccmnc.
+   *
+   * Fees: cost rows carrying an mccmnc attach to that destination. Rows without one
+   * (mccmnc = '', i.e. a country-wide fee) cannot be split across operators without inventing an
+   * allocation, so they surface as their own explicit row per country — labelled by the caller —
+   * which keeps SUM(destination rows) == the monthly view's totals for the same period.
+   */
+  async getProfitLossByDestination(params: {
+    mccmnc?: string;
+    year?: number;
+    month?: number;
+    countries: string[];
+    operators: string[];
+  }) {
+    if (!(await this.stageExists())) return { rows: [], totals: null };
+
+    const args: unknown[] = [];
+    // Traffic-side conditions (inside the traffic CTE).
+    const tConds: string[] = [
+      `customername = 'Google_DIR'`,
+      `COALESCE(vendorname, '') <> 'Iristel_p2p'`,
+    ];
+    if (params.mccmnc) tConds.push(`mccmnc = $${args.push(params.mccmnc)}`);
+    if (params.countries?.length) tConds.push(`countryname = ANY($${args.push(params.countries)}::text[])`);
+    if (params.operators?.length) tConds.push(`operatorname = ANY($${args.push(params.operators)}::text[])`);
+    if (params.year) tConds.push(`EXTRACT(YEAR FROM receiveddate) = $${args.push(params.year)}`);
+    if (params.month) tConds.push(`EXTRACT(MONTH FROM receiveddate) = $${args.push(params.month)}`);
+
+    // Cost-side conditions (same period/country scope; costs have no operator dimension).
+    const cConds: string[] = [];
+    if (params.mccmnc) cConds.push(`(mccmnc = $${args.indexOf(params.mccmnc) + 1} OR mccmnc = '')`);
+    if (params.countries?.length) cConds.push(`country = ANY($${args.indexOf(params.countries) + 1}::text[])`);
+    if (params.year) cConds.push(`year = $${args.indexOf(params.year) + 1}`);
+    if (params.month) cConds.push(`month = $${args.indexOf(params.month) + 1}`);
+
+    let rows: any[];
+    try {
+      rows = await this.dataSource.query(
+        `WITH t AS (
+           SELECT countryname          AS country,
+                  operatorname         AS operator,
+                  COALESCE(mccmnc, '') AS mccmnc,
+                  SUM(volume)::bigint  AS volume,
+                  SUM(revenue)         AS revenue,
+                  SUM(vendorcost)      AS vendor_cost
+           FROM ${STAGE}
+           WHERE ${tConds.join(" AND ")}
+           GROUP BY 1, 2, 3
+         ),
+         c AS (
+           SELECT country, COALESCE(mccmnc, '') AS mccmnc,
+                  SUM(monthly_cost)  AS monthly_cost,
+                  SUM(miscellaneous) AS miscellaneous,
+                  SUM(annual_fees)   AS annual_fees,
+                  SUM(once_off)      AS once_off
+           FROM ${COST_TABLE}
+           ${cConds.length ? `WHERE ${cConds.join(" AND ")}` : ""}
+           GROUP BY 1, 2
+         )
+         SELECT
+           COALESCE(t.country, c.country)                              AS country_name,
+           t.operator                                                   AS operator_name,
+           COALESCE(t.mccmnc, c.mccmnc)                                 AS mccmnc,
+           (t.country IS NULL)                                          AS cost_only,
+           COALESCE(t.volume, 0)::bigint                                AS volume,
+           ROUND(COALESCE(t.revenue, 0)::numeric, 4)                    AS revenue,
+           ROUND(COALESCE(t.vendor_cost, 0)::numeric, 4)                AS vendor_cost,
+           COALESCE(c.monthly_cost, 0) + COALESCE(c.miscellaneous, 0)   AS monthly_misc_cost,
+           COALESCE(c.annual_fees, 0)                                   AS annual_fees,
+           COALESCE(c.once_off, 0)                                      AS once_off,
+           ROUND((COALESCE(t.revenue, 0) - COALESCE(t.vendor_cost, 0)
+             - COALESCE(c.monthly_cost, 0)
+             - COALESCE(c.miscellaneous, 0)
+             - COALESCE(c.annual_fees, 0)
+             - COALESCE(c.once_off, 0))::numeric, 4)                    AS margin
+         FROM t
+         FULL OUTER JOIN c
+           ON LOWER(c.country) = LOWER(t.country)
+          AND c.mccmnc = t.mccmnc
+          AND c.mccmnc <> ''
+         ORDER BY margin ASC, country_name, operator_name`,
+        args,
+      );
+    } catch (err) {
+      this.logger.error("getProfitLossByDestination query failed", err);
+      throw err;
+    }
+
+    const sumCol = (k: string) => rows.reduce((a: number, r: any) => a + Number(r[k] ?? 0), 0);
+    const totals = {
+      volume: sumCol("volume"),
+      revenue: sumCol("revenue"),
+      vendor_cost: sumCol("vendor_cost"),
+      monthly_misc_cost: sumCol("monthly_misc_cost"),
+      annual_fees: sumCol("annual_fees"),
+      once_off: sumCol("once_off"),
+      margin: sumCol("margin"),
     };
     return { rows, totals };
   }
@@ -1076,13 +1200,15 @@ export class GoogleMoService implements OnModuleInit {
         "No valid rows found. Expected columns: Date, Country, Monthly Cost, Miscellaneous",
       );
 
-    // Aggregate multiple vendor rows into one record per country+year+month
+    // Aggregate vendor rows into one record per country+mccmnc+year+month. Rows whose sheet
+    // carries no MCC/MNC keep mccmnc = '' and collapse per country-month exactly as before, so a
+    // sheet without the column behaves identically to the pre-mccmnc importer.
     const aggMap = new Map<
       string,
-      { country: string; year: number; month: number; monthly_cost: number; miscellaneous: number; annual_fees: number; once_off: number }
+      { country: string; mccmnc: string; year: number; month: number; monthly_cost: number; miscellaneous: number; annual_fees: number; once_off: number }
     >();
     for (const r of records) {
-      const key = `${r.country.toLowerCase()}|${r.year}|${r.month}`;
+      const key = `${r.country.toLowerCase()}|${r.mccmnc}|${r.year}|${r.month}`;
       const existing = aggMap.get(key);
       if (existing) {
         existing.monthly_cost += r.monthly_cost;
@@ -1096,14 +1222,15 @@ export class GoogleMoService implements OnModuleInit {
     const aggregated = Array.from(aggMap.values());
 
     // "Once off" fees are one-time by definition, but the sheet repeats some of them on
-    // every month row (e.g. Niger's 877 filled down Jan→Sep). Charge each country's
+    // every month row (e.g. Niger's 877 filled down Jan→Sep). Charge each destination's
     // identical once-off total only in its FIRST month; identical repeats in later
     // months are zeroed. A different amount in a later month is a new charge and counts.
+    // Keyed per country+mccmnc so two destinations in one country don't cancel each other out.
     aggregated.sort((a, b) => a.year - b.year || a.month - b.month);
     const chargedOnceOff = new Map<string, number>();
     for (const r of aggregated) {
       if (r.once_off <= 0) continue;
-      const key = r.country.toLowerCase();
+      const key = `${r.country.toLowerCase()}|${r.mccmnc}`;
       const prev = chargedOnceOff.get(key);
       if (prev != null && Math.abs(prev - r.once_off) < 0.01) {
         r.once_off = 0;
@@ -1116,17 +1243,32 @@ export class GoogleMoService implements OnModuleInit {
     await qr.connect();
     await qr.startTransaction();
     try {
+      // Clear each (country, year, month) this sheet covers before inserting. Without this, a
+      // country's pre-mccmnc row (mccmnc = '') would survive alongside the new per-destination
+      // rows and its fees would be counted twice in the monthly view.
+      const scopes = new Map<string, { country: string; year: number; month: number }>();
+      for (const r of aggregated) {
+        scopes.set(`${r.country.toLowerCase()}|${r.year}|${r.month}`, {
+          country: r.country, year: r.year, month: r.month,
+        });
+      }
+      for (const s of scopes.values()) {
+        await qr.query(
+          `DELETE FROM ${COST_TABLE} WHERE LOWER(country) = LOWER($1) AND year = $2 AND month = $3`,
+          [s.country, s.year, s.month],
+        );
+      }
       for (const r of aggregated) {
         await qr.query(
-          `INSERT INTO ${COST_TABLE} (country, year, month, monthly_cost, miscellaneous, annual_fees, once_off)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT ON CONSTRAINT google_mo_cost_ym_country
+          `INSERT INTO ${COST_TABLE} (country, mccmnc, year, month, monthly_cost, miscellaneous, annual_fees, once_off)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (country, mccmnc, year, month)
            DO UPDATE SET monthly_cost   = EXCLUDED.monthly_cost,
                          miscellaneous  = EXCLUDED.miscellaneous,
                          annual_fees    = EXCLUDED.annual_fees,
                          once_off       = EXCLUDED.once_off,
                          updated_at     = NOW()`,
-          [r.country, r.year, r.month, r.monthly_cost, r.miscellaneous, r.annual_fees, r.once_off],
+          [r.country, r.mccmnc, r.year, r.month, r.monthly_cost, r.miscellaneous, r.annual_fees, r.once_off],
         );
       }
       await qr.commitTransaction();
@@ -1489,6 +1631,11 @@ export class GoogleMoService implements OnModuleInit {
     const onceStr =
       this.pickField(row, "once off", "onceoff", "one off", "oneoff", "once off fees", "onceofffees") || "0";
 
+    // MCC/MNC (2026-09): when the sheet identifies the destination, fees are stored against it so
+    // the P&L "By Destination" view can attribute them. Absent/blank → '' = a country-wide fee.
+    const mccmnc = (this.pickField(row, "mccmnc", "mcc mnc", "mccmnc code", "mcc_mnc") || "")
+      .replace(/[\s,]/g, "");
+
     const monthly_cost = parseFloat(costStr.replace(/[,$\s]/g, ""));
     const miscellaneous = parseFloat(miscStr.replace(/[,$\s]/g, ""));
     const annual_fees = parseFloat(annualStr.replace(/[,$\s]/g, ""));
@@ -1496,6 +1643,7 @@ export class GoogleMoService implements OnModuleInit {
 
     return {
       country,
+      mccmnc,
       year,
       month,
       monthly_cost: isNaN(monthly_cost) ? 0 : monthly_cost,
