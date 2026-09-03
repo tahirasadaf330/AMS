@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   XCircle,
   Download,
-  RotateCcw,
   PackagePlus,
   Trash2,
   RefreshCw,
@@ -257,22 +256,6 @@ function SecurityTab({ settings, onSave, isSaving }: {
   const [sessionTimeout, setSessionTimeout] = React.useState(String(settings.security.session_timeout_hours));
   const [maxFailedLogins, setMaxFailedLogins] = React.useState(String(settings.security.max_failed_logins));
   const [lockoutDuration, setLockoutDuration] = React.useState(String(settings.security.lockout_duration_minutes));
-  const [showRotateConfirm, setShowRotateConfirm] = React.useState(false);
-  const [rotating, setRotating] = React.useState(false);
-  const addToast = useUIStore((s) => s.addToast);
-
-  const handleRotate = async () => {
-    setRotating(true);
-    try {
-      await adminSettingsApi.rotateKey();
-      addToast({ title: 'Encryption key rotated', variant: 'success' });
-    } catch {
-      addToast({ title: 'Key rotation failed', variant: 'destructive' });
-    } finally {
-      setRotating(false);
-      setShowRotateConfirm(false);
-    }
-  };
 
   return (
     <div className="space-y-4 max-w-lg">
@@ -300,31 +283,6 @@ function SecurityTab({ settings, onSave, isSaving }: {
         </Button>
       </div>
 
-      <div className="rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/10 p-4 mt-6">
-        <h3 className="text-sm font-medium text-red-700 dark:text-red-300 mb-2">Danger Zone</h3>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          Rotating the encryption key will invalidate all existing encrypted data. This action cannot be undone.
-        </p>
-        <Button variant="destructive" size="sm" onClick={() => setShowRotateConfirm(true)}>
-          <RotateCcw className="h-4 w-4" />
-          Rotate Encryption Key
-        </Button>
-      </div>
-
-      <Dialog open={showRotateConfirm} onClose={() => setShowRotateConfirm(false)} className="max-w-sm">
-        <DialogHeader title="Confirm Key Rotation" onClose={() => setShowRotateConfirm(false)} />
-        <DialogBody>
-          <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-            This will rotate the encryption key and may require re-entering credentials. Are you absolutely sure?
-          </p>
-          <div className="flex justify-end gap-3">
-            <Button variant="ghost" onClick={() => setShowRotateConfirm(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => void handleRotate()} isLoading={rotating}>
-              Rotate Key
-            </Button>
-          </div>
-        </DialogBody>
-      </Dialog>
     </div>
   );
 }
