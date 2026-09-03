@@ -210,6 +210,68 @@ unapproved vendor. Approved suppliers are excluded by name as well as by id — 
 because a rename would otherwise resurrect the alert. Recipients are code-managed and set
 authoritatively on startup.
 
+### Zamani Weekly Sales Report
+
+`ZamaniWeeklySalesAlertService` · python condition **"Zamani Weekly Sales Report"** · seeded at
+`0 12 * * 1` (Mondays 12:00 UTC — `ConditionSchedulerService` runs DB crons in UTC) · one
+text-and-tables email, no charts.
+
+Written for Sales, and structured as the six questions they asked:
+
+| # | Question | Source |
+|---|---|---|
+| 1 | Where are we till date? | `zamani_traffic_testing`, since first traffic, plus a per-supplier split |
+| 2 | How much this month? | MTD through the cut-off Sunday |
+| 3 | Versus last month? | like-for-like, same day count in each month |
+| 4 | How far from breaking even? | USD 546,000 minus cumulative **revenue** |
+| 5 | How is Google performing? | sender ID `Google`, all customer connections |
+| 6 | What traffic has been added? | `stage_zamani_senderid`, New Senders semantics, **Zamani_Niger only** |
+
+**Everything anchors to the cut-off Sunday, never to "today".** Run on Monday 1 September the
+anchor is Sunday 30 August, so "this month" means 1–30 August and "last month" 1–30 July.
+Anchoring to the calendar month instead would make the first Monday of every month report an
+almost empty MTD. The sender-ID history behind section 6 is bounded by the same anchor, or a
+sender that resumed on the Monday shows a `last seen` date later than the report period.
+
+Two source tables on purpose:
+
+- **Sections 1–5 → `zamani_traffic_testing`**, the "Zamani Traffic include Testing" dataset: the
+  Zamani Traffic report widened to both approved suppliers (`Zamani_Niger` + `Innovatio`), still
+  carrying revenue, cost and margin. Sales asked for Innovatio to be included everywhere revenue
+  and volume appear (2026-09-02), and the narrower `zamani_traffic` cannot answer that — its source
+  SQL pins `mvc.Name = 'Zamani_Niger'`. Section 1 also prints a per-supplier split so Innovatio is
+  visible rather than only folded into the totals. Note the consequence: **recovery counts both
+  suppliers** toward the 546,000, which matches that dataset's own investment-recovery page and
+  *not* the Zamani_Niger-only one (68.3% versus 65.1% at the end of August).
+- **Section 6 → `stage_zamani_senderid`** (message counts, no revenue), what the Sender ID report's
+  New Senders tab reads, filtered to **`Zamani_Niger` only** — Sales wants Innovatio counted in the
+  money sections but excluded here. The filter scopes the two period windows exactly as the page's
+  supplier dropdown does; `first ever` stays across all suppliers, so a sender that previously ran
+  over Innovatio reads as RETURNING rather than brand new. Counts do **not** reconcile with the
+  billed sections and the email says so.
+
+Section 6 reuses `getNewSenders`' definitions — added = active this week with nothing the week
+before, `returning` when the sender existed earlier in retained history — but over weeks rather
+than the page's months, to match this report's cadence. There are no lost-sender counts: Sales
+asked for them to go.
+
+Recovery is measured against **revenue**, per Sales. Against margin the same USD 546,000 is a very
+different number (about 24% versus 66% at the end of August), so the email states the basis and
+prints margin-to-date beside it. `TOTAL_INVESTMENT` is a constant in the script; the AMS
+Investment Recovery page keeps its own copy in `ZamaniReportService` — change both together.
+
+Rate rows (DLR %) move in **percentage points**, not percent of a percent. Recipients are
+code-managed; during the testing phase the list is the developer only.
+
+The email ends after the section 6 "Senders added" table. A composite matplotlib figure, a
+lost-senders table, a top-customers table and the lost-sender counts were all dropped on Sales'
+request (2026-09-02) — which is why the script imports no matplotlib and runs in well under a
+second.
+
+The NEW / RETURNING badge on each added sender is separated from the sender name by a literal
+`&nbsp;`, not a CSS margin: mail clients routinely strip margins from inline elements, which glued
+the badge to the name.
+
 ## Zamani Sender ID
 
 `zamani-sender-id` · sms · ASMSC (MSSQL) · module `backend/src/reports/zamani-senderid/`.

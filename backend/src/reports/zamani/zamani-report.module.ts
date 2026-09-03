@@ -9,6 +9,7 @@ import { ConditionsModule } from '../../conditions/conditions.module';
 import { ZamaniReportService } from './zamani-report.service';
 import { ZamaniReportController } from './zamani-report.controller';
 import { ZamaniDailyAlertService } from './zamani-daily-alert.service';
+import { ZamaniWeeklySalesAlertService } from './zamani-weekly-sales-alert.service';
 import { ReportAccessGuard } from '../../common/guards/report-access.guard';
 
 @Module({
@@ -19,7 +20,7 @@ import { ReportAccessGuard } from '../../common/guards/report-access.guard';
     ConditionsModule,
   ],
   controllers: [ZamaniReportController],
-  providers: [ZamaniReportService, ZamaniDailyAlertService, ReportAccessGuard],
-  exports: [ZamaniDailyAlertService],
+  providers: [ZamaniReportService, ZamaniDailyAlertService, ZamaniWeeklySalesAlertService, ReportAccessGuard],
+  exports: [ZamaniDailyAlertService, ZamaniWeeklySalesAlertService],
 })
 export class ZamaniReportModule {}
