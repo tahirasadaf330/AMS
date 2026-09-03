@@ -8,11 +8,11 @@ import { NotificationsService } from '../../notifications/notifications.service'
 
 const ALERT_NAME = 'Zamani Weekly Sales Report';
 // Recipients are code-managed (set authoritatively on startup). Update here to change them.
-// To = the sales owners of Zamani; Cc = management and the reviewer.
+// To = the sales owner of Zamani; Cc = management and the reviewer.
+// Ghazal and Franz were on To until 2026-09-03, removed at Mladen's request after his call with
+// Gabriela — they are the account managers in the traffic data, so re-add here if that reverses.
 const TO: string[] = [
   'gabriela@hayo.net',         // Gabriela
-  'ghazal@hayo.net',           // Ghazal Khonyagar (account manager on Zamani traffic)
-  'franz.stiglich@hayo.net',   // Franz Stiglich (account manager on Zamani traffic)
 ];
 const CC: string[] = [
   'sarkari@hayo.net',          // Mohammad Sarkari
