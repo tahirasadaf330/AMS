@@ -21,6 +21,11 @@ export class ZamaniFirewallController {
     @Query('stream') stream?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('q') q?: string,
+    @Query('message_type') messageType?: string,
+    @Query('direction') direction?: string,
+    @Query('final_action') finalAction?: string,
+    @Query('traffic_source') trafficSource?: string,
   ) {
     if (stream !== 'ss7' && stream !== 'smpp' && stream !== 'srism') {
       throw new BadRequestException('stream must be ss7, smpp or srism');
@@ -32,6 +37,13 @@ export class ZamaniFirewallController {
       const d = new Date(v);
       return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
     };
-    return this.service.getMessagesTab(stream, iso(from), iso(to));
+    const s = (v?: string) => (v && v.trim() ? v.trim() : undefined);
+    return this.service.getMessagesTab(stream, iso(from), iso(to), {
+      q: s(q),
+      messageType: s(messageType),
+      direction: s(direction),
+      finalAction: s(finalAction),
+      trafficSource: s(trafficSource),
+    });
   }
 }

@@ -526,8 +526,10 @@ export const appleTrafficApi = {
 // ── ZAMANI SMS FIREWALL REPORT ────────────────────────────────
 export const zamaniFirewallApi = {
   getData: (hours = 24) => api.get('/reports/zamani-firewall/data', { params: { hours } }),
-  getMessagesTab: (params: { stream: 'ss7' | 'smpp' | 'srism'; from?: string; to?: string }) =>
-    api.get('/reports/zamani-firewall/messages-tab', { params }),
+  getMessagesTab: (params: {
+    stream: 'ss7' | 'smpp' | 'srism'; from?: string; to?: string;
+    q?: string; message_type?: string; direction?: string; final_action?: string; traffic_source?: string;
+  }) => api.get('/reports/zamani-firewall/messages-tab', { params }),
 };
 
 // ── SMS CREDIT LIMIT REPORT ───────────────────────────────────

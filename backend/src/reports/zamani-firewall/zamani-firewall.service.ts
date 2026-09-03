@@ -771,35 +771,73 @@ export class ZamaniFirewallService implements OnModuleInit {
    * exactly the columns each tab displays, plus the Messages sum. Bounds are optional ISO instants;
    * `from` is truncated down to its hour so a partial first hour is included rather than silently
    * dropped — stage rows are whole-hour buckets, which makes the slicer hour-granular by design.
-   * The total is computed by its own SUM over the window, so the Total row stays exact even when
-   * the row list is capped.
+   *
+   * Filters are applied SERVER-SIDE on purpose: the SMPP list is capped at 2000 rows, so a
+   * client-side filter could not see tail senders at all, and the Total must reflect the filtered
+   * slice exactly. `q` is a substring search on the tab's free-text dimension; the enumerable
+   * dimensions filter by equality. Dropdown options are computed from the time window only (not
+   * the other filters), so picking one value does not empty the other dropdowns.
    */
-  async getMessagesTab(stream: 'ss7' | 'smpp' | 'srism', from?: string, to?: string): Promise<any> {
-    const win = `($1::timestamptz IS NULL OR bucket_hour >= date_trunc('hour', $1::timestamptz))
-                 AND ($2::timestamptz IS NULL OR bucket_hour <= $2::timestamptz)`;
-    const params = [from ?? null, to ?? null];
+  async getMessagesTab(
+    stream: 'ss7' | 'smpp' | 'srism',
+    from?: string,
+    to?: string,
+    filters: { q?: string; messageType?: string; direction?: string; finalAction?: string; trafficSource?: string } = {},
+  ): Promise<any> {
     const CAP = 2000;
+    const params: any[] = [from ?? null, to ?? null];
+    const conds: string[] = [
+      `($1::timestamptz IS NULL OR bucket_hour >= date_trunc('hour', $1::timestamptz))`,
+      `($2::timestamptz IS NULL OR bucket_hour <= $2::timestamptz)`,
+    ];
+    const timeWin = conds.join(' AND ');
+    const add = (sqlTpl: string, value: any) => {
+      params.push(value);
+      conds.push(sqlTpl.replace('?', `$${params.length}`));
+    };
+    const like = (v: string) => `%${v.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
 
     let stage: string;
     let rows: any[];
     let totalSql: string;
+    let options: Record<string, string[]> = {};
     if (stream === 'ss7') {
       stage = 'stage_zfw_ss7_actions';
+      if (filters.q) add(`calling_party ILIKE ?`, like(filters.q));
+      if (filters.finalAction) add(`final_action = ?`, filters.finalAction);
+      if (filters.direction) add(`direction = ?`, filters.direction);
+      const where = conds.join(' AND ');
       rows = await this.q(`
         SELECT calling_party, final_action, direction, SUM(messages) AS messages
           FROM ${stage}
-         WHERE ${win}
+         WHERE ${where}
          GROUP BY calling_party, final_action, direction
          ORDER BY messages DESC
          LIMIT ${CAP}`, params);
-      totalSql = `SELECT COALESCE(SUM(messages), 0) AS total FROM ${stage} WHERE ${win}`;
+      totalSql = `SELECT COALESCE(SUM(messages), 0) AS total FROM ${stage} WHERE ${where}`;
+      const opt = await this.q(`
+        SELECT DISTINCT final_action, direction FROM ${stage} WHERE ${timeWin}`, params.slice(0, 2));
+      options = {
+        finalActions: [...new Set(opt.map((r: any) => String(r.final_action)))].sort(),
+        directions:   [...new Set(opt.map((r: any) => String(r.direction)))].sort(),
+      };
     } else if (stream === 'smpp') {
       stage = 'stage_zfw_smpp_messages';
+      if (filters.q) add(`sender_id ILIKE ?`, like(filters.q));
+      if (filters.messageType) add(`message_type = ?`, filters.messageType);
+      if (filters.direction) add(`direction = ?`, filters.direction);
+      if (filters.finalAction) add(`final_action = ?`, filters.finalAction);
+      if (filters.trafficSource) {
+        // The dropdown carries display labels; 'Hayo' stands for every stored hayo* bind.
+        if (/^hayo$/i.test(filters.trafficSource)) add(`traffic_source_name ILIKE ?`, 'hayo%');
+        else add(`traffic_source_name = ?`, filters.trafficSource);
+      }
+      const where = conds.join(' AND ');
       rows = (await this.q(`
         SELECT message_type, direction, sender_id, final_action, traffic_source_name,
                SUM(messages) AS messages
           FROM ${stage}
-         WHERE ${win}
+         WHERE ${where}
          GROUP BY message_type, direction, sender_id, final_action, traffic_source_name
          ORDER BY messages DESC
          LIMIT ${CAP}`, params)
@@ -817,19 +855,34 @@ export class ZamaniFirewallService implements OnModuleInit {
         else merged.set(k, { ...r, messages: Number(r.messages) });
       }
       rows = [...merged.values()].sort((a, b) => Number(b.messages) - Number(a.messages));
-      totalSql = `SELECT COALESCE(SUM(messages), 0) AS total FROM ${stage} WHERE ${win}`;
+      totalSql = `SELECT COALESCE(SUM(messages), 0) AS total FROM ${stage} WHERE ${where}`;
+      const opt = await this.q(`
+        SELECT DISTINCT message_type, direction, final_action, traffic_source_name
+          FROM ${stage} WHERE ${timeWin}`, params.slice(0, 2));
+      options = {
+        messageTypes:   [...new Set(opt.map((r: any) => String(r.message_type)))].sort(),
+        directions:     [...new Set(opt.map((r: any) => String(r.direction)))].sort(),
+        finalActions:   [...new Set(opt.map((r: any) => String(r.final_action)))].sort(),
+        trafficSources: [...new Set(opt.map((r: any) => ZamaniFirewallService.displayTrafficSource(r.traffic_source_name)))].sort(),
+      };
     } else {
       // SRISM reuses the existing SRI stage: grain='smsc' rows already carry calling_party × smsc
       // × requests per hour. The grain filter is mandatory — 'hour' rows would double-count.
       stage = 'stage_zfw_sri';
+      conds.push(`grain = 'smsc'`);
+      if (filters.q) {
+        params.push(like(filters.q));
+        conds.push(`(calling_party ILIKE $${params.length} OR smsc ILIKE $${params.length})`);
+      }
+      const where = conds.join(' AND ');
       rows = await this.q(`
         SELECT calling_party, smsc, SUM(requests) AS messages
           FROM ${stage}
-         WHERE grain = 'smsc' AND ${win}
+         WHERE ${where}
          GROUP BY calling_party, smsc
          ORDER BY messages DESC
          LIMIT ${CAP}`, params);
-      totalSql = `SELECT COALESCE(SUM(requests), 0) AS total FROM ${stage} WHERE grain = 'smsc' AND ${win}`;
+      totalSql = `SELECT COALESCE(SUM(requests), 0) AS total FROM ${stage} WHERE ${where}`;
     }
 
     const [[totalRow], [meta]] = await Promise.all([
@@ -842,6 +895,7 @@ export class ZamaniFirewallService implements OnModuleInit {
       from: from ?? null,
       to: to ?? null,
       rows,
+      options,
       totalMessages: Number(totalRow?.total ?? 0),
       rowCap: CAP,
       refreshedAt: meta?.refreshed_at ?? null,

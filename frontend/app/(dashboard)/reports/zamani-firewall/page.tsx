@@ -322,18 +322,53 @@ function MsgTH({ label, k, sort, onSort }: { label: string; k: string; sort: Msg
   );
 }
 
+function MsgSel({ value, onChange, all, list }: { value: string; onChange: (v: string) => void; all: string; list: any }) {
+  return (
+    <select className="zdt" value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{all}</option>
+      {(Array.isArray(list) ? list : []).map((o: any, i: number) => (
+        <option key={`${i}-${String(o)}`} value={String(o)}>{String(o)}</option>
+      ))}
+    </select>
+  );
+}
+
+type MsgFilters = { q: string; messageType: string; direction: string; finalAction: string; trafficSource: string };
+const EMPTY_FILTERS: MsgFilters = { q: '', messageType: '', direction: '', finalAction: '', trafficSource: '' };
+
+const MSG_SEARCH_PLACEHOLDER: Record<MsgStream, string> = {
+  ss7: 'Search calling party…',
+  smpp: 'Search sender ID…',
+  srism: 'Search calling party / SMSC…',
+};
+
 /**
  * One messages tab. Self-fetching (the endpoint re-aggregates hourly stage rows server-side), so
  * the main getData payload and the five existing tabs are untouched. Mounted once for all three
- * streams — switching tabs changes the `stream` prop, and the effect refetches.
+ * streams — switching tabs changes the `stream` prop, and the effect refetches. Filters are
+ * server-side (the SMPP row cap would blind a client-side filter to tail senders), so the Total
+ * always matches the visible slice.
  */
 function MessagesTab({ stream, win }: { stream: MsgStream; win: MsgWin }) {
   const [payload, setPayload] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [sort, setSort] = React.useState<MsgSort>({ key: 'messages', dir: 'desc' });
+  const [filters, setFilters] = React.useState<MsgFilters>(EMPTY_FILTERS);
+  // The search box keeps its own immediate state and debounces into filters.q, so typing does not
+  // fire a request per keystroke.
+  const [qInput, setQInput] = React.useState('');
 
-  React.useEffect(() => { setSort({ key: 'messages', dir: 'desc' }); }, [stream]);
+  React.useEffect(() => {
+    setSort({ key: 'messages', dir: 'desc' });
+    setFilters(EMPTY_FILTERS);
+    setQInput('');
+  }, [stream]);
+
+  React.useEffect(() => {
+    const t = setTimeout(() => setFilters((f) => (f.q === qInput.trim() ? f : { ...f, q: qInput.trim() })), 400);
+    return () => clearTimeout(t);
+  }, [qInput]);
 
   React.useEffect(() => {
     let dead = false;
@@ -341,12 +376,19 @@ function MessagesTab({ stream, win }: { stream: MsgStream; win: MsgWin }) {
     // The ISO window is computed inside the effect: presets anchor on "now", and computing that
     // during render would produce a new value every render and refetch forever.
     const w = msgWindowISO(win);
-    zamaniFirewallApi.getMessagesTab({ stream, from: w.from, to: w.to })
+    zamaniFirewallApi.getMessagesTab({
+      stream, from: w.from, to: w.to,
+      q: filters.q || undefined,
+      message_type: filters.messageType || undefined,
+      direction: filters.direction || undefined,
+      final_action: filters.finalAction || undefined,
+      traffic_source: filters.trafficSource || undefined,
+    })
       .then((r) => { if (!dead) setPayload(camelizeKeys<any>(r.data)); })
       .catch((e: any) => { if (!dead) setError(e?.response?.data?.message ?? e?.message ?? 'Failed to load data'); })
       .finally(() => { if (!dead) setLoading(false); });
     return () => { dead = true; };
-  }, [stream, win.preset, win.from, win.to]);
+  }, [stream, win.preset, win.from, win.to, filters]);
 
   const cols = MSG_TAB_COLS[stream];
   const meta = MSG_TAB_META[stream];
@@ -370,16 +412,43 @@ function MessagesTab({ stream, win }: { stream: MsgStream; win: MsgWin }) {
   const winLabel = win.preset === 'custom'
     ? `${win.from || 'start of retention'} → ${win.to || 'now'}`
     : `last ${win.preset}`;
+  const opts = payload?.options ?? {};
+  const anyFilter = !!(filters.q || filters.messageType || filters.direction || filters.finalAction || filters.trafficSource);
+  const setF = (patch: Partial<MsgFilters>) => setFilters((f) => ({ ...f, ...patch }));
 
   return (
     <>
       <div className="znote">{meta.note}</div>
+
+      <div className="zbtrow" style={{ marginBottom: 14 }}>
+        <input className="zdt" style={{ width: 230, fontFamily: "'Hanken Grotesk',sans-serif" }}
+          placeholder={MSG_SEARCH_PLACEHOLDER[stream]} value={qInput}
+          onChange={(e) => setQInput(e.target.value)} />
+        {stream === 'ss7' && (
+          <>
+            <MsgSel value={filters.finalAction} onChange={(v) => setF({ finalAction: v })} all="All actions" list={opts.finalActions} />
+            <MsgSel value={filters.direction} onChange={(v) => setF({ direction: v })} all="All directions" list={opts.directions} />
+          </>
+        )}
+        {stream === 'smpp' && (
+          <>
+            <MsgSel value={filters.messageType} onChange={(v) => setF({ messageType: v })} all="All types" list={opts.messageTypes} />
+            <MsgSel value={filters.direction} onChange={(v) => setF({ direction: v })} all="All directions" list={opts.directions} />
+            <MsgSel value={filters.finalAction} onChange={(v) => setF({ finalAction: v })} all="All actions" list={opts.finalActions} />
+            <MsgSel value={filters.trafficSource} onChange={(v) => setF({ trafficSource: v })} all="All sources" list={opts.trafficSources} />
+          </>
+        )}
+        {anyFilter && (
+          <button className="zbt" onClick={() => { setFilters(EMPTY_FILTERS); setQInput(''); }}>Clear filters</button>
+        )}
+      </div>
+
       {!!error && <div className="zerr">Could not load data: {error}</div>}
       <div className="zpnl">
         <div className="zph">
           <div className="zph-t">{meta.title}</div>
           <div className="zph-s">
-            {winLabel} · {fN(total)} messages · {fN(rows.length)} row{rows.length === 1 ? '' : 's'}
+            {winLabel}{anyFilter ? ' · filtered' : ''} · {fN(total)} messages · {fN(rows.length)} row{rows.length === 1 ? '' : 's'}
             {capped ? ` (top ${fN(payload.rowCap)} by messages — total row still covers everything)` : ''}
             {' · refreshed '}{stamp(payload?.refreshedAt)}
           </div>
