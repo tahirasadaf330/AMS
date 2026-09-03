@@ -23,6 +23,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, JwtUser } from '../common/decorators/current-user.decorator';
 import { AuditService } from '../audit/audit.service';
+import { SkipAudit } from '../audit/skip-audit.decorator';
 import { UserRole } from '../common/entities/user.entity';
 
 @Controller('conditions')
@@ -114,6 +115,7 @@ export class ConditionsController {
   }
 
   @Post(':id/preview')
+  @SkipAudit() // read-like: computes a preview, mutates nothing
   @Roles('editor')
   async preview(
     @Param('id') id: string,

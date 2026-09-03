@@ -19,6 +19,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, JwtUser } from '../../common/decorators/current-user.decorator';
 import { AuditService } from '../../audit/audit.service';
+import { SkipAudit } from '../../audit/skip-audit.decorator';
 
 @Controller('admin/datasets')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -90,6 +91,7 @@ export class AdminDatasetsController {
   }
 
   @Post('validate-sql')
+  @SkipAudit() // read-like: SQL validation, mutates nothing
   @HttpCode(HttpStatus.OK)
   async validateSql(@Body() body: { query: string; data_source_id?: string }) {
     return this.adminDatasetsService.validateSql(body.query, body.data_source_id);

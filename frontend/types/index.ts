@@ -307,6 +307,8 @@ export interface AuditLogEntry {
 export interface AuditLogFilters {
   user?: string;
   action?: string;
+  /** Free-text: matches action, resource, and the acting user's name/email. */
+  search?: string;
   from?: string;
   to?: string;
   page?: number;

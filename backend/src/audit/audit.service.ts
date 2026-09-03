@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditLog } from '../common/entities/audit-log.entity';
+import { auditContext } from './audit-context';
 
 export interface AuditLogParams {
   userId?: string | null;
@@ -24,6 +25,11 @@ export class AuditService {
    * Fire-and-forget audit log write. Never throws.
    */
   log(params: AuditLogParams): void {
+    // Tell the request-scoped AuditInterceptor a manual entry was written,
+    // so it doesn't add a duplicate generic one.
+    const store = auditContext.getStore();
+    if (store) store.logged = true;
+
     this.writeLog(params).catch((err) => {
       this.logger.error('Failed to write audit log', err);
     });

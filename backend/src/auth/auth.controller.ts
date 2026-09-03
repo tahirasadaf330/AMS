@@ -17,6 +17,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, JwtUser } from '../common/decorators/current-user.decorator';
 import { AuditService } from '../audit/audit.service';
+import { SkipAudit } from '../audit/skip-audit.decorator';
 
 // SSO-only by default: password login stays fully implemented but is rejected unless
 // PASSWORD_LOGIN_ENABLED=true (break-glass for an Entra/SSO outage — flip the env and
@@ -63,7 +64,19 @@ export class AuthController {
       throw new ForbiddenException('Password login is disabled — sign in with Microsoft.');
     }
 
-    const result = await this.authService.login(dto, ipAddress, userAgent);
+    let result;
+    try {
+      result = await this.authService.login(dto, ipAddress, userAgent);
+    } catch (err) {
+      this.auditService.log({
+        userId: null,
+        action: 'auth:login_failed',
+        resource: 'auth',
+        detail: { email: dto.email },
+        ipAddress,
+      });
+      throw err;
+    }
 
     // Set refresh token as HttpOnly cookie.
     // Path must be '/' (not '/auth/refresh'): behind the nginx reverse proxy the browser
@@ -94,6 +107,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @SkipAudit() // token maintenance, fires every few minutes per user — would drown the log
   @HttpCode(HttpStatus.OK)
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const refreshToken = req.cookies?.['refresh_token'];

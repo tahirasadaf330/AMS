@@ -16,6 +16,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, JwtUser } from '../../common/decorators/current-user.decorator';
 import { AuditService } from '../../audit/audit.service';
+import { SkipAudit } from '../../audit/skip-audit.decorator';
 
 @Controller('admin/settings')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -51,18 +52,21 @@ export class SettingsController {
   }
 
   @Post('test-jerasoft')
+  @SkipAudit() // read-like: connectivity test
   @HttpCode(HttpStatus.OK)
   testJerasoft() {
     return this.settingsService.testJerasoft();
   }
 
   @Post('test-graph')
+  @SkipAudit() // read-like: connectivity test
   @HttpCode(HttpStatus.OK)
   testGraph() {
     return this.settingsService.testGraph();
   }
 
   @Post('test-teams')
+  @SkipAudit() // read-like: connectivity test (sends only a test webhook ping)
   @HttpCode(HttpStatus.OK)
   testTeams(@Body() body: { webhookUrl?: string }) {
     return this.settingsService.testTeams(body.webhookUrl);

@@ -16,7 +16,17 @@ import { formatDatetime } from '@/lib/utils';
 import type { AuditLogEntry } from '@/types';
 import type { BadgeProps } from '@/components/ui/badge';
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 15;
+
+// The log grows fast, so the page opens on a recent window rather than all history.
+const DEFAULT_RANGE_DAYS = 7;
+
+/** Local calendar date (YYYY-MM-DD) N days back — matches the date inputs' format. */
+function isoDaysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 // Color per action family (prefix before ':').
 const ACTION_BADGE: Record<string, BadgeProps['variant']> = {
@@ -29,6 +39,10 @@ const ACTION_BADGE: Record<string, BadgeProps['variant']> = {
   google_mo: 'amber',
   zamani: 'amber',
   dashboard: 'blue',
+  dataset: 'blue',
+  notification: 'green',
+  conditions: 'green',
+  voice_outliers: 'amber',
 };
 
 function actionVariant(action: string): BadgeProps['variant'] {
@@ -40,9 +54,12 @@ export default function AuditLogPage() {
   const addToast = useUIStore((s) => s.addToast);
 
   // ── Filters ───────────────────────────────────────────────────
+  // `action` holds the free-text term; the backend matches it against the action,
+  // the resource, and the acting user's name/email.
   const [action, setAction] = React.useState('');
   const [userFilter, setUserFilter] = React.useState('');
-  const [from, setFrom] = React.useState('');
+  // Defaults to the last 7 days; clearing the filters returns to this window, not to "all time".
+  const [from, setFrom] = React.useState(() => isoDaysAgo(DEFAULT_RANGE_DAYS));
   const [to, setTo] = React.useState('');
   const [page, setPage] = React.useState(1);
   const [expanded, setExpanded] = React.useState<string | null>(null);
@@ -58,7 +75,7 @@ export default function AuditLogPage() {
 
   const filters = React.useMemo(
     () => ({
-      action: actionDebounced || undefined,
+      search: actionDebounced || undefined,
       user: userFilter || undefined,
       from: from || undefined,
       to: to ? `${to}T23:59:59.999Z` : undefined,
@@ -89,7 +106,7 @@ export default function AuditLogPage() {
     setExporting(true);
     try {
       const blob = await auditLogApi.export({
-        action: actionDebounced || undefined,
+        search: actionDebounced || undefined,
         user: userFilter || undefined,
         from: from || undefined,
         to: to ? `${to}T23:59:59.999Z` : undefined,
@@ -122,41 +139,53 @@ export default function AuditLogPage() {
         }
       />
 
-      {/* Filters */}
+      {/* Filters — search, user and date range all on one row */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
-          <Input placeholder="Filter action… e.g. role, login, delete" value={action} onChange={(e) => setAction(e.target.value)} className="pl-8 h-8 text-sm" />
+          <Input placeholder="Search user, action or resource…" value={action} onChange={(e) => setAction(e.target.value)} className="pl-8 h-8 text-sm" />
         </div>
-        <Select value={userFilter} onChange={(e) => setUserFilter(e.target.value)} className="h-8 text-sm w-52">
-          <option value="">All users</option>
-          {(users ?? []).map((u) => <option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
-        </Select>
-        <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-8 text-sm w-40" title="From" />
-        <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-8 text-sm w-40" title="To" />
-        {(action || userFilter || from || to) && (
-          <Button variant="ghost" size="sm" onClick={() => { setAction(''); setUserFilter(''); setFrom(''); setTo(''); }}>Clear</Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Select value={userFilter} onChange={(e) => setUserFilter(e.target.value)} className="h-8 text-sm w-52">
+            <option value="">All users</option>
+            {(users ?? []).map((u) => <option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
+          </Select>
+          <span className="text-xs text-gray-400 dark:text-gray-500">From</span>
+          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-8 text-sm w-36" title="From" />
+          <span className="text-xs text-gray-400 dark:text-gray-500">To</span>
+          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-8 text-sm w-36" title="To" />
+        </div>
+        {(action || userFilter || to || from !== isoDaysAgo(DEFAULT_RANGE_DAYS)) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setAction(''); setUserFilter(''); setFrom(isoDaysAgo(DEFAULT_RANGE_DAYS)); setTo(''); }}
+          >
+            Reset
+          </Button>
         )}
-        <span className="text-xs text-gray-400 ml-auto">{total.toLocaleString()} entries</span>
+        <span className="text-xs text-gray-400 ml-auto whitespace-nowrap">{total.toLocaleString()} entries</span>
       </div>
 
-      {/* Table */}
+      {/* Table — fixed-height viewport so the page never grows past one screen;
+          the header stays put while the rows scroll under it. */}
       {isLoading && !data ? <SkeletonTable rows={10} cols={6} /> : rows.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400 dark:text-gray-500">
           <ScrollText className="h-10 w-10 opacity-30" />
           <p className="text-sm">No audit entries match your filter.</p>
+          <p className="text-xs">Showing the last {DEFAULT_RANGE_DAYS} days by default — widen the date range to look further back.</p>
         </div>
       ) : (
-        <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
+        <div className="overflow-auto max-h-[60vh] rounded-lg border border-gray-200 dark:border-gray-700">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-10">
               <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                <th className="w-8" />
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Time</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">User</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Action</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Resource</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">IP</th>
+                <th className="w-8 bg-gray-100 dark:bg-gray-800" />
+                <th className="bg-gray-100 dark:bg-gray-800 px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Time</th>
+                <th className="bg-gray-100 dark:bg-gray-800 px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">User</th>
+                <th className="bg-gray-100 dark:bg-gray-800 px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Action</th>
+                <th className="bg-gray-100 dark:bg-gray-800 px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Resource</th>
+                <th className="bg-gray-100 dark:bg-gray-800 px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">IP</th>
               </tr>
             </thead>
             <tbody>

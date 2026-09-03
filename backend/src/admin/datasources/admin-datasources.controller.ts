@@ -18,6 +18,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, JwtUser } from '../../common/decorators/current-user.decorator';
 import { AuditService } from '../../audit/audit.service';
+import { SkipAudit } from '../../audit/skip-audit.decorator';
 
 @Controller('admin/datasources')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -77,6 +78,7 @@ export class AdminDatasourcesController {
   }
 
   @Post('test-connection')
+  @SkipAudit() // read-like: connection test, mutates nothing
   @HttpCode(HttpStatus.OK)
   testConnection(@Body() dto: TestDataSourceDto) {
     return this.svc.testConnection(dto);

@@ -6,6 +6,7 @@ import * as cookieParser from 'cookie-parser';
 import type { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
 import { SnakeCaseInterceptor } from './common/interceptors/snake-case.interceptor';
+import { auditContext } from './audit/audit-context';
 import { McpHttpService } from './mcp/mcp-http.service';
 import type { Router } from 'express';
 
@@ -57,6 +58,12 @@ async function bootstrap(): Promise<void> {
 
   // Cookie parser
   app.use(cookieParser());
+
+  // Per-request audit context: the global AuditInterceptor uses it to detect whether
+  // the handler already wrote a manual audit entry (prevents double-logging).
+  app.use((_req: Request, _res: Response, next: NextFunction) => {
+    auditContext.run({ logged: false }, next);
+  });
 
   // Convert incoming snake_case request bodies to camelCase
   app.use((req: Request, _res: Response, next: NextFunction) => {

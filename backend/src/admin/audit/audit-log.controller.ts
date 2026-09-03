@@ -21,6 +21,7 @@ export class AuditLogController {
   async findAll(
     @Query('user') user?: string,
     @Query('action') action?: string,
+    @Query('search') search?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('page') page?: string,
@@ -29,6 +30,7 @@ export class AuditLogController {
     const query: AuditLogQuery = {
       user,
       action,
+      search,
       from,
       to,
       page: page ? parseInt(page, 10) : 1,
@@ -41,11 +43,12 @@ export class AuditLogController {
   async exportCsv(
     @Query('user') user?: string,
     @Query('action') action?: string,
+    @Query('search') search?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Res() res?: Response,
   ) {
-    const query: AuditLogQuery = { user, action, from, to };
+    const query: AuditLogQuery = { user, action, search, from, to };
     await this.auditLogService.exportCsv(query, res!);
   }
 }
