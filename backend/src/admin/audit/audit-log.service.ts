@@ -38,7 +38,11 @@ export class AuditLogService {
         .createQueryBuilder('al')
         .leftJoin('al.user', 'user')
         .addSelect(['user.id', 'user.email', 'user.name'])
-        .orderBy('al.created_at', 'DESC')
+        // Must be the ENTITY property (createdAt), not the column (created_at): with a join
+        // present, skip/take makes TypeORM build a DISTINCT sub-query and resolve this through
+        // entity metadata. A raw column name resolves to undefined and throws
+        // "Cannot read properties of undefined (reading 'databaseName')" — a 500 on every call.
+        .orderBy('al.createdAt', 'DESC')
         .skip(skip)
         .take(limit);
 
@@ -58,7 +62,11 @@ export class AuditLogService {
         .createQueryBuilder('al')
         .leftJoin('al.user', 'user')
         .addSelect(['user.id', 'user.email', 'user.name'])
-        .orderBy('al.created_at', 'DESC');
+        // Must be the ENTITY property (createdAt), not the column (created_at): with a join
+        // present, skip/take makes TypeORM build a DISTINCT sub-query and resolve this through
+        // entity metadata. A raw column name resolves to undefined and throws
+        // "Cannot read properties of undefined (reading 'databaseName')" — a 500 on every call.
+        .orderBy('al.createdAt', 'DESC');
 
       this.applyFilters(qb, query);
 
@@ -110,7 +118,7 @@ export class AuditLogService {
     query: AuditLogQuery,
   ): void {
     if (query.user) {
-      qb.andWhere('al.user_id = :userId', { userId: query.user });
+      qb.andWhere('al.userId = :userId', { userId: query.user });
     }
     if (query.action) {
       qb.andWhere('al.action ILIKE :action', { action: `%${query.action}%` });
@@ -135,10 +143,10 @@ export class AuditLogService {
       );
     }
     if (query.from) {
-      qb.andWhere('al.created_at >= :from', { from: query.from });
+      qb.andWhere('al.createdAt >= :from', { from: query.from });
     }
     if (query.to) {
-      qb.andWhere('al.created_at <= :to', { to: query.to });
+      qb.andWhere('al.createdAt <= :to', { to: query.to });
     }
   }
 
