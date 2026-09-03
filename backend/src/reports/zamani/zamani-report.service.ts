@@ -111,61 +111,6 @@ WITH AllSourceEdr AS (
     LEFT JOIN SMSCArchiveEdr.dbo.ArchiveMtEdr amt WITH(NOLOCK)
         ON amt.EdrSourceId = aemd.ArchiveEdrSmsCampaignMessageDataId AND amt.MessageSourceId = 3
     WHERE aemd.ReceivedDateTime >= '2026-01-01 00:00:00'
-    UNION ALL
-    -- ── Seam: archived EDR source + still-live MTEdr ─────────────────────────
-    -- When the MtEdr archiver lags the source-table archiver (seen 2026-08-29:
-    -- ArchiveMtEdr frozen while ArchiveEdrSmppServer ran ahead and live sources
-    -- purged), seam-window messages have their source row ONLY in archive and their
-    -- MTEdr row ONLY live — neither live↔live nor archive↔archive matches them.
-    -- These branches close that window. They cannot double-count (the three pairings
-    -- are mutually exclusive) and return nothing once the archiver has caught up.
-    SELECT ae.ReceivedDateTime,
-           ae.PartsDetected,
-           mt.PartsSent,
-           mt.CustomerConnectionId,
-           mt.MtVendorConnectionId,
-           mt.MccMnc,
-           mt.TerminatedSenderId,
-           mt.DlrStatusId,
-           mt.CustomerCost,
-           mt.MtVendorCost
-    FROM SMSCArchiveEdr.dbo.ArchiveEdrSmppServer ae WITH(NOLOCK)
-    JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
-        ON mt.EdrSourceId = ae.ArchiveEdrSmppServerId AND mt.MessageSourceId = 1
-    WHERE ae.ReceivedDateTime >= DATEADD(DAY, -1,
-        (SELECT ISNULL(MAX(SubmitDateTime), '2026-01-01') FROM SMSCArchiveEdr.dbo.ArchiveMtEdr WITH(NOLOCK)))
-    UNION ALL
-    SELECT ae.ReceivedDateTime,
-           1,
-           mt.PartsSent,
-           mt.CustomerConnectionId,
-           mt.MtVendorConnectionId,
-           mt.MccMnc,
-           mt.TerminatedSenderId,
-           mt.DlrStatusId,
-           mt.CustomerCost,
-           mt.MtVendorCost
-    FROM SMSCArchiveEdr.dbo.ArchiveEdrApi ae WITH(NOLOCK)
-    JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
-        ON mt.EdrSourceId = ae.ArchiveEdrApiId AND mt.MessageSourceId = 2
-    WHERE ae.ReceivedDateTime >= DATEADD(DAY, -1,
-        (SELECT ISNULL(MAX(SubmitDateTime), '2026-01-01') FROM SMSCArchiveEdr.dbo.ArchiveMtEdr WITH(NOLOCK)))
-    UNION ALL
-    SELECT aemd.ReceivedDateTime,
-           1,
-           mt.PartsSent,
-           mt.CustomerConnectionId,
-           mt.MtVendorConnectionId,
-           mt.MccMnc,
-           mt.TerminatedSenderId,
-           mt.DlrStatusId,
-           mt.CustomerCost,
-           mt.MtVendorCost
-    FROM SMSCArchiveEdr.dbo.ArchiveEdrSmsCampaignMessageData aemd WITH(NOLOCK)
-    JOIN SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
-        ON mt.EdrSourceId = aemd.ArchiveEdrSmsCampaignMessageDataId AND mt.MessageSourceId = 3
-    WHERE aemd.ReceivedDateTime >= DATEADD(DAY, -1,
-        (SELECT ISNULL(MAX(SubmitDateTime), '2026-01-01') FROM SMSCArchiveEdr.dbo.ArchiveMtEdr WITH(NOLOCK)))
 ),
 DLR_CTE AS (
     SELECT
