@@ -256,6 +256,12 @@ export class ConditionSchedulerService implements OnModuleInit {
               : result.image_base64
                 ? [{ cid: result.image_cid ?? 'chart', contentBytes: result.image_base64 }]
                 : [],
+            // Regular file attachments (e.g. a generated PDF report) — see PythonReportResult.
+            fileAttachments: (result.attachments ?? []).map((a) => ({
+              filename: a.filename,
+              contentBytes: a.base64,
+              contentType: a.content_type,
+            })),
           });
           // Email is out — from here on nothing may throw back into the retry loop.
           this.logger.log(`Python condition "${condition.name}": report emailed to ${recipients.length} To + ${cc.length} Cc`);

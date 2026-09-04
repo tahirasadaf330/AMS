@@ -23,6 +23,8 @@ export interface PythonReportResult {
   image_base64?: string;
   image_cid?: string;
   images?: Array<{ cid: string; base64: string }>;
+  /** Regular file attachments (e.g. a generated PDF), as opposed to inline CID images. */
+  attachments?: Array<{ filename: string; base64: string; content_type?: string }>;
   message?: string;
   rows?: Record<string, unknown>[];
 }
@@ -174,6 +176,11 @@ export class PythonExecutorService {
         image_cid: typeof parsed.image_cid === 'string' ? parsed.image_cid : undefined,
         images: Array.isArray(parsed.images)
           ? parsed.images.filter((i: any) => i && typeof i.cid === 'string' && typeof i.base64 === 'string')
+          : undefined,
+        attachments: Array.isArray(parsed.attachments)
+          ? parsed.attachments.filter(
+              (a: any) => a && typeof a.filename === 'string' && typeof a.base64 === 'string',
+            )
           : undefined,
         message: typeof parsed.message === 'string' ? parsed.message : undefined,
         rows: Array.isArray(parsed.rows) ? parsed.rows : undefined,

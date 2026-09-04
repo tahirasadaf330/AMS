@@ -346,6 +346,8 @@ export class GraphEmailService {
     subject: string;
     html: string;
     inlineImages?: Array<{ cid: string; contentBytes: string; contentType?: string; name?: string }>;
+    /** Regular (non-inline) file attachments, e.g. a generated PDF report. */
+    fileAttachments?: Array<{ filename: string; contentBytes: string; contentType?: string }>;
   }): Promise<void> {
     if (this.outboundSuppressed()) return;
     // Inline (cid) images become multipart/related attachments referenced by the HTML as
@@ -360,13 +362,24 @@ export class GraphEmailService {
         contentType: img.contentType ?? 'image/png',
       }));
 
+    // Regular attachments (no cid) render as downloadable files in the client.
+    const files = (params.fileAttachments ?? [])
+      .filter((f) => f.filename && f.contentBytes)
+      .map((f) => ({
+        filename: f.filename,
+        content: f.contentBytes,
+        encoding: 'base64' as const,
+        contentType: f.contentType ?? 'application/octet-stream',
+      }));
+    const allAttachments = [...attachments, ...files];
+
     await this.getTransporter().sendMail({
       from: this.mailFrom(),
       to: params.recipients,
       cc: params.cc && params.cc.length ? params.cc : undefined,
       subject: params.subject,
       html: params.html,
-      attachments: attachments.length ? attachments : undefined,
+      attachments: allAttachments.length ? allAttachments : undefined,
     });
   }
 
