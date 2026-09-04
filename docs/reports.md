@@ -167,6 +167,25 @@ predicate, so a stale row can never be attributed to an hour it does not belong 
 group on `bucket_hour` like any other column. No hourly alert ships with this change — no threshold
 has been agreed yet.
 
+### The 0.004% `received_messages` shift (known and accepted)
+
+Measured by running the old daily query and the new hourly query over an identical window:
+`successful_sent`, `delivered` and `failed` are **bit-identical** — nothing is duplicated or lost on
+the vendor side — but `received_messages` came out **5 lower in 526,947**.
+
+The cause is the final `WHERE`, which keeps only rows carrying an EdrStats value. Adding the hour to
+the `FULL OUTER JOIN` leaves a few ReceivedStats rows unpaired; an unpaired row has no vendor-side
+value, so that filter drops it and its received messages go with it. At day grain those messages
+rode along in a group that happened to contain billable traffic. Loosening the filter would pull
+received-only rows back into the output and break the Power BI company-list match it exists to
+preserve, so the shift is accepted rather than "fixed".
+
+Impact at the alert grain (both Weekly Volume Alerts, two weeks, 55 customers): 38 identical, 10
+differing by −26…+2 messages, net **−52 on 1,298,728 (−0.004%)**. No customer's Increase/Decrease
+classification can change — the only near-ties are exact ties at 3, 8 and 51 messages, all
+unchanged. Some deltas are positive, so part of the spread is ordinary aSMSC settling rather than
+the grain change.
+
 ## SMS Credit Limit
 
 `sms-credit-limit` · sms · ASMSC (MSSQL).
