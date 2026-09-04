@@ -127,6 +127,65 @@ Live SMSC EDRs retain roughly 2–3 days; anything older comes from `SMSCArchive
 columns need the ISO `{{SINCE}}` form. Totals settle for a while after the period closes, so a
 figure that differs slightly from a fresh pull is expected rather than a bug.
 
+### Dual grain — `date` and `bucket_hour`
+
+`stage_sms_traffic` carries **two** time keys for the same traffic. `date` is the calendar day and
+stays a `DATE`; `bucket_hour` is the submit time truncated to the **UTC** hour, stored as
+`TIMESTAMPTZ`. Both are populated from `2026-01-01` onward — the dataset's
+`incremental_initial_date` — so hourly detail covers the whole span the report holds.
+
+Keeping `date` alongside the finer key is deliberate, not redundancy:
+
+- The two **Weekly Volume Alert** conditions aggregate `SUM(...) WHERE date BETWEEN … GROUP BY
+  customer_company`. Summing a day range is invariant to how many rows each day is split into, so
+  the extra grain cannot change their numbers — provided `date` keeps its name, type and values.
+- `date` also drives the incremental delete (the stage engine's lookback is hardcoded to a column
+  named `date`), the Day/Month/Range filters, and the existing indexes.
+
+`bucket_hour` is emitted from MSSQL as a **string** via `CONVERT(varchar(19), …, 120)`, never as a
+datetime. `StageService.sanitizeRowKeys()` truncates any JS `Date` to `YYYY-MM-DD` and strips a
+trailing `T00:00:00`; style `120` uses a space separator, so every bucket survives instead of
+collapsing to midnight. Same reasoning as the zamani-firewall `TS()` helper.
+
+Hours are UTC end-to-end: aSMSC's server clock is Pacific but `SubmitDateTime` is stored in UTC,
+and the app pins its Postgres session to UTC, so a bucket means one instant everywhere.
+
+### Hour filter on the Sale tab
+
+The Sale tab's date mode is **Hour / Day / Month / Range**. Day, Month and Range filter the
+year-to-date rows already in the browser; **Hour fetches server-side** through
+`GET reports/sms-report/hourly` (`from` inclusive, `to` exclusive, both UTC hours), because hourly
+rows are roughly 2.5× daily rows and a year of them must not be shipped to the client. The endpoint
+refuses windows longer than 31 days rather than silently truncating them. In hour mode the detail
+grid gains an **Hour (UTC)** column and the trend switches to an hourly x-axis; every other tab is
+untouched.
+
+Rows loaded before the hourly rebuild have `bucket_hour = NULL` and are excluded by the range
+predicate, so a stale row can never be attributed to an hour it does not belong to.
+
+**Hourly alerting** needs no new code: a dataset condition on the SMS Report dataset can filter and
+group on `bucket_hour` like any other column. No hourly alert ships with this change — no threshold
+has been agreed yet.
+
+### The 0.004% `received_messages` shift (known and accepted)
+
+Measured by running the old daily query and the new hourly query over an identical window:
+`successful_sent`, `delivered` and `failed` are **bit-identical** — nothing is duplicated or lost on
+the vendor side — but `received_messages` came out **5 lower in 526,947**.
+
+The cause is the final `WHERE`, which keeps only rows carrying an EdrStats value. Adding the hour to
+the `FULL OUTER JOIN` leaves a few ReceivedStats rows unpaired; an unpaired row has no vendor-side
+value, so that filter drops it and its received messages go with it. At day grain those messages
+rode along in a group that happened to contain billable traffic. Loosening the filter would pull
+received-only rows back into the output and break the Power BI company-list match it exists to
+preserve, so the shift is accepted rather than "fixed".
+
+Impact at the alert grain (both Weekly Volume Alerts, two weeks, 55 customers): 38 identical, 10
+differing by −26…+2 messages, net **−52 on 1,298,728 (−0.004%)**. No customer's Increase/Decrease
+classification can change — the only near-ties are exact ties at 3, 8 and 51 messages, all
+unchanged. Some deltas are positive, so part of the spread is ordinary aSMSC settling rather than
+the grain change.
+
 ## SMS Credit Limit
 
 `sms-credit-limit` · sms · ASMSC (MSSQL).

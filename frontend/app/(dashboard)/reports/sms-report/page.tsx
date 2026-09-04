@@ -19,6 +19,23 @@ const addDays   = (isoStr: string, n: number) => { const d = new Date(isoStr.sli
 const monthStart= () => { const d = new Date(); return `${d.getFullYear()}-${zp(d.getMonth()+1)}-01`; };
 const monthEnd  = (m: string) => { const [y, mo] = m.split('-').map(Number); return `${m}-${zp(new Date(y, mo, 0).getDate())}`; };
 
+/* ── UTC hour helpers (Sale tab hour mode) ──────────────────────────────
+   The dataset's bucket_hour is a UTC hour, so these deliberately work in UTC
+   and never in the browser's local tz — a viewer in Karachi and one in Lisbon
+   must see the same hour hold the same traffic. */
+const utcToday  = () => new Date().toISOString().slice(0, 10);
+/** `YYYY-MM-DD HH:00:00` — the wire form the hourly endpoint expects. */
+const hourWire  = (day: string, h: number) => `${day} ${zp(h)}:00:00`;
+/** Same, shifted by `n` whole hours (rolls the date over correctly at 23:00). */
+const hourWireShift = (day: string, h: number, n: number) => {
+  const d = new Date(`${day}T${zp(h)}:00:00Z`);
+  if (isNaN(d.getTime())) return hourWire(day, h);
+  d.setUTCHours(d.getUTCHours() + n);
+  return `${d.toISOString().slice(0, 13)}:00:00`.replace('T', ' ');
+};
+/** '2026-09-03 14:00' → '14:00' for compact axis / cell rendering. */
+const hourLabel = (s: string) => String(s ?? '').slice(11, 16);
+
 // Zero-looking values: a real non-zero that would display as "0"/"-0" is revealed with
 // enough decimals to act on (e.g. -0.4, -0.004); an exact zero never shows a minus sign.
 const zz  = (v: number, s: string) => {
@@ -1239,12 +1256,25 @@ export default function SmsReportPage() {
   const [saleStart,    setSaleStart]    = React.useState(monthStart);
   const [saleEnd,      setSaleEnd]      = React.useState(() => { const d = new Date(); return monthEnd(`${d.getFullYear()}-${zp(d.getMonth()+1)}`); });
   const [saleYear,     setSaleYear]     = React.useState('');
-  const [saleDateMode, setSaleDateMode] = React.useState<'day'|'month'|'range'>('month');
+  const [saleDateMode, setSaleDateMode] = React.useState<'hour'|'day'|'month'|'range'>('month');
   const [acctMgr,      setAcctMgr]      = React.useState('');
   const [coFilt,       setCoFilt]       = React.useState('');
   const [saleCntryFilt,  setSaleCntryFilt]  = React.useState('');
   const [saleCustFilt,   setSaleCustFilt]   = React.useState('');
   const [saleConnFilt,   setSaleConnFilt]   = React.useState('');
+  /* ── hour mode (Sale tab) ─────────────────────────────────
+     Hours are UTC — aSMSC stores submit times in UTC and AMS runs on UTC
+     end-to-end, so an hour bucket means the same instant everywhere. Unlike
+     Day/Month/Range (which filter the year-to-date rows already in memory),
+     hour mode fetches only the chosen window from the server: hourly rows are
+     ~2.5x daily rows and a year of them must not be shipped to the browser. */
+  const [saleHourDay,  setSaleHourDay]  = React.useState(() => utcToday());
+  const [saleHourFrom, setSaleHourFrom] = React.useState(() => Math.max(0, new Date().getUTCHours() - 5));
+  const [saleHourTo,   setSaleHourTo]   = React.useState(() => new Date().getUTCHours());
+  const [hourRows,    setHourRows]    = React.useState<any[]>([]);
+  const [hourLoading, setHourLoading] = React.useState(false);
+  const [hourError,   setHourError]   = React.useState<string | null>(null);
+  const [maxBucket,   setMaxBucket]   = React.useState<string | null>(null);
   const [saleCntrySearch,setSaleCntrySearch]= React.useState('');
   const [saleCustSearch, setSaleCustSearch] = React.useState('');
   const [saleConnSearch, setSaleConnSearch] = React.useState('');
@@ -1287,7 +1317,7 @@ export default function SmsReportPage() {
   const [pieMetric, setPieMetric] = React.useState<'profit'|'income'|'expenses'|'messages'|'margin_pct'>('profit');
   const [barDim,    setBarDim]    = React.useState<'country'|'customer'|'operator'|'mcc_mnc'|'connection'|'account_manager'>('country');
   const [saleTrend, setSaleTrend] = React.useState<'messages'|'profit'|'income'|'expenses'|'ppm'>('messages');
-  const [saleGran,  setSaleGran]  = React.useState<'date'|'week_of_month'|'month'|'week_of_year'|'year'>('date');
+  const [saleGran,  setSaleGran]  = React.useState<'hour'|'date'|'week_of_month'|'month'|'week_of_year'|'year'>('date');
   const [ovSel,     setOvSel]     = React.useState<string>(''); // Overview: highlighted company
   const [ovGran,    setOvGran]    = React.useState<'day'|'week'|'month'|'year'>('day');
   const [ovGroupBy, setOvGroupBy] = React.useState<'customer'|'am'>('customer');
@@ -1327,8 +1357,36 @@ export default function SmsReportPage() {
     }
   }, []);
 
+  /* Hour mode fetches only the requested window — see the hour-state comment. */
+  const loadHourly = React.useCallback(async (from: string, to: string, am: string, co: string) => {
+    setHourLoading(true); setHourError(null);
+    try {
+      const { data } = await smsReportApi.getHourly({ from, to, accountManager: am || undefined, company: co || undefined });
+      setHourRows(data.rows ?? []);
+      setMaxBucket((data as any).maxBucket ?? null);
+    } catch (e: any) {
+      setHourRows([]);
+      setHourError(e?.response?.data?.message ?? e.message ?? 'Failed to load hourly data');
+    } finally {
+      setHourLoading(false);
+    }
+  }, []);
+
   React.useEffect(() => { load(`${new Date().getFullYear()}-01-01`, iso(new Date()), '', ''); }, []);
-  useDatasetSocket(datasetId ?? undefined, () => load(saleStart, saleEnd, acctMgr, coFilt));
+
+  // `to` is exclusive server-side, so the picked end hour is included by +1h.
+  const hourFromWire = hourWire(saleHourDay, saleHourFrom);
+  const hourToWire   = hourWireShift(saleHourDay, saleHourTo, 1);
+
+  React.useEffect(() => {
+    if (saleDateMode !== 'hour') return;
+    loadHourly(hourFromWire, hourToWire, acctMgr, coFilt);
+  }, [saleDateMode, hourFromWire, hourToWire, acctMgr, coFilt, loadHourly]);
+
+  useDatasetSocket(datasetId ?? undefined, () => {
+    load(saleStart, saleEnd, acctMgr, coFilt);
+    if (saleDateMode === 'hour') loadHourly(hourFromWire, hourToWire, acctMgr, coFilt);
+  });
 
   /* ── today info ──────────────────────────────────────────── */
   const todayStr  = React.useMemo(() => iso(new Date()), []);
@@ -1345,19 +1403,28 @@ export default function SmsReportPage() {
   // Distinct years present in the loaded data (for the Year quick-filter)
   const saleYears = React.useMemo(() => Array.from(new Set(rows.map((r: any) => String(r.date ?? '').slice(0, 4)).filter(Boolean))).sort().reverse() as string[], [rows]);
 
-  const saleRows = React.useMemo(() =>
-    rows.filter((r: any) => {
-      const d = String(r.date ?? '');
-      // A selected Year overrides the From/To range and shows the whole year
-      if (saleYear) { if (d.slice(0, 4) !== saleYear) return false; }
-      else if (d < saleStart || d > saleEnd) return false;
+  // Hour mode reads the server-scoped hourly rows (already limited to the
+  // chosen window, so no date filtering here); every other mode filters the
+  // year-to-date daily rows in memory as before. Both shapes are identical
+  // apart from the extra `hour` field, so all the aggregations below are shared.
+  const hourly = saleDateMode === 'hour' && !saleYear;
+
+  const saleRows = React.useMemo(() => {
+    const src: any[] = hourly ? hourRows : rows;
+    return src.filter((r: any) => {
+      if (!hourly) {
+        const d = String(r.date ?? '');
+        // A selected Year overrides the From/To range and shows the whole year
+        if (saleYear) { if (d.slice(0, 4) !== saleYear) return false; }
+        else if (d < saleStart || d > saleEnd) return false;
+      }
       if (acctMgr        && r.account_manager     !== acctMgr)       return false;
       if (saleCntryFilt  && r.country             !== saleCntryFilt) return false;
       if (saleCustFilt   && r.customer_company    !== saleCustFilt)  return false;
       if (saleConnFilt   && r.customer_connection !== saleConnFilt)  return false;
       return true;
-    }),
-    [rows, saleStart, saleEnd, saleYear, acctMgr, saleCntryFilt, saleCustFilt, saleConnFilt]);
+    });
+  }, [hourly, hourRows, rows, saleStart, saleEnd, saleYear, acctMgr, saleCntryFilt, saleCustFilt, saleConnFilt]);
 
   const saleTotals = React.useMemo(() => saleRows.reduce((acc, r: any) => ({
     messages: acc.messages + Number(r.received_messages ?? 0),
@@ -1684,12 +1751,21 @@ export default function SmsReportPage() {
             SALE TAB  (matches Power BI Sale tab)
         ════════════════════════════════════════════════ */}
         {tab === 'sale' && (() => {
+          // Header/KPI caption: the hour window in hour mode, the date span otherwise
+          const saleRangeLabel = hourly
+            ? `${fDate(saleHourDay)} ${zp(saleHourFrom)}:00 → ${zp(saleHourTo)}:59 UTC`
+            : `${fDate(saleStart)} → ${fDate(saleEnd)}`;
+
           // Detail table (matches Power BI Sale detail grid)
           const detailData = (() => {
             const m: Record<string, any> = {};
             saleRows.forEach((r: any) => {
-              const key = [r.mcc_mnc, r.customer_company, r.country, r.operator, r.customer_connection, r.account_manager].join('|');
-              if (!m[key]) m[key] = { mcc_mnc: r.mcc_mnc || '—', customer_company: r.customer_company || '—', country: r.country || '—', operator: r.operator || '—', customer_connection: r.customer_connection || '—', account_manager: r.account_manager || '—', messages: 0, income: 0, profit: 0, _mSum: 0, _mCnt: 0 };
+              // In hour mode the hour is part of the grouping key, so each row
+              // is one (hour × destination × customer) — that is the grain an
+              // hourly alert would fire on.
+              const hk  = hourly ? String(r.hour ?? '') : '';
+              const key = [hk, r.mcc_mnc, r.customer_company, r.country, r.operator, r.customer_connection, r.account_manager].join('|');
+              if (!m[key]) m[key] = { hour: hk, mcc_mnc: r.mcc_mnc || '—', customer_company: r.customer_company || '—', country: r.country || '—', operator: r.operator || '—', customer_connection: r.customer_connection || '—', account_manager: r.account_manager || '—', messages: 0, income: 0, profit: 0, _mSum: 0, _mCnt: 0 };
               m[key].messages += Number(r.received_messages ?? 0);
               m[key].income   += Number(r.income ?? 0);
               m[key].profit   += Number(r.profit ?? 0);
@@ -1720,25 +1796,32 @@ export default function SmsReportPage() {
             { key: 'country'        as const, label: 'Country'        }, { key: 'operator'        as const, label: 'Operator'       },
             { key: 'connection'     as const, label: 'Cst Connection' }, { key: 'account_manager' as const, label: 'Account Manager'},
           ];
+          // Hour is only offered in hour mode — the daily rows carry no hour.
           const GRANS = [
+            ...(hourly ? [{ key: 'hour' as const, label: 'Hour' }] : []),
             { key: 'date'          as const, label: 'Date'          }, { key: 'week_of_month' as const, label: 'Week of Month' },
             { key: 'month'         as const, label: 'Month'         }, { key: 'week_of_year'  as const, label: 'Week of Year'  },
             { key: 'year'          as const, label: 'Year'          },
           ];
           const metricCfg = METRICS.find(m => m.key === pieMetric) ?? METRICS[0];
           const dimLabel  = DIMS.find(d => d.key === barDim)?.label ?? 'Country';
-          const granLabel = GRANS.find(g => g.key === saleGran)?.label ?? 'Date';
+          // Selecting a Year overrides hour mode (it spans the whole year), so an
+          // 'hour' granularity left over from the mode switch falls back to Date
+          // rather than silently emptying the trend.
+          const effGran   = saleGran === 'hour' && !hourly ? 'date' : saleGran;
+          const granLabel = GRANS.find(g => g.key === effGran)?.label ?? 'Date';
           const fmtMetric = (v: any) => pieMetric === 'messages' ? fN(v) : pieMetric === 'margin_pct' ? fP(v) : fN(Math.round(Number(v)));
           const dimKeyMap: Record<string, string> = { country: 'country', customer: 'customer_company', operator: 'operator', mcc_mnc: 'mcc_mnc', connection: 'customer_connection', account_manager: 'account_manager' };
 
           const barRows = aggBy(saleRows, dimKeyMap[barDim]).map((r: any) => ({ name: r.name, value: Number(r[pieMetric] ?? 0) })).sort((a: any, b: any) => b.value - a.value).slice(0, 20).map((r: any) => ({ ...r, name: r.name.length > 18 ? r.name.slice(0, 16) + '…' : r.name }));
 
           const granOf = (r: any) => {
+            if (effGran === 'hour') return String(r.hour ?? '').slice(0, 16);
             const d = String(r.date ?? '').slice(0, 10); if (!d) return '';
-            if (saleGran === 'date') return d;
-            if (saleGran === 'month') return d.slice(0, 7);
-            if (saleGran === 'year') return d.slice(0, 4);
-            if (saleGran === 'week_of_month') { const day = new Date(d + 'T00:00:00').getDate(); return `W${Math.ceil(day / 7)}`; }
+            if (effGran === 'date') return d;
+            if (effGran === 'month') return d.slice(0, 7);
+            if (effGran === 'year') return d.slice(0, 4);
+            if (effGran === 'week_of_month') { const day = new Date(d + 'T00:00:00').getDate(); return `W${Math.ceil(day / 7)}`; }
             const dt = new Date(d + 'T00:00:00'); const jan1 = new Date(dt.getFullYear(), 0, 1); return `W${Math.ceil(((dt.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7)}`;
           };
           const trendRows = (() => {
@@ -1785,9 +1868,9 @@ export default function SmsReportPage() {
           return (
             <>
               {/* ── KPI cards — first, matching Zamani pattern ── */}
-              {!loading && rows.length > 0 && (
+              {!loading && !(hourly && hourLoading) && rows.length > 0 && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 16, marginBottom: 18 }}>
-                  <Kpi color="kb" label="Messages"          icon={IC.msg}   value={fN(saleTotals.messages)}               sub={`${fDate(saleStart)} → ${fDate(saleEnd)}`} />
+                  <Kpi color="kb" label="Messages"          icon={IC.msg}   value={fN(saleTotals.messages)}               sub={saleRangeLabel} />
                   <Kpi color="kp" label="Profit"            icon={IC.trend} value={fN(Math.round(saleTotals.profit))}     sub="net contribution" />
                   <Kpi color="kt" label="Income"            icon={IC.rev}   value={fN(Math.round(saleTotals.income))}     sub="period total" />
                   <Kpi color="kr" label="Expenses"          icon={IC.rev}   value={fN(Math.round(saleRows.reduce((s:number,r:any)=>s+Number(r.expenses??0),0)))} sub="period total" />
@@ -1822,20 +1905,44 @@ export default function SmsReportPage() {
                     </select>
                   </div>
                 </div>
-                {/* Block 2: date filters — Day / Month / Range mode + Year */}
+                {/* Block 2: date filters — Hour / Day / Month / Range mode + Year */}
                 <div style={{ display: 'flex', gap: 13, flexBasis: '100%', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                   <div className="zff"><label>Date Mode</label>
                     <div style={{ display: 'flex', gap: 5 }}>
-                      {(['day', 'month', 'range'] as const).map(m => (
+                      {(['hour', 'day', 'month', 'range'] as const).map(m => (
                         <button key={m} disabled={!!saleYear} onClick={() => {
                           setSaleDateMode(m);
-                          if (m === 'day') { const d = iso(new Date()); setSaleStart(d); setSaleEnd(d); setSaleGran('date'); }
+                          if (m === 'hour') { setSaleGran('hour'); }
+                          else if (m === 'day') { const d = iso(new Date()); setSaleStart(d); setSaleEnd(d); setSaleGran('date'); }
                           else if (m === 'month') { const mm = (saleEnd || yd()).slice(0, 7); setSaleStart(`${mm}-01`); setSaleEnd(monthEnd(mm)); setSaleGran('date'); }
                           else if (m === 'range') { setSaleGran('week_of_year'); }
                         }} style={{ padding: '8px 12px', fontSize: 12, fontWeight: 700, borderRadius: 6, border: '1.5px solid', cursor: saleYear ? 'not-allowed' : 'pointer', opacity: saleYear ? 0.5 : 1, borderColor: saleDateMode === m ? 'var(--turquoise)' : 'var(--lns)', background: saleDateMode === m ? 'var(--turquoise)' : 'var(--sf2)', color: saleDateMode === m ? '#fff' : 'var(--inks)' }}>{m[0].toUpperCase() + m.slice(1)}</button>
                       ))}
                     </div>
                   </div>
+                  {hourly && (
+                    <>
+                      <div className="zff"><label>Day (UTC)</label>
+                        <input className="zdi" type="date" value={saleHourDay} max={utcToday()} onChange={e => { if (e.target.value) setSaleHourDay(e.target.value); }} />
+                      </div>
+                      <div className="zff"><label>Hour From</label>
+                        <select className="zsl" value={saleHourFrom} onChange={e => { const h = Number(e.target.value); setSaleHourFrom(h); if (h > saleHourTo) setSaleHourTo(h); }}>
+                          {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{zp(h)}:00</option>)}
+                        </select>
+                      </div>
+                      <div className="zff"><label>Hour To</label>
+                        <select className="zsl" value={saleHourTo} onChange={e => { const h = Number(e.target.value); setSaleHourTo(h); if (h < saleHourFrom) setSaleHourFrom(h); }}>
+                          {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{zp(h)}:59</option>)}
+                        </select>
+                      </div>
+                      {maxBucket && (
+                        <div className="zff" style={{ alignSelf: 'flex-end' }}>
+                          <label>Latest Hour</label>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--mu)', padding: '9px 0' }}>{maxBucket} UTC</div>
+                        </div>
+                      )}
+                    </>
+                  )}
                   {!saleYear && saleDateMode === 'day' && (
                     <div className="zff"><label>Day</label><input className="zdi" type="date" value={saleStart} onChange={e => { setSaleStart(e.target.value); setSaleEnd(e.target.value); }} /></div>
                   )}
@@ -1855,17 +1962,23 @@ export default function SmsReportPage() {
                     </select>
                   </div>
                   <div style={{ alignSelf: 'flex-end', display: 'flex', gap: 8 }}>
-                    <button className="zbt2" onClick={() => { setAcctMgr(''); setCoFilt(''); setSaleYear(''); setSaleDateMode('month'); setSaleStart(monthStart()); setSaleEnd(monthEnd(`${new Date().getFullYear()}-${zp(new Date().getMonth()+1)}`)); setSaleGran('date'); setSaleCntryFilt(''); setSaleCustFilt(''); setSaleConnFilt(''); }}>Reset</button>
+                    <button className="zbt2" onClick={() => { setAcctMgr(''); setCoFilt(''); setSaleYear(''); setSaleDateMode('month'); setSaleStart(monthStart()); setSaleEnd(monthEnd(`${new Date().getFullYear()}-${zp(new Date().getMonth()+1)}`)); setSaleGran('date'); setSaleCntryFilt(''); setSaleCustFilt(''); setSaleConnFilt(''); setSaleHourDay(utcToday()); setSaleHourTo(new Date().getUTCHours()); setSaleHourFrom(Math.max(0, new Date().getUTCHours() - 5)); }}>Reset</button>
                   </div>
                 </div>
               </div>
 
-              {loading ? <Skel /> : !rows.length ? (
+              {hourError && (
+                <div style={{ background: '#fde8e8', border: '1px solid #f5c6c6', borderRadius: 8, padding: '12px 16px', marginBottom: 16, color: '#a82020', fontWeight: 600, fontSize: 13 }}>{hourError}</div>
+              )}
+
+              {loading || (hourly && hourLoading) ? <Skel /> : !rows.length ? (
                 <div className="zpnl" style={{ padding: 48, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No data for the selected period.</div>
               ) : (
                 <div>
                   {!saleRows.length ? (
-                    <div className="zpnl" style={{ padding: 48, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>No data for the selected filters.</div>
+                    <div className="zpnl" style={{ padding: 48, textAlign: 'center', color: 'var(--mu)', fontSize: 14 }}>
+                      {hourly ? `No traffic in ${saleRangeLabel}.` : 'No data for the selected filters.'}
+                    </div>
                   ) : (
                 <>
 
@@ -1902,7 +2015,7 @@ export default function SmsReportPage() {
                   {/* Trend: metric (Y) by granularity (X) */}
                   {trendRows.length > 0 && (
                     <div className="zpnl" style={{ marginBottom: 16 }}>
-                      <PH title={`${metricCfg.label} by ${granLabel}`} right={`${fDate(saleStart)} → ${fDate(saleEnd)}`} />
+                      <PH title={`${metricCfg.label} by ${granLabel}`} right={saleRangeLabel} />
                       <div style={{ height: 260, padding: '12px 12px 8px' }}>
                         <ResponsiveContainer width="100%" height="100%">
                           <AreaChart data={trendRows} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
@@ -1913,7 +2026,7 @@ export default function SmsReportPage() {
                               </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
-                            <XAxis dataKey="x" {...AX} tickFormatter={(v: string) => v.length > 7 ? v.slice(5) : v} />
+                            <XAxis dataKey="x" {...AX} tickFormatter={(v: string) => effGran === 'hour' ? hourLabel(v) : v.length > 7 ? v.slice(5) : v} />
                             <YAxis {...AX} width={55} tickFormatter={(v: number) => pieMetric === 'margin_pct' ? `${Math.round(v)}%` : v >= 1000 ? `${(v/1000).toFixed(1)}K` : String(Math.round(v))} />
                             <Tooltip {...TIP} formatter={(v: any) => [fmtMetric(v), metricCfg.label]} labelFormatter={(v: string) => `${granLabel}: ${v}`} />
                             <Area type="monotone" dataKey={pieMetric} stroke={metricCfg.color} strokeWidth={2} fill="url(#saleTrendFill)" dot={false} activeDot={{ r: 4 }} name={metricCfg.label} />
@@ -1925,10 +2038,11 @@ export default function SmsReportPage() {
 
                   {/* Detail table — matches Power BI Sale detail grid */}
                   <div className="zpnl">
-                    <PH title="Sale Detail" right={`${fDate(saleStart)} → ${fDate(saleEnd)} · ${detailData.length} rows`} />
+                    <PH title="Sale Detail" right={`${saleRangeLabel} · ${detailData.length} rows`} />
                     <div className="tbl-scroll" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 460 }}>
                       <table className="zt ztc" style={{ width: '100%', tableLayout: 'fixed' }}>
                         <thead><tr>
+                          {hourly && saleDetailSort.th('hour', 'Hour (UTC)', { style: { textAlign: 'left' } })}
                           {saleDetailSort.th('mcc_mnc', 'MCCMNC', { style: { textAlign: 'left' } })}
                           {saleDetailSort.th('customer_company', 'Customer', { style: { textAlign: 'left' } })}
                           {saleDetailSort.th('country', 'Country', { style: { textAlign: 'left' } })}
@@ -1943,6 +2057,7 @@ export default function SmsReportPage() {
                         <tbody>
                           {saleDetailSort.sort(detailData).map((r: any, i: number) => (
                             <tr key={i}>
+                              {hourly && <td style={{ textAlign: 'left', color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{hourLabel(r.hour)}</td>}
                               <td style={{ textAlign: 'left', color: 'var(--ink)' }}>{r.mcc_mnc}</td>
                               <td style={{ textAlign: 'left', color: 'var(--ink)' }}><span className="zdot" style={{ background: PAL[i % PAL.length], display: 'inline-block', marginRight: 7, verticalAlign: 'middle' }} />{r.customer_company}</td>
                               <td style={{ textAlign: 'left', color: 'var(--ink)' }}>{r.country}</td>
@@ -1958,6 +2073,7 @@ export default function SmsReportPage() {
                         </tbody>
                         <tfoot><tr>
                           <td style={{ textAlign: 'left' }}>Total ({detailData.length})</td>
+                          {hourly && <td style={{ textAlign: 'left' }}>—</td>}
                           <td style={{ textAlign: 'left' }}>—</td><td style={{ textAlign: 'left' }}>—</td><td style={{ textAlign: 'left' }}>—</td><td style={{ textAlign: 'left' }}>—</td><td style={{ textAlign: 'left' }}>—</td>
                           {(() => { const t = detailData.reduce((a: any, r: any) => ({ m: a.m + r.messages, i: a.i + r.income, p: a.p + r.profit }), { m: 0, i: 0, p: 0 }); return (<>
                             <td>{fN(t.m)}</td>

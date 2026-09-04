@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Dataset } from '../../common/entities/dataset.entity';
@@ -11,6 +11,7 @@ const SEED_SQL = `
 WITH ReceivedParts AS (
     SELECT
         CAST(COALESCE(mt.SubmitDateTime, e.ReceivedDateTime) AS DATE) AS edr_date,
+        DATEADD(hour, DATEDIFF(hour, 0, COALESCE(mt.SubmitDateTime, e.ReceivedDateTime)), 0) AS edr_hour,
         csc.CustomerConnectionId,
         mt.MccMnc               AS raw_mccmnc,
         mt.MtVendorConnectionId AS raw_vendorid,
@@ -27,11 +28,12 @@ WITH ReceivedParts AS (
         ON mt.EdrSourceId = e.EdrSmppServerId AND mt.MessageSourceId = 1 AND mt.RetryNumber = 0
     WHERE e.ReceivedDateTime >= '{{LOOKBACK_DATE}}'
       AND comp.CompanyDeleted = 0
-    GROUP BY CAST(COALESCE(mt.SubmitDateTime, e.ReceivedDateTime) AS DATE),
+    GROUP BY CAST(COALESCE(mt.SubmitDateTime, e.ReceivedDateTime) AS DATE), DATEADD(hour, DATEDIFF(hour, 0, COALESCE(mt.SubmitDateTime, e.ReceivedDateTime)), 0),
              csc.CustomerConnectionId, mt.MccMnc, mt.MtVendorConnectionId, mt.TerminatedSenderId
     UNION ALL
     SELECT
         CAST(COALESCE(amt.SubmitDateTime, ae.ReceivedDateTime) AS DATE) AS edr_date,
+        DATEADD(hour, DATEDIFF(hour, 0, COALESCE(amt.SubmitDateTime, ae.ReceivedDateTime)), 0) AS edr_hour,
         csc.CustomerConnectionId,
         amt.MccMnc               AS raw_mccmnc,
         amt.MtVendorConnectionId AS raw_vendorid,
@@ -48,11 +50,12 @@ WITH ReceivedParts AS (
         ON amt.EdrSourceId = ae.ArchiveEdrSmppServerId AND amt.MessageSourceId = 1 AND amt.RetryNumber = 0
     WHERE ae.ReceivedDateTime >= '{{LOOKBACK_DATE}}'
       AND comp.CompanyDeleted = 0
-    GROUP BY CAST(COALESCE(amt.SubmitDateTime, ae.ReceivedDateTime) AS DATE),
+    GROUP BY CAST(COALESCE(amt.SubmitDateTime, ae.ReceivedDateTime) AS DATE), DATEADD(hour, DATEDIFF(hour, 0, COALESCE(amt.SubmitDateTime, ae.ReceivedDateTime)), 0),
              csc.CustomerConnectionId, amt.MccMnc, amt.MtVendorConnectionId, amt.TerminatedSenderId
     UNION ALL
     SELECT
         CAST(COALESCE(mt.SubmitDateTime, e.ReceivedDateTime) AS DATE) AS edr_date,
+        DATEADD(hour, DATEDIFF(hour, 0, COALESCE(mt.SubmitDateTime, e.ReceivedDateTime)), 0) AS edr_hour,
         chc.CustomerConnectionId,
         mt.MccMnc               AS raw_mccmnc,
         mt.MtVendorConnectionId AS raw_vendorid,
@@ -69,11 +72,12 @@ WITH ReceivedParts AS (
         ON mt.EdrSourceId = e.EdrApiId AND mt.MessageSourceId = 2 AND mt.RetryNumber = 0
     WHERE e.ReceivedDateTime >= '{{LOOKBACK_DATE}}'
       AND comp.CompanyDeleted = 0
-    GROUP BY CAST(COALESCE(mt.SubmitDateTime, e.ReceivedDateTime) AS DATE),
+    GROUP BY CAST(COALESCE(mt.SubmitDateTime, e.ReceivedDateTime) AS DATE), DATEADD(hour, DATEDIFF(hour, 0, COALESCE(mt.SubmitDateTime, e.ReceivedDateTime)), 0),
              chc.CustomerConnectionId, mt.MccMnc, mt.MtVendorConnectionId, mt.TerminatedSenderId
     UNION ALL
     SELECT
         CAST(COALESCE(amt.SubmitDateTime, ae.ReceivedDateTime) AS DATE) AS edr_date,
+        DATEADD(hour, DATEDIFF(hour, 0, COALESCE(amt.SubmitDateTime, ae.ReceivedDateTime)), 0) AS edr_hour,
         chc.CustomerConnectionId,
         amt.MccMnc               AS raw_mccmnc,
         amt.MtVendorConnectionId AS raw_vendorid,
@@ -90,11 +94,12 @@ WITH ReceivedParts AS (
         ON amt.EdrSourceId = ae.ArchiveEdrApiId AND amt.MessageSourceId = 2 AND amt.RetryNumber = 0
     WHERE ae.ReceivedDateTime >= '{{LOOKBACK_DATE}}'
       AND comp.CompanyDeleted = 0
-    GROUP BY CAST(COALESCE(amt.SubmitDateTime, ae.ReceivedDateTime) AS DATE),
+    GROUP BY CAST(COALESCE(amt.SubmitDateTime, ae.ReceivedDateTime) AS DATE), DATEADD(hour, DATEDIFF(hour, 0, COALESCE(amt.SubmitDateTime, ae.ReceivedDateTime)), 0),
              chc.CustomerConnectionId, amt.MccMnc, amt.MtVendorConnectionId, amt.TerminatedSenderId
     UNION ALL
     SELECT
         CAST(COALESCE(mt.SubmitDateTime, emd.ReceivedDateTime) AS DATE) AS edr_date,
+        DATEADD(hour, DATEDIFF(hour, 0, COALESCE(mt.SubmitDateTime, emd.ReceivedDateTime)), 0) AS edr_hour,
         chc.CustomerConnectionId,
         mt.MccMnc               AS raw_mccmnc,
         mt.MtVendorConnectionId AS raw_vendorid,
@@ -113,11 +118,12 @@ WITH ReceivedParts AS (
         ON mt.EdrSourceId = emd.EdrSmsCampaignMessageDataId AND mt.MessageSourceId = 3 AND mt.RetryNumber = 0
     WHERE emd.ReceivedDateTime >= '{{LOOKBACK_DATE}}'
       AND comp.CompanyDeleted = 0
-    GROUP BY CAST(COALESCE(mt.SubmitDateTime, emd.ReceivedDateTime) AS DATE),
+    GROUP BY CAST(COALESCE(mt.SubmitDateTime, emd.ReceivedDateTime) AS DATE), DATEADD(hour, DATEDIFF(hour, 0, COALESCE(mt.SubmitDateTime, emd.ReceivedDateTime)), 0),
              chc.CustomerConnectionId, mt.MccMnc, mt.MtVendorConnectionId, mt.TerminatedSenderId
     UNION ALL
     SELECT
         CAST(COALESCE(amt.SubmitDateTime, aemd.ReceivedDateTime) AS DATE) AS edr_date,
+        DATEADD(hour, DATEDIFF(hour, 0, COALESCE(amt.SubmitDateTime, aemd.ReceivedDateTime)), 0) AS edr_hour,
         chc.CustomerConnectionId,
         amt.MccMnc               AS raw_mccmnc,
         amt.MtVendorConnectionId AS raw_vendorid,
@@ -136,14 +142,14 @@ WITH ReceivedParts AS (
         ON amt.EdrSourceId = aemd.ArchiveEdrSmsCampaignMessageDataId AND amt.MessageSourceId = 3 AND amt.RetryNumber = 0
     WHERE aemd.ReceivedDateTime >= '{{LOOKBACK_DATE}}'
       AND comp.CompanyDeleted = 0
-    GROUP BY CAST(COALESCE(amt.SubmitDateTime, aemd.ReceivedDateTime) AS DATE),
+    GROUP BY CAST(COALESCE(amt.SubmitDateTime, aemd.ReceivedDateTime) AS DATE), DATEADD(hour, DATEDIFF(hour, 0, COALESCE(amt.SubmitDateTime, aemd.ReceivedDateTime)), 0),
              chc.CustomerConnectionId, amt.MccMnc, amt.MtVendorConnectionId, amt.TerminatedSenderId
 ),
 ReceivedStats AS (
-    SELECT edr_date, CustomerConnectionId, raw_mccmnc, raw_vendorid, TerminatedSenderId,
+    SELECT edr_date, edr_hour, CustomerConnectionId, raw_mccmnc, raw_vendorid, TerminatedSenderId,
            SUM(received_messages) AS received_messages
     FROM ReceivedParts
-    GROUP BY edr_date, CustomerConnectionId, raw_mccmnc, raw_vendorid, TerminatedSenderId
+    GROUP BY edr_date, edr_hour, CustomerConnectionId, raw_mccmnc, raw_vendorid, TerminatedSenderId
 ),
 AllMtEdr AS (
     SELECT PartsSent, CustomerConnectionId, MtVendorConnectionId,
@@ -161,6 +167,7 @@ AllMtEdr AS (
 EdrStats AS (
     SELECT
         CAST(mt.SubmitDateTime AS DATE)                                                   AS edr_date,
+        DATEADD(hour, DATEDIFF(hour, 0, mt.SubmitDateTime), 0)           AS edr_hour,
         comp.Name                                                                         AS company_name,
         comp.CompanyId,
         cc.CustomerConnectionId,
@@ -190,7 +197,7 @@ EdrStats AS (
     LEFT  JOIN SMSCPhoenix.dbo.CurrencyConversion vcv  WITH(NOLOCK) ON vcv.CurrencyId          = vcomp.CurrencyId
     WHERE comp.CompanyDeleted = 0
     GROUP BY
-        CAST(mt.SubmitDateTime AS DATE), comp.Name, comp.CompanyId, cc.CustomerConnectionId, cc.Name,
+        CAST(mt.SubmitDateTime AS DATE), DATEADD(hour, DATEDIFF(hour, 0, mt.SubmitDateTime), 0), comp.Name, comp.CompanyId, cc.CustomerConnectionId, cc.Name,
         co.CountryName, mmd.OperatorName, mmd.MccMnc, mmd.Mcc, mmd.Mnc,
         mt.MccMnc, mt.TerminatedSenderId, mvc.MtVendorConnectionId, mt.MtVendorConnectionId,
         mvc.Name, u.FirstName, u.LastName
@@ -208,6 +215,7 @@ CompanyLookup AS (
 )
 SELECT
     COALESCE(es.edr_date,        rs.edr_date)                              AS [Date],
+    CONVERT(varchar(19), COALESCE(es.edr_hour, rs.edr_hour), 120)           AS [bucket_hour],
     COALESCE(es.company_name,    cl.company_name)                          AS [Customer Company],
     COALESCE(es.CompanyId,       cl.CompanyId)                             AS [Customer ID],
     COALESCE(es.connection_name, cl.connection_name)                       AS [Customer Connection],
@@ -230,6 +238,7 @@ SELECT
 FROM EdrStats es
 FULL OUTER JOIN ReceivedStats rs
     ON  rs.edr_date             = es.edr_date
+    AND rs.edr_hour             = es.edr_hour
     AND rs.CustomerConnectionId = es.CustomerConnectionId
     AND ISNULL(rs.raw_mccmnc,  -1) = ISNULL(es.raw_mccmnc,  -1)
     AND ISNULL(rs.raw_vendorid, -1) = ISNULL(es.raw_vendorid, -1)
@@ -247,6 +256,7 @@ WHERE COALESCE(es.successful_sent, 0) <> 0
 // Keys must match sanitizeRowKeys output: lowercase, non-alphanum runs → single underscore
 const SEED_COLUMNS = [
   { key: 'date',                 label: 'Date',                  type: 'date',    description: 'Calendar date of the traffic (message submit date); grouping key.' },
+  { key: 'bucket_hour',          label: 'Hour (UTC)',            type: 'timestamp', description: 'Start of the UTC hour the traffic falls in (message submit time truncated to the hour); finer grouping key alongside "date". Use for hourly alerts.' },
   { key: 'customer_company',     label: 'Customer Company',      type: 'text',    description: 'Customer company name.' },
   { key: 'customer_id',          label: 'Customer ID',           type: 'numeric', description: 'Internal SMSC company ID of the customer.' },
   { key: 'customer_connection',  label: 'Customer Connection',   type: 'text',    description: 'Name of the customer SMPP/HTTP connection the traffic came through.' },
@@ -277,6 +287,40 @@ const SEED_COLUMNS = [
  * (this server is UTC+5), roll the date BACK one calendar day. Reading the
  * local date parts recovers the true stored date regardless of process tz.
  */
+/** Default span of the Sale tab's Hour filter when no window is given. */
+const DEFAULT_HOURLY_WINDOW = 6;
+/** Hard ceiling on an hourly request — longer spans belong to Day/Month/Range. */
+const MAX_HOURLY_WINDOW = 24 * 31;
+
+/**
+ * Parse an hour parameter into a UTC instant truncated to the hour.
+ *
+ * Accepts `YYYY-MM-DD`, `YYYY-MM-DD HH`, `YYYY-MM-DDTHH:MM` and the
+ * `YYYY-MM-DD HH:MM:SS` wire form the dataset stores. Always interpreted as
+ * UTC — never the server's local tz — so an hour means one instant regardless
+ * of where the request is served from. Returns null for anything unparseable.
+ */
+function parseHourParam(v?: string): Date | null {
+  if (!v) return null;
+  const m = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}))?/.exec(String(v).trim());
+  if (!m) return null;
+  const d = new Date(`${m[1]}T${m[2] ?? '00'}:00:00Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function truncToHourUTC(d: Date): Date {
+  return new Date(`${d.toISOString().slice(0, 13)}:00:00Z`);
+}
+
+function addHours(d: Date, h: number): Date {
+  return new Date(d.getTime() + h * 3_600_000);
+}
+
+/** Render a UTC instant as the `YYYY-MM-DD HH:00:00` wire form of bucket_hour. */
+function toHourWire(d: Date): string {
+  return `${d.toISOString().slice(0, 13)}:00:00`.replace('T', ' ');
+}
+
 function toYMD(v: unknown): string {
   if (v instanceof Date) {
     const y = v.getFullYear();
@@ -360,7 +404,9 @@ export class SmsReportService implements OnModuleInit {
   }
 
   private async ensureStageTable(): Promise<void> {
-    const typeMap: Record<string, string> = { numeric: 'NUMERIC', date: 'DATE', text: 'TEXT' };
+    const typeMap: Record<string, string> = {
+      numeric: 'NUMERIC', date: 'DATE', text: 'TEXT', timestamp: 'TIMESTAMPTZ',
+    };
     const [row] = await this.dataSource.query(
       `SELECT EXISTS (
          SELECT 1 FROM information_schema.tables WHERE table_name = $1
@@ -383,6 +429,9 @@ export class SmsReportService implements OnModuleInit {
       );
       await this.dataSource.query(
         `CREATE INDEX IF NOT EXISTS idx_${STAGE}_date ON ${STAGE} (date DESC)`,
+      );
+      await this.dataSource.query(
+        `CREATE INDEX IF NOT EXISTS idx_${STAGE}_bucket_hour ON ${STAGE} (bucket_hour DESC)`,
       );
       this.logger.log(`Stage table ${STAGE} created`);
       return;
@@ -417,6 +466,13 @@ export class SmsReportService implements OnModuleInit {
     );
     await this.dataSource.query(
       `CREATE INDEX IF NOT EXISTS idx_${STAGE}_country ON ${STAGE} (date DESC, country)`,
+    );
+    // Hourly grain: bucket_hour drives the Sale tab's Hour filter and any hourly alert.
+    await this.dataSource.query(
+      `CREATE INDEX IF NOT EXISTS idx_${STAGE}_bucket_hour ON ${STAGE} (bucket_hour DESC)`,
+    );
+    await this.dataSource.query(
+      `CREATE INDEX IF NOT EXISTS idx_${STAGE}_date_bucket ON ${STAGE} (date DESC, bucket_hour)`,
     );
   }
 
@@ -543,6 +599,178 @@ export class SmsReportService implements OnModuleInit {
       maxDate:       rr.max_date ? toYMD(rr.max_date) : null,
       managers:      (managersRows as any[]).map((r: any) => r.account_manager),
       summary: {
+        totalRows:      Number(s.total_rows    ?? 0),
+        totalIncome:    Math.round(Number(s.total_income   ?? 0) * 100) / 100,
+        totalExpenses:  Math.round(Number(s.total_expenses ?? 0) * 100) / 100,
+        totalProfit:    Math.round(Number(s.total_profit   ?? 0) * 100) / 100,
+        totalSent:      Number(s.total_sent      ?? 0),
+        totalDelivered: Number(s.total_delivered ?? 0),
+        avgMarginPct:   Math.round(Number(s.avg_margin ?? 0) * 100) / 100,
+      },
+    };
+  }
+
+  /**
+   * Hourly grain read path — backs the Sale tab's Hour filter.
+   *
+   * Unlike getData(), which the UI calls once for the whole year and then
+   * filters client-side, this is ALWAYS scoped server-side to the requested
+   * window: hourly rows are ~2.5x daily rows, so a year of them must never be
+   * shipped to the browser.
+   *
+   * `from` is inclusive and `to` is exclusive, so two adjacent windows can
+   * never count the same bucket twice. Both are truncated to the hour and read
+   * as UTC — aSMSC stores SubmitDateTime in UTC and the app pins its PG
+   * session to UTC, so a bucket means the same instant everywhere.
+   *
+   * Rows loaded before the hourly rebuild have bucket_hour = NULL; the range
+   * predicate excludes them, so a stale row can never be attributed to an hour
+   * it does not belong to.
+   */
+  async getHourlyData(opts: {
+    from?: string;
+    to?: string;
+    accountManager?: string;
+    company?: string;
+  } = {}): Promise<any> {
+    const metaRows = await this.dataSource
+      .query<any[]>(`
+        SELECT to_char(MAX(bucket_hour) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS max_bucket,
+               MAX(refreshed_at) AS last_refreshed
+        FROM ${STAGE}
+      `)
+      .catch((err: Error) => {
+        this.logger.error(`Failed to read ${STAGE} hourly bounds: ${err.message}`);
+        return [] as any[];
+      });
+    const meta      = (metaRows as any[])[0] ?? {};
+    const maxBucket: string | null = meta.max_bucket ?? null;
+
+    // Default window: the most recent DEFAULT_HOURS buckets that exist.
+    const anchor = parseHourParam(maxBucket ?? undefined) ?? truncToHourUTC(new Date());
+    let hi = parseHourParam(opts.to)   ?? addHours(anchor, 1);
+    let lo = parseHourParam(opts.from) ?? addHours(hi, -DEFAULT_HOURLY_WINDOW);
+
+    if (hi.getTime() <= lo.getTime()) hi = addHours(lo, 1);
+    const windowHours = Math.round((hi.getTime() - lo.getTime()) / 3_600_000);
+    if (windowHours > MAX_HOURLY_WINDOW) {
+      throw new BadRequestException(
+        `Hourly window too large: ${windowHours}h requested, max ${MAX_HOURLY_WINDOW}h. ` +
+        `Use the Day/Month/Range filters for longer spans.`,
+      );
+    }
+
+    // `$n::timestamp AT TIME ZONE 'UTC'` — NOT `$n::timestamptz`. The latter
+    // resolves the bound against the session's TimeZone; the app pins that to
+    // UTC, but the same table is also read by psql sessions and the MCP pool,
+    // and this server's Postgres default is US/Eastern. Spelling the zone out
+    // makes an hour mean the same instant no matter who is asking.
+    const params: any[]        = [toHourWire(lo), toHourWire(hi)];
+    const conditions: string[] = [
+      `bucket_hour >= ($1::timestamp AT TIME ZONE 'UTC')`,
+      `bucket_hour <  ($2::timestamp AT TIME ZONE 'UTC')`,
+    ];
+    if (opts.accountManager && opts.accountManager !== 'all') {
+      params.push(opts.accountManager);
+      conditions.push(`account_manager = $${params.length}`);
+    }
+    if (opts.company) {
+      params.push(`%${opts.company}%`);
+      conditions.push(`customer_company ILIKE $${params.length}`);
+    }
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    const [stageRows, summaryRows, managersRows] = await Promise.all([
+      this.dataSource.query<any[]>(`
+        SELECT
+          to_char(bucket_hour AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS hour,
+          customer_company,
+          customer_id,
+          customer_connection,
+          country,
+          operator,
+          mcc_mnc,
+          mcc,
+          mnc,
+          account_manager,
+          SUM(received_messages) AS received_messages,
+          SUM(successful_sent)   AS successful_sent,
+          SUM(failed)            AS failed,
+          SUM(delivered)         AS delivered,
+          SUM(expenses)          AS expenses,
+          SUM(income)            AS income,
+          SUM(profit)            AS profit,
+          CASE WHEN SUM(income) > 0
+            THEN ROUND(CAST((SUM(income) - SUM(expenses)) / SUM(income) * 100 AS NUMERIC), 2)
+            ELSE NULL
+          END AS margin_age
+        FROM ${STAGE} ${where}
+        GROUP BY 1, customer_company, customer_id, customer_connection,
+                 country, operator, mcc_mnc, mcc, mnc, account_manager
+        ORDER BY 1 DESC, customer_company ASC
+      `, params).catch((err: Error) => {
+        this.logger.error(`Failed to read ${STAGE} hourly: ${err.message}`);
+        return [] as any[];
+      }),
+
+      this.dataSource.query<any[]>(`
+        SELECT
+          COUNT(*)              AS total_rows,
+          SUM(income)           AS total_income,
+          SUM(expenses)         AS total_expenses,
+          SUM(profit)           AS total_profit,
+          SUM(successful_sent)  AS total_sent,
+          SUM(delivered)        AS total_delivered,
+          AVG(CASE WHEN income > 0 THEN margin_age END) AS avg_margin
+        FROM ${STAGE} ${where}
+      `, params).catch(() => [] as any[]),
+
+      this.dataSource.query<any[]>(
+        `SELECT DISTINCT account_manager FROM ${STAGE}
+          WHERE bucket_hour >= ($1::timestamp AT TIME ZONE 'UTC')
+            AND bucket_hour <  ($2::timestamp AT TIME ZONE 'UTC')
+            AND account_manager IS NOT NULL AND account_manager <> ''
+          ORDER BY account_manager`,
+        [params[0], params[1]],
+      ).catch(() => [] as any[]),
+    ]);
+
+    const rows = (stageRows as any[]).map((r: any) => ({
+      hour:                r.hour,                       // 'YYYY-MM-DD HH:MI' (UTC)
+      date:                String(r.hour ?? '').slice(0, 10),
+      customer_company:    r.customer_company ?? null,
+      customer_id:         r.customer_id != null ? Number(r.customer_id) : null,
+      customer_connection: r.customer_connection ?? null,
+      country:             r.country ?? null,
+      operator:            r.operator ?? null,
+      mcc_mnc:             r.mcc_mnc ?? null,
+      mcc:                 r.mcc ?? null,
+      mnc:                 r.mnc ?? null,
+      sender_id:           null,
+      vendor_name:         null,
+      received_messages:   Number(r.received_messages ?? 0),
+      successful_sent:     Number(r.successful_sent ?? 0),
+      failed:              Number(r.failed ?? 0),
+      delivered:           Number(r.delivered ?? 0),
+      expenses:            Number(r.expenses ?? 0),
+      income:              Number(r.income ?? 0),
+      profit:              Number(r.profit ?? 0),
+      margin_pct:          r.margin_age != null ? Number(r.margin_age) : null,
+      account_manager:     r.account_manager ?? null,
+    }));
+
+    const s = (summaryRows as any[])[0] ?? {};
+
+    return {
+      datasetId:     this._datasetId,
+      rows,
+      lastRefreshed: meta.last_refreshed ?? null,
+      maxBucket,
+      from:          toHourWire(lo),
+      to:            toHourWire(hi),
+      windowHours,
+      managers:      (managersRows as any[]).map((r: any) => r.account_manager),
+      summary: rows.length === 0 ? this.emptySummary() : {
         totalRows:      Number(s.total_rows    ?? 0),
         totalIncome:    Math.round(Number(s.total_income   ?? 0) * 100) / 100,
         totalExpenses:  Math.round(Number(s.total_expenses ?? 0) * 100) / 100,
