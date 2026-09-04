@@ -180,11 +180,29 @@ rode along in a group that happened to contain billable traffic. Loosening the f
 received-only rows back into the output and break the Power BI company-list match it exists to
 preserve, so the shift is accepted rather than "fixed".
 
-Impact at the alert grain (both Weekly Volume Alerts, two weeks, 55 customers): 38 identical, 10
-differing by −26…+2 messages, net **−52 on 1,298,728 (−0.004%)**. No customer's Increase/Decrease
-classification can change — the only near-ties are exact ties at 3, 8 and 51 messages, all
-unchanged. Some deltas are positive, so part of the spread is ordinary aSMSC settling rather than
-the grain change.
+**The size of the shift is day-dependent, not a flat percentage.** Measured on prod by running both
+queries over the same window, one sampled day per month:
+
+| Day | Effect on `received_messages` |
+|---|---|
+| 2026-01-15, 2026-04-22 | 0.000% |
+| 2026-08-05, 2026-03-18, 2026-06-10, 2026-07-08 | −0.004% … −0.006% |
+| 2026-02-12 | −0.014% |
+| 2026-05-14 | −0.089% |
+| **2026-08-27** | **−3.004%** (−6,352 msgs) |
+
+A day lands high on that scale when it carries a lot of traffic that was received but never
+forwarded to a vendor. On 2026-08-27 those 6,352 messages had **zero income and zero vendor cost** —
+income, expenses and profit for the day are identical to 4 decimals, and `successful_sent`,
+`delivered` and `failed` are bit-identical. So the hour grain excludes unbilled, unforwarded traffic
+more strictly than the day grain did, which is what that `WHERE` was written to do; it is not a loss
+of billable traffic.
+
+Impact on the two Weekly Volume Alerts (55 customers, two weeks): 42 identical, 13 differing;
+week 1 **−52 on 1,298,728 (−0.004%)**, week 2 **−6,313 on 1,759,664 (−0.359%)** — the week-2 figure
+is almost entirely the single 2026-08-27 outlier. Worst single customer: Twilio Ireland, week 2
+41,253 → 38,709 (−6.2%). **Zero Increase/Decrease classification flips.** Some per-customer deltas
+are positive, so part of the spread is ordinary aSMSC settling rather than the grain change.
 
 ## SMS Credit Limit
 
