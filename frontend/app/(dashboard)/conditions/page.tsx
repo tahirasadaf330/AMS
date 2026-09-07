@@ -1,10 +1,11 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Edit2, Trash2, Eye, Play, Code2, Database, Terminal } from 'lucide-react';
+import { Plus, Edit2, Trash2, Eye, Play, Code2, Database, Terminal, Search, X } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Toggle } from '@/components/ui/toggle';
 import { Dialog, DialogHeader, DialogBody } from '@/components/ui/dialog';
 import { StatusBadge } from '@/components/status-badge';
@@ -46,6 +47,17 @@ export default function ConditionsPage() {
   const [editingCondition, setEditingCondition] = React.useState<Condition | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<Condition | null>(null);
   const [previewTarget, setPreviewTarget] = React.useState<Condition | null>(null);
+  const [search, setSearch] = React.useState('');
+
+  const allConditions = conditions ?? [];
+  // Filter by name only, which is what the search box promises. Case-insensitive substring so
+  // "special" finds "Special Routes — Zero Successful Calls (Jerasoft)" without typing the em
+  // dash or the bracketed suffix.
+  const filtered = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allConditions;
+    return allConditions.filter((c) => (c.name ?? '').toLowerCase().includes(q));
+  }, [allConditions, search]);
 
   const handleCreate = async (data: Omit<Condition, 'id' | 'created_at' | 'updated_at'>) => {
     await createCondition.mutateAsync(data);
@@ -97,6 +109,36 @@ export default function ConditionsPage() {
         }
       />
 
+      {/* Search by alert name. Hidden while loading and when there is nothing to search. */}
+      {!isLoading && allConditions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+            <Input
+              placeholder="Search alerts by name…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 pr-8 h-8 text-sm"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          {search.trim() && (
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {filtered.length} of {allConditions.length}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Conditions table */}
       {isLoading ? (
         <SkeletonTable rows={5} cols={6} />
@@ -117,14 +159,18 @@ export default function ConditionsPage() {
               </tr>
             </thead>
             <tbody>
-              {(conditions ?? []).length === 0 && (
+              {filtered.length === 0 && (
                 <tr>
                   <td colSpan={9} className="px-4 py-12 text-center text-gray-500 text-sm">
-                    No conditions yet.{canCreate && ' Click "New Alert" to create one.'}
+                    {search.trim() ? (
+                      <>No alerts match &ldquo;{search.trim()}&rdquo;.</>
+                    ) : (
+                      <>No conditions yet.{canCreate && ' Click "New Alert" to create one.'}</>
+                    )}
                   </td>
                 </tr>
               )}
-              {(conditions ?? []).map((condition) => {
+              {filtered.map((condition) => {
                 const isPython = condition.type === 'python';
                 const dataset = datasets?.find((d) => d.id === condition.dataset_id);
                 const channels = [];
