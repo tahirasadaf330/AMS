@@ -36,8 +36,18 @@ export class PythonExecutorService {
 
   constructor(private readonly settingsService: SettingsService) {}
 
+  // Date.now() alone is NOT unique: conditions sharing a cron minute evaluate in the same
+  // millisecond, write the same temp path concurrently, and interleave into a corrupted script
+  // ("SyntaxError: unmatched '}'", seen on prod 2026-09-07 when Zamani Routing Error and Zamani
+  // New Sender ID both fired at :45:00.060). The per-process counter makes every run distinct.
+  private static tmpSeq = 0;
+
+  private static tmpName(prefix: string): string {
+    return `${prefix}_${Date.now()}_${process.pid}_${PythonExecutorService.tmpSeq++}.py`;
+  }
+
   async execute(script: string): Promise<PythonExecutionResult> {
-    const tmpPath = join(tmpdir(), `ams_script_${Date.now()}.py`);
+    const tmpPath = join(tmpdir(), PythonExecutorService.tmpName('ams_script'));
 
     try {
       await writeFile(tmpPath, script, 'utf8');
@@ -55,7 +65,7 @@ export class PythonExecutorService {
    * temp-file + spawn flow as execute(); only the parsing differs.
    */
   async executeReport(script: string): Promise<PythonReportResult> {
-    const tmpPath = join(tmpdir(), `ams_report_${Date.now()}.py`);
+    const tmpPath = join(tmpdir(), PythonExecutorService.tmpName('ams_report'));
 
     try {
       await writeFile(tmpPath, script, 'utf8');
