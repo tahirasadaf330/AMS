@@ -7,7 +7,7 @@ import { ConditionSchedulerService } from '../../conditions/condition-scheduler.
 /**
  * Special Routes — Zero Successful Calls alert (Python).
  *
- * Watches the 13 named special term routes and reports any of their Jerasoft TERM accounts that
+ * Watches the 14 named special term routes and reports any of their Jerasoft TERM accounts that
  * took call attempts today but connected NOTHING. "Success" is volume > 0 (real talk time) —
  * the same definition the Special Routes Monitoring report and the Voice alerts use, NOT
  * result_status = 'success' (which also counts zero-duration calls).
@@ -47,7 +47,7 @@ import { ConditionSchedulerService } from '../../conditions/condition-scheduler.
  * between 06:00 and 22:00 UTC and are exactly zero every night, so clipping to 07:00–21:00 keeps
  * the check inside the live band instead of alerting on its normal overnight silence.
  *
- * TERM ACCOUNT, not client. The 13 names are Jerasoft ACCOUNTS (accounts.name, the TID-TERM-*
+ * TERM ACCOUNT, not client. The 14 names are Jerasoft ACCOUNTS (accounts.name, the TID-TERM-*
  * vendor accounts) — not clients.name, which is what the Special Routes Monitoring report
  * displays in its "Term Account" column. This matters: "Misierra new", "Misierra old" and
  * "Spec2" do not exist as clients at all (both Misierra accounts hang off the single MISIERRA
@@ -156,7 +156,7 @@ CURSOR_TABLE = "special_routes_zero_asr_cursor"
 NAVY = "#1f3864"; HEADBG = "#dce6f1"; BORDER = "1px solid #e4e9ec"
 RED = "#c00000"; NEUTRAL = "#666666"; GREEN = "#15803d"
 
-# The 13 special routes. Each entry is (label, Jerasoft accounts.name ILIKE pattern, window).
+# The 14 special routes. Each entry is (label, Jerasoft accounts.name ILIKE pattern, window).
 # window "day" = start of the UTC day -> now; "harvest" = HARVEST_START_HOUR -> now, capped at
 # HARVEST_END_HOUR, UTC. Patterns intentionally cover a route's whole account family (-VOS
 # softswitch mirrors, -HS, -NCLI and per-destination variants) so every account that could carry
@@ -175,6 +175,10 @@ ROUTES = [
     ("MKEL",            "TID-TERM-MKEL%",             "day"),
     ("Talk to Me",      "TID-TERM-TALK TO ME%",       "day"),
     ("SquareTalk",      "TID-TERM-SQUARETALK%",       "day"),
+    # Added 2026-08-24. Matches TID-TERM-SMART AXIATA CO., LTD.-PRM and its -PRM-VOS twin.
+    # Measured healthy at 27.61% ASR over 24h, so the flat 2% threshold needs no override here -
+    # unlike the chronically sub-2% Israel mobile / PRM routes noted in the header.
+    ("Smart Axiata",    "TID-TERM-SMART AXIATA%",     "day"),
 ]
 
 
