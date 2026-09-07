@@ -214,7 +214,13 @@ function useSortState(defaultKey: string) {
   return { th, sort };
 }
 
-const TIP = { contentStyle: { background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 8, fontSize: 12 }, labelStyle: { color: 'var(--mu)' } };
+// itemStyle matters: recharts colors the VALUE line with the series/slice color by default, which
+// disappears against a similar tooltip background (seen on Profit by Country in dark mode).
+const TIP = {
+  contentStyle: { background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 8, fontSize: 12 },
+  labelStyle: { color: 'var(--mu)' },
+  itemStyle: { color: 'var(--ink)', fontWeight: 600 },
+};
 const AX  = { tick: { fontSize: 10, fill: 'var(--mu)' }, axisLine: false, tickLine: false };
 
 /* ── aggregate helpers ───────────────────────────────────── */
@@ -512,7 +518,7 @@ function SaleYearTab({ rows, lastRefreshed }: SaleYearTabProps) {
                   <Pie data={profitByCountry} dataKey="value" nameKey="name" cx="45%" cy="50%" outerRadius={85} label={({percent}:any)=>`${(percent*100).toFixed(1)}%`} labelLine={false} fontSize={10}>
                     {profitByCountry.map((_:any,i:number)=><Cell key={i} fill={PAL[i%PAL.length]} />)}
                   </Pie>
-                  <RTooltip formatter={(v:any,n:string)=>[fR(v),n]} />
+                  <RTooltip {...TIP} formatter={(v:any,n:string)=>[fR(v),n]} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -525,7 +531,7 @@ function SaleYearTab({ rows, lastRefreshed }: SaleYearTabProps) {
                   <Pie data={incomeByCountry} dataKey="value" nameKey="name" cx="45%" cy="50%" outerRadius={85} label={({percent}:any)=>`${(percent*100).toFixed(1)}%`} labelLine={false} fontSize={10}>
                     {incomeByCountry.map((_:any,i:number)=><Cell key={i} fill={PAL[i%PAL.length]} />)}
                   </Pie>
-                  <RTooltip formatter={(v:any,n:string)=>[fR(v),n]} />
+                  <RTooltip {...TIP} formatter={(v:any,n:string)=>[fR(v),n]} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
