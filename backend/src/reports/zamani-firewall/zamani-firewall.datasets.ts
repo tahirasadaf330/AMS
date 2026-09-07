@@ -280,17 +280,49 @@ const CONTENT_COLUMNS: ColumnDef[] = [
 // for free and the tab totals reconcile with the Traffic Overview page. traffic_source_name is
 // stored RAW (e.g. Hayosms1) — the Hayo display label is applied in the service, never persisted.
 
+// Senders per hour kept on the SS7 grain, capped. Measured on the busiest hour of 2026-09-06
+// (517,416 messages): the grain without sender is 14 rows, WITH sender it is 49,590 — a 3,542x
+// explosion, ~8M stage rows over the 7-day retention, and the tab only ever renders its top 2000.
+// The tail is what makes it explode, not the volume: ~50 senders carry 78.3% of an hour and the
+// remaining ~49,470 are P2P handsets sending one or two messages each (top 100 = 78.5%,
+// top 500 = 79.6% — the curve is flat past 50).
+//
+// So the top SS7_SENDER_CAP rows per hour are kept by name and everything below is folded into a
+// single '(other senders)' row per (calling party, action, direction). Messages therefore still
+// SUM to the true hourly total — the Total row and the Traffic Overview tab keep reconciling —
+// while rows stay bounded at ~cap + a handful per hour.
+const SS7_SENDER_CAP = 200;
+
 const SS7_ACTIONS_SQL = `
-SELECT
-    ${TS('bucket_hour')}    AS bucket_hour,
-    business_date           AS date,
-    COALESCE(calling_party, '(unknown)') AS calling_party,
-    COALESCE(final_action, 'unknown')    AS final_action,
-    COALESCE(direction, 'unknown')       AS direction,
-    COUNT(*)                AS messages
-FROM zamani.v_ss7_messages
-${WINDOW}
-GROUP BY bucket_hour, business_date, 3, 4, 5
+WITH g AS (
+    SELECT
+        bucket_hour,
+        business_date,
+        COALESCE(calling_party, '(unknown)') AS calling_party,
+        COALESCE(final_action, 'unknown')    AS final_action,
+        COALESCE(direction, 'unknown')       AS direction,
+        COALESCE(sender_id, '(none)')        AS sender_id,
+        COUNT(*)                             AS messages
+    FROM zamani.v_ss7_messages
+    ${WINDOW}
+    GROUP BY 1, 2, 3, 4, 5, 6
+), ranked AS (
+    -- sender_id as a tiebreaker keeps the cut deterministic across refreshes of the same hour,
+    -- so a re-pulled hour does not silently swap which senders are named.
+    SELECT g.*, ROW_NUMBER() OVER (PARTITION BY bucket_hour ORDER BY messages DESC, sender_id) AS rn
+    FROM g
+)
+SELECT ${TS('bucket_hour')} AS bucket_hour, business_date AS date,
+       calling_party, final_action, direction, sender_id, messages
+  FROM ranked
+ WHERE rn <= ${SS7_SENDER_CAP}
+UNION ALL
+SELECT ${TS('bucket_hour')} AS bucket_hour, business_date AS date,
+       calling_party, final_action, direction, '(other senders)' AS sender_id,
+       SUM(messages) AS messages
+  FROM ranked
+ WHERE rn > ${SS7_SENDER_CAP}
+ GROUP BY bucket_hour, business_date, calling_party, final_action, direction
 `;
 
 const SS7_ACTIONS_COLUMNS: ColumnDef[] = [
@@ -299,6 +331,7 @@ const SS7_ACTIONS_COLUMNS: ColumnDef[] = [
   { key: 'calling_party', label: 'Calling Party', type: 'text',      description: 'SMSC global title the message arrived from — the interconnect identity, never the message sender.' },
   { key: 'final_action',  label: 'Final Action',  type: 'text',      description: 'What the firewall ultimately did: send, lookup, modify, drop, negative_ack…' },
   { key: 'direction',     label: 'Direction',     type: 'text',      description: 'Traffic direction as logged (e.g. incoming / outgoing).' },
+  { key: 'sender_id',     label: 'Sender ID',     type: 'text',      description: 'Originator shown on the message — the real sender, unlike calling_party. Top 200 senders per hour are named; the long P2P tail is folded into a single (other senders) row so the hourly total stays exact.' },
   { key: 'messages',      label: 'Messages',      type: 'numeric',   description: 'Corrected SS7 messages (multipart reassembled) for this combination in the hour.' },
 ];
 

@@ -4,6 +4,7 @@ import * as React from 'react';
 import { zamaniFirewallApi } from '@/lib/api';
 import { useDatasetSocket } from '@/hooks/useDatasetSocket';
 import { STREAMS, buildChart, hourLabel, hourFull, stamp, toDate, camelizeKeys } from './chart-data';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 /**
  * Zamani SMS Firewall — five tabs over the SS7 / SMPP / SRI firewall logs.
@@ -275,6 +276,7 @@ function msgWindowISO(w: MsgWin): { from?: string; to?: string } {
 const MSG_TAB_COLS: Record<MsgStream, { key: string; label: string }[]> = {
   ss7: [
     { key: 'callingParty', label: 'Calling Party' },
+    { key: 'senderId',     label: 'Sender ID' },
     { key: 'finalAction',  label: 'Final Action' },
     { key: 'direction',    label: 'Direction' },
   ],
@@ -295,8 +297,10 @@ const MSG_TAB_META: Record<MsgStream, { title: string; note: string }> = {
   ss7: {
     title: 'SS7 messages',
     note: 'Corrected SS7 messages (multipart reassembled) grouped by calling party — the SMSC global title the '
-      + 'message arrived from, not the sender ID — final firewall action and direction. Totals reconcile with the '
-      + 'Traffic Overview tab for the same window.',
+      + 'message arrived from, not the sender ID — sender ID, final firewall action and direction. Totals reconcile '
+      + 'with the Traffic Overview tab for the same window. The top 200 senders per hour are named; the long P2P '
+      + 'tail (tens of thousands of handsets sending one or two messages) is folded into a single (other senders) '
+      + 'row, so the Total stays exact.',
   },
   smpp: {
     title: 'SMPP messages',
@@ -312,6 +316,73 @@ const MSG_TAB_META: Record<MsgStream, { title: string; note: string }> = {
 };
 
 type MsgSort = { key: string; dir: 'asc' | 'desc' };
+
+// Chart styling matches the Zamani Sender ID report so the two read as one family.
+const MSG_TIP = {
+  contentStyle: { background: 'var(--sf)', border: '1px solid var(--ln)', borderRadius: 8, fontSize: 12 },
+  labelStyle: { color: 'var(--mu)' },
+  itemStyle: { color: 'var(--ink)' },
+} as const;
+const MSG_AX = { tick: { fontSize: 10, fill: 'var(--mu)' }, axisLine: false, tickLine: false } as const;
+const compact = (v: number) =>
+  v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v);
+
+/**
+ * Messages-per-hour trend for the slice currently in the table.
+ *
+ * Fed by the endpoint's `series`, which is built from the same window and filters as the rows, so
+ * the line cannot disagree with the table above it. Points are the stage's own hourly buckets;
+ * unparseable timestamps are dropped (and counted) rather than throwing — see chart-data.ts.
+ */
+export function MsgTrend({ series, loading }: { series: any[]; loading: boolean }) {
+  const { data, skipped } = React.useMemo(() => {
+    const out: { t: string; label: string; messages: number }[] = [];
+    let bad = 0;
+    for (const r of Array.isArray(series) ? series : []) {
+      const d = toDate(r?.bucketHour);
+      const n = Number(r?.messages);
+      if (!d || !Number.isFinite(n)) { bad++; continue; }
+      out.push({ t: d.toISOString(), label: hourLabel(d), messages: n });
+    }
+    out.sort((a, b) => a.t.localeCompare(b.t));
+    return { data: out, skipped: bad };
+  }, [series]);
+
+  const peak = data.reduce((a, d) => Math.max(a, d.messages), 0);
+
+  return (
+    <div className="zpnl">
+      <div className="zph">
+        <div className="zph-t">Messages per hour</div>
+        <div className="zph-s">
+          matches the table&apos;s window and filters · {fN(data.length)} hour{data.length === 1 ? '' : 's'} · peak {fN(peak)}/h
+          {skipped > 0 ? ` · ${fN(skipped)} unreadable point${skipped === 1 ? '' : 's'} skipped` : ''}
+        </div>
+      </div>
+      <div className="zpb">
+        {loading && !data.length ? <div className="zskel" />
+          : data.length === 0 ? <div className="zempty">No traffic in this window.</div> : (
+          <div style={{ width: '100%', height: 240 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data} margin={{ top: 8, right: 24, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="2 4" stroke="var(--ln)" vertical={false} />
+                <XAxis dataKey="label" {...MSG_AX} minTickGap={24} />
+                <YAxis {...MSG_AX} width={54} tickFormatter={(v: number) => compact(Number(v))} />
+                <Tooltip {...MSG_TIP}
+                  labelFormatter={(_l: any, pl: any) => hourFull(pl?.[0]?.payload?.t)}
+                  formatter={(v: any) => [Number(v).toLocaleString(), 'Messages']} />
+                <Line type="monotone" dataKey="messages" name="Messages"
+                  stroke="#3b82f6" strokeWidth={2.5} dot={false} connectNulls
+                  isAnimationActive={false}
+                  activeDot={{ r: 4, stroke: '#fff', strokeWidth: 2, fill: '#3b82f6' }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function MsgTH({ label, k, sort, onSort }: { label: string; k: string; sort: MsgSort; onSort: (k: string) => void }) {
   const active = sort.key === k;
@@ -337,7 +408,7 @@ type MsgFilters = { q: string; messageType: string; direction: string; finalActi
 const EMPTY_FILTERS: MsgFilters = { q: '', messageType: '', direction: '', finalAction: '', trafficSource: '' };
 
 const MSG_SEARCH_PLACEHOLDER: Record<MsgStream, string> = {
-  ss7: 'Search calling party…',
+  ss7: 'Search calling party / sender ID…',
   smpp: 'Search sender ID…',
   srism: 'Search calling party / SMSC…',
 };
@@ -488,6 +559,8 @@ function MessagesTab({ stream, win }: { stream: MsgStream; win: MsgWin }) {
           </div>
         </div>
       </div>
+
+      <MsgTrend series={payload?.series} loading={loading} />
     </>
   );
 }

@@ -803,15 +803,21 @@ export class ZamaniFirewallService implements OnModuleInit {
     let options: Record<string, string[]> = {};
     if (stream === 'ss7') {
       stage = 'stage_zfw_ss7_actions';
-      if (filters.q) add(`calling_party ILIKE ?`, like(filters.q));
+      // `q` spans both text dimensions now that sender is a column: searching only calling_party
+      // would leave the sender column unsearchable, and it is the high-cardinality one people
+      // actually look for.
+      if (filters.q) {
+        params.push(like(filters.q));
+        conds.push(`(calling_party ILIKE $${params.length} OR sender_id ILIKE $${params.length})`);
+      }
       if (filters.finalAction) add(`final_action = ?`, filters.finalAction);
       if (filters.direction) add(`direction = ?`, filters.direction);
       const where = conds.join(' AND ');
       rows = await this.q(`
-        SELECT calling_party, final_action, direction, SUM(messages) AS messages
+        SELECT calling_party, final_action, direction, sender_id, SUM(messages) AS messages
           FROM ${stage}
          WHERE ${where}
-         GROUP BY calling_party, final_action, direction
+         GROUP BY calling_party, final_action, direction, sender_id
          ORDER BY messages DESC
          LIMIT ${CAP}`, params);
       totalSql = `SELECT COALESCE(SUM(messages), 0) AS total FROM ${stage} WHERE ${where}`;
@@ -885,9 +891,23 @@ export class ZamaniFirewallService implements OnModuleInit {
       totalSql = `SELECT COALESCE(SUM(requests), 0) AS total FROM ${stage} WHERE ${where}`;
     }
 
-    const [[totalRow], [meta]] = await Promise.all([
+    // Trend series for the chart under the table. Deliberately built from the SAME stage, window
+    // and filter params as the rows, so the line always describes exactly the slice on screen —
+    // a chart drawn from an unfiltered query would contradict the table above it. Bucketed on the
+    // stage's own hourly grain, so this is a cheap re-aggregation of local rows, not a new scan.
+    const seriesMetric = stream === 'srism' ? 'requests' : 'messages';
+    const seriesSql = `
+      SELECT to_char(bucket_hour AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS+00') AS bucket_hour,
+             COALESCE(SUM(${seriesMetric}), 0) AS messages
+        FROM ${stage}
+       WHERE ${conds.join(' AND ')}
+       GROUP BY bucket_hour
+       ORDER BY bucket_hour`;
+
+    const [[totalRow], [meta], series] = await Promise.all([
       this.q(totalSql, params),
       this.q(`SELECT MAX(refreshed_at) AS refreshed_at FROM ${stage}`),
+      this.q(seriesSql, params),
     ]);
 
     return {
@@ -896,6 +916,10 @@ export class ZamaniFirewallService implements OnModuleInit {
       to: to ?? null,
       rows,
       options,
+      series: series.map((r: any) => ({
+        bucketHour: r.bucket_hour,
+        messages: Number(r.messages ?? 0),
+      })),
       totalMessages: Number(totalRow?.total ?? 0),
       rowCap: CAP,
       refreshedAt: meta?.refreshed_at ?? null,
