@@ -391,8 +391,22 @@ vendor with no traffic in the window does not appear, because customer connectio
 operator / MCC-MNC only exist by way of a message.
 
 **Status is per-session, not per-vendor.** A vendor runs 1–24 SMPP sessions, so it is judged by how
-many are `Bound`: none = `disconnected`, some = `partial`, all = `connected`. Two traps sit here:
+many are `Bound`: none = `disconnected`, some = `partial`, all = `connected`. Three traps sit here:
 
+- **`MtVendorSmppConnectionStatus` never prunes.** A rebind writes a fresh row (new
+  `UniqueIdentifierId`, a per-attempt GUID) and leaves the previous one behind, so the raw table
+  holds superseded records — 1,170 rows for 1,090 real slots, 11 of 459 SMPP vendors affected
+  (measured 2026-09-07). Counting raw rows read a stale `Closed` record as a dead session and
+  mislabelled four fully-bound vendors `partial` (`Link Mobility_DIR` at 19/20, `ANTwerp_HQ`,
+  `RWANDA_MTN_SC`, `Zamani_Niger_SC`), while inflating seven more vendors' counts —
+  `Link Mobility_DIR` held 20 rows for 5 configured sessions × 2 IP hosts, `Zamani_Niger` 30 for 10.
+  The `current_bind` CTE therefore keeps only the newest row per **bind slot**
+  (connection × `SessionId` × `IpHost`; the platform opens `SessionAllowed*` sessions against *each*
+  of the vendor's hosts, so slots = configured sessions × host count). Deduped,
+  `Link Mobility_DIR` reads 10/10 `connected` and `Zamani_Niger` 9/10 `partial`.
+  Picked by `MAX(id)` + PK join rather than `ROW_NUMBER()`: both dedupe identically and both run in
+  ~430 ms alone, but a window function in a CTE gave the optimizer a poor plan for the whole
+  statement (11–15 s against ~2 s).
 - `ConnectedDateTime` is **NULL on every non-Bound row** — the platform wipes it when a bind drops,
   so this table can never say *when* something went down. That is the whole reason `AlarmLog` is
   joined at all.
@@ -410,6 +424,14 @@ vendors, 1 had any alarm on record and 0 within the hour (measured 2026-09-02). 
 A dataset condition reads the **full stage snapshot** (`ConditionSchedulerService.runDatasetCycle`)
 and cannot express a time window of its own. With 48 hours in the table, a threshold on the daily
 figure would keep matching traffic from 47 hours ago. So the dataset carries the window as a column:
+
+Both count **messages** (`COUNT(*)` of EDR rows), not parts, so the report agrees with the aSMSC
+portal's traffic figure. `SUM(PartsSent)` — the convention the SMS Report and MT EDR use — disagrees
+exactly where this report matters most: a message rejected *before* transmission has `PartsSent = 0`,
+and that is what a dead bind produces. `Vrtelecom_HQ` read 3 in the portal and 0 here for that
+reason (3 rows, all `Rejected`, `SentDateTime` NULL). 417 of 5,532 rejections in the window carry
+zero parts, so counting parts would let a vendor taking visible attempts read zero and never trip
+the alert.
 
 - `traffic_volume` — the row's whole UTC date → what the **report** shows
 - `recent_traffic_volume` — the last **10 minutes**, recomputed every refresh → what the **alert** tests
