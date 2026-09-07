@@ -568,6 +568,14 @@ export const specialRoutesApi = {
   getData: () => api.get('/reports/special-routes-monitoring/data'),
 };
 
+// ── VENDOR BIND STATUS ────────────────────────────────────────
+// Whole 48h snapshot (~1.3k rows) in one payload — the page does all filtering, sorting, paging
+// and totalling client-side. NOTE: SnakeCaseInterceptor renames every response key, so read
+// snake_case (dataset_id, last_refreshed).
+export const vendorBindStatusApi = {
+  getData: () => api.get('/reports/vendor-bind-status/data'),
+};
+
 // ── COST CHANGES REPORT ───────────────────────────────────────
 export const costChangesApi = {
   // month = 'YYYY-MM' (omitted → current month); days = last-N-days quick range, wins over month.
