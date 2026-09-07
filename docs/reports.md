@@ -227,8 +227,16 @@ seeded for a fresh condition and never overridden afterwards. Thresholds are dat
 
 Is each MT vendor's SMPP bind up, and is traffic still being pushed at it? One row per
 (UTC date × vendor connection × customer connection × MCC-MNC) over the last **48 hours** —
-about 1.3k rows, query ~3s, **full-replace** every 10 minutes (`*/10 * * * *`). The SQL returns
-rows every cycle, so the 0-row guard never trips and none of the incremental machinery is needed.
+about 1.4k rows, query ~1s warm, **full-replace** every minute (`* * * * *`). The SQL returns rows
+every cycle, so the 0-row guard never trips and none of the incremental machinery is needed.
+
+**Refresh cadence and the recent-traffic window are separate knobs.** The refresh is per-minute;
+the window stays 10 minutes. Per-minute *sampling* is what makes a short outage visible at all —
+`status` is a live reading with no history, so a drop is only seen by a refresh that lands while the
+vendor is still down, and 24 of 52 disconnects measured over 48h lasted under 10 minutes. Safe at
+this rate because `SchedulerService` holds an `inFlight` map: a slow cycle skips the next tick
+rather than overlapping. The dataset's `schedule_cron` is code-owned and re-applied on boot (as in
+MT EDR and Special Routes), so edit `SCHEDULE_CRON` in the service, not Admin → Datasets.
 
 Three aSMSC facts are stitched together, and they are **not** interchangeable:
 
@@ -294,15 +302,31 @@ status                == disconnected
 recent_traffic_volume >  20
 ```
 
-It is self-limiting: once routing fails over, the 10-minute figure drops and the alert goes quiet
-without any cooldown clause. Note that dataset conditions have **no duplicate suppression** (that is
-python-only, `channel = 'script'`), so a sustained outage re-notifies every cycle until it is fixed
-or traffic drains.
+Run the condition on `* * * * *`, matching the refresh.
 
-**Cron offset matters.** The refresh and the condition are independent crons with no ordering
-guarantee, so a condition on `*/10` can read the snapshot the refresh has not yet replaced and
-evaluate a window that closed 10 minutes ago. Run the dataset on `*/10 * * * *` and the condition
-one minute later on `1-59/10 * * * *` (the convention Voice Smart Outliers already uses).
+**Why the window must stay at 10 minutes even though the refresh is per-minute.** Its length is
+what makes the two clauses true at the same instant. Once a bind dies the router fails over and
+traffic stops, so the only traffic a post-drop window can see is what flowed *before* the drop.
+Measured at the real disconnects, the 10-minute window read 96 / 20 / 14 parts where a 1-minute
+window read 4 / 0 / 1 — shrinking the window to match the refresh rate would leave the volume
+clause permanently false and silently disable the alert. Nor can the threshold simply be scaled
+down: over 1-minute buckets only 7.4% of vendor-minutes exceed 20 parts against 41.8% of 10-minute
+windows, and the equivalent threshold would be ~2, low enough for one multipart SMS to trip it.
+
+The window also **self-limits the notifications**, which matters because dataset conditions have
+**no duplicate suppression** (that is python-only, `channel = 'script'`): about 10 minutes after a
+drop the window drains, so a per-minute condition sends roughly 10 notifications for one outage and
+then stops, rather than every minute until someone fixes it. `traffic_volume` would be the wrong
+column for the alert for exactly that reason — it never decays, and it matches all 2–3 stored dates
+at once, where `recent_traffic_volume` is structurally zero on any date but the latest and so scopes
+the alert to today by itself.
+
+**Known limit.** A snapshot alert cannot see an outage shorter than its sampling interval. 19 of 52
+disconnects measured over 48h rebound in under a minute (one inside the same second), so those stay
+invisible even at per-minute sampling. Catching them needs the event log rather than the state —
+`AlarmLog` AlarmId=2 records every drop regardless of duration, which is what `disconnection_time`
+is already derived from; an alert on it would need a `minutes_since_disconnect` column, which the
+dataset does not currently carry.
 
 Two `AS`-level details worth keeping: `GETUTCDATE()` everywhere, never `GETDATE()` (the MSSQL server
 clock is not UTC — see [innovatio-traffic.md](innovatio-traffic.md)); and `getData()` emits `date`

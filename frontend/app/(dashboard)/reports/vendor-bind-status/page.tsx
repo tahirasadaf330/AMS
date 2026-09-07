@@ -379,7 +379,7 @@ export default function VendorBindStatusPage() {
 
   React.useEffect(() => { fetchData('initial'); }, [fetchData]);
 
-  // A dataset refresh (every 10 min) swaps the rows in underneath the mounted table.
+  // A dataset refresh (every minute) swaps the rows in underneath the mounted table.
   const onSocketRefresh = React.useCallback(() => fetchData('background'), [fetchData]);
   useDatasetSocket(datasetId, onSocketRefresh);
 
@@ -466,7 +466,7 @@ export default function VendorBindStatusPage() {
             <h1 style={{ fontWeight: 800, fontSize: 22, letterSpacing: '-.3px', color: 'var(--ink)', lineHeight: 1.1 }}>Vendor Bind Status</h1>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span className="win-pill">{IC.radio} aSMSC · last 48 hours</span>
+            <span className="win-pill">{IC.radio} aSMSC · last 48 hours · live</span>
             {lastRefreshed && (
               <div className="zdcard">
                 <div className="dlbl">{stale ? 'Last Updated · retrying' : 'Last Updated'}</div>

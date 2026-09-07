@@ -7,12 +7,22 @@ import { ExternalDataSource } from '../../common/entities/data-source.entity';
 const STAGE         = 'stage_vendor_bind_status';
 const DATASET_NAME  = 'Vendor Bind Status';
 const DATASOURCE    = 'ASMSC';
-const SCHEDULE_CRON = '*/10 * * * *'; // every 10 minutes, on the tens
+// Every minute. The REFRESH cadence and the recent-traffic WINDOW are separate knobs and must not
+// be conflated: the window stays 10 minutes (see below), only the sampling rate is per-minute.
+//
+// Why per-minute sampling: `status` is a live reading with no history, so a drop is only visible to
+// a refresh that lands while the vendor is still down. Measured over 48h, 24 of 52 disconnects
+// lasted under 10 minutes — a 10-minute cadence simply never observed those. At one minute a
+// 2-minute outage is caught by ~2 refreshes.
+//
+// Safe at this rate: the query runs ~1s warm (3.1s cold) and SchedulerService keeps an `inFlight`
+// map, so a slow cycle causes the next tick to be skipped rather than two refreshes overlapping.
+const SCHEDULE_CRON = '* * * * *';
 
 // Vendor Bind Status — is each MT vendor's SMPP bind up, and is traffic still being pushed at it?
 // Grain: one row per (UTC date × vendor connection × customer connection × MCC-MNC) over the last
-// 48 hours. ~1.3k rows, query ~3s, so the stage table is FULL-REPLACE (no incremental config) —
-// the SQL returns rows every cycle, so the engine's 0-row guard never trips.
+// 48 hours. ~1.4k rows, query ~1s warm, so the stage table is FULL-REPLACE (no incremental config)
+// — the SQL returns rows every cycle, so the engine's 0-row guard never trips.
 //
 // Three aSMSC facts are stitched together, and they are not interchangeable:
 //
@@ -37,9 +47,20 @@ const SCHEDULE_CRON = '*/10 * * * *'; // every 10 minutes, on the tens
 //       · recent_traffic_volume = the last 10 MINUTES      → what an alert should test
 //     The alert needs the short window because a dataset condition reads the FULL stage snapshot
 //     (ConditionSchedulerService.runDatasetCycle) and cannot express a time window itself: tested
-//     against traffic_volume it would keep matching traffic from 47 hours ago. Against the 10-min
-//     column it only fires while traffic is genuinely still hitting a dead bind, and goes quiet on
-//     its own once routing fails over.
+//     against traffic_volume it would keep matching traffic from 47 hours ago, and across all 2-3
+//     stored dates at once. recent_traffic_volume avoids both — it is structurally zero on every
+//     non-latest date (the last 10 minutes are always inside today), so it scopes the alert to
+//     today for free.
+//
+//     KEEP THE WINDOW AT 10 MINUTES even though the refresh is per-minute. The window's length is
+//     what makes the two alert clauses satisfiable at the same instant: once a bind dies the router
+//     fails over and traffic stops, so the only traffic a post-drop window can see is what flowed
+//     BEFORE the drop. Measured at the real disconnects, the 10-minute window read 96/20/14 parts
+//     where a 1-minute window read 4/0/1 — shrinking it to match the refresh rate would leave the
+//     volume clause permanently false and silently disable the alert.
+//     It also self-limits: ~10 minutes after a drop the window drains, so a per-minute condition
+//     sends ~10 notifications for one outage and then stops. That matters because dataset
+//     conditions have no duplicate suppression.
 //     noconn_volume counts parts that failed with SubmissionErrorCodeId 51 = SMPPCLIENT_NOCONN
 //     ("SMPP Client No Connection") — direct proof the platform pushed a message at a vendor with
 //     no live bind, and the one signal that also catches partial-bind loss.
@@ -125,7 +146,7 @@ const SEED_COLUMNS = [
   { key: 'bound_sessions',        label: 'Bound Sessions',       type: 'numeric',   description: "Number of the vendor's SMPP sessions currently in state 'Bound'." },
   { key: 'total_sessions',        label: 'Total Sessions',       type: 'numeric',   description: 'Total session rows the platform holds for this vendor connection; status compares this against bound_sessions.' },
   { key: 'traffic_volume',        label: 'Traffic Volume',       type: 'numeric',   description: "Message parts sent on this row's whole UTC date (SUM of MTEdr.PartsSent) — the REPORT figure. Do not alert on this: it includes traffic up to 48h old." },
-  { key: 'recent_traffic_volume', label: 'Recent Volume (10m)',  type: 'numeric',   description: 'Message parts sent in the LAST 10 MINUTES, recomputed at every refresh — the ALERT figure. Non-zero only on the current date. Use with status = disconnected.' },
+  { key: 'recent_traffic_volume', label: 'Recent Volume (10m)',  type: 'numeric',   description: 'Message parts sent in the LAST 10 MINUTES, recomputed on every refresh (the window is 10 minutes regardless of the per-minute refresh rate) — the ALERT figure. Structurally zero on any date but the latest, so it scopes an alert to today by itself. Use as: status = disconnected AND recent_traffic_volume > 20.' },
   { key: 'noconn_volume',         label: 'No-Connection Volume', type: 'numeric',   description: "Parts that failed with SubmissionErrorCodeId 51 = SMPPCLIENT_NOCONN ('SMPP Client No Connection') on this date — messages the platform pushed at a vendor with no live bind. Also catches partial-bind loss." },
   { key: 'disconnection_time',    label: 'Disconnection Time',   type: 'timestamp', description: 'Last vendor-disconnect alarm for this vendor (SMSCLog.AlarmLog, AlarmId=2) — the only disconnect timestamp aSMSC records. DISPLAY ONLY: it marks the transition, so a long-dead vendor has none. Never use it as an alert clause.' },
   { key: 'last_traffic_at',       label: 'Last Traffic At',      type: 'timestamp', description: 'Most recent message submit time on this row (UTC).' },
@@ -138,11 +159,13 @@ const SEED_COLUMNS = [
 
 const DESCRIPTION =
   'Vendor SMPP bind health against live traffic, from aSMSC — one row per UTC date × vendor ' +
-  'connection × customer connection × MCC-MNC over the last 48 hours, refreshed every 10 minutes. ' +
+  'connection × customer connection × MCC-MNC over the last 48 hours, refreshed every minute. ' +
   "Status is the vendor's current bind state across its sessions (connected / partial / " +
   'disconnected / http_no_bind); Disconnection Time comes from the OSS vendor-connectivity alarm ' +
   "(AlarmLog AlarmId=2) and is display-only. Two volumes: traffic_volume is the row's whole day " +
-  '(report), recent_traffic_volume is the last 10 minutes (alerts). Intended alert: ' +
+  '(report), recent_traffic_volume is the last 10 minutes (alerts) — the window stays 10 minutes ' +
+  'regardless of the refresh rate, because it is the pre-drop traffic it retains that makes the ' +
+  'alert satisfiable. Intended alert, on a per-minute condition: ' +
   'status = disconnected AND recent_traffic_volume > 20.';
 
 @Injectable()
@@ -178,17 +201,27 @@ export class VendorBindStatusService implements OnModuleInit {
       const nameChanged    = existing.name !== DATASET_NAME;
       const descChanged    = existing.description !== DESCRIPTION;
       const sectionChanged = existing.section !== 'sms';
-      // schedule_cron is deliberately NOT compared — an operator's schedule change in the UI must
-      // survive every deploy (docs/architecture-alerting.md). Only a fresh row gets SCHEDULE_CRON.
-      if (sqlChanged || metaChanged || nameChanged || descChanged || sectionChanged) {
+      // The dataset's schedule IS code-owned here, and re-applied on every boot — same as MT EDR
+      // Monitoring and Special Routes Monitoring. It has to be: the refresh cadence is load-bearing
+      // for the alert (a per-minute sample is what makes a short outage visible at all), so it
+      // cannot be left to drift per environment. The "operator's schedule survives a deploy" rule
+      // in docs/architecture-alerting.md is about an alert CONDITION's trigger_cron, which this
+      // module does not touch — it seeds no condition.
+      // Consequence: editing this dataset's schedule in Admin → Datasets is reverted on next boot.
+      // Change SCHEDULE_CRON here instead.
+      const cronChanged = existing.scheduleCron !== SCHEDULE_CRON;
+      if (sqlChanged || metaChanged || nameChanged || descChanged || sectionChanged || cronChanged) {
         await this.datasetRepo.update(existing.id, {
           name:           DATASET_NAME,
           description:    DESCRIPTION,
           sqlQuery:       SEED_SQL,
           columnMetadata: SEED_COLUMNS as any,
+          scheduleCron:   SCHEDULE_CRON,
           section:        'sms',
         });
-        this.logger.log('Updated Vendor Bind Status dataset name, description, SQL and column metadata');
+        this.logger.log(
+          `Updated Vendor Bind Status dataset (name, description, SQL, columns, schedule=${SCHEDULE_CRON})`,
+        );
       }
       return;
     }
