@@ -298,7 +298,7 @@ const MSG_TAB_META: Record<MsgStream, { title: string; note: string }> = {
     title: 'SS7 messages',
     note: 'Corrected SS7 messages (multipart reassembled) grouped by calling party — the SMSC global title the '
       + 'message arrived from, not the sender ID — sender ID, final firewall action and direction. Totals reconcile '
-      + 'with the Traffic Overview tab for the same window. The top 200 senders per hour are named; the long P2P '
+      + 'with the Traffic Overview tab for the same window. Senders with at least 10 messages in the hour are named; the long P2P '
       + 'tail (tens of thousands of handsets sending one or two messages) is folded into a single (other senders) '
       + 'row, so the Total stays exact.',
   },

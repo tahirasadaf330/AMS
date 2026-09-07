@@ -280,18 +280,28 @@ const CONTENT_COLUMNS: ColumnDef[] = [
 // for free and the tab totals reconcile with the Traffic Overview page. traffic_source_name is
 // stored RAW (e.g. Hayosms1) — the Hayo display label is applied in the service, never persisted.
 
-// Senders per hour kept on the SS7 grain, capped. Measured on the busiest hour of 2026-09-06
-// (517,416 messages): the grain without sender is 14 rows, WITH sender it is 49,590 — a 3,542x
-// explosion, ~8M stage rows over the 7-day retention, and the tab only ever renders its top 2000.
-// The tail is what makes it explode, not the volume: ~50 senders carry 78.3% of an hour and the
-// remaining ~49,470 are P2P handsets sending one or two messages each (top 100 = 78.5%,
-// top 500 = 79.6% — the curve is flat past 50).
+// Senders on the SS7 grain, split by a VOLUME THRESHOLD rather than a top-N rank.
 //
-// So the top SS7_SENDER_CAP rows per hour are kept by name and everything below is folded into a
-// single '(other senders)' row per (calling party, action, direction). Messages therefore still
-// SUM to the true hourly total — the Total row and the Traffic Overview tab keep reconciling —
-// while rows stay bounded at ~cap + a handful per hour.
-const SS7_SENDER_CAP = 200;
+// Measured on the busiest hour of 2026-09-06 (517,416 messages): the grain without sender is 14
+// rows, with sender_id it is 49,590 — the tail is ~49,470 P2P handsets sending one or two messages
+// each, while ~50 senders carry 78.3% of the hour.
+//
+// The first implementation ranked with ROW_NUMBER() OVER (PARTITION BY bucket_hour ...) and kept
+// the top 200. That is correct but ruinous to compute: a first load covers the whole 7-day
+// retention window, so the sort spanned ~8M groups and exhausted temp space on the SOURCE server
+// ("could not write to file base/pgsql_tmp/...: No space left on device"). The source is a shared
+// production log DB, so a report query must never be able to do that.
+//
+// A threshold needs no ordering at all — it is a cheap predicate on an already-computed count, so
+// the plan stays a hash aggregate with no spill-prone sort. Senders at or above
+// SS7_SENDER_MIN_MSGS messages in the hour are named; everything below folds into one
+// '(other senders)' row per (calling party, action, direction), so SUM(messages) still equals the
+// true hourly total and the Total row keeps reconciling with the Traffic Overview tab.
+//
+// 10 msgs/hour was chosen from the same hour: it names 977 senders covering 80.5% of traffic
+// (>=25 names only 46 for 78.3%, >=5 names 5,437 for 85.9%). It keeps every sender anyone would
+// investigate while dropping the one-message handset noise that caused the blow-up.
+const SS7_SENDER_MIN_MSGS = 10;
 
 const SS7_ACTIONS_SQL = `
 WITH g AS (
@@ -306,22 +316,17 @@ WITH g AS (
     FROM zamani.v_ss7_messages
     ${WINDOW}
     GROUP BY 1, 2, 3, 4, 5, 6
-), ranked AS (
-    -- sender_id as a tiebreaker keeps the cut deterministic across refreshes of the same hour,
-    -- so a re-pulled hour does not silently swap which senders are named.
-    SELECT g.*, ROW_NUMBER() OVER (PARTITION BY bucket_hour ORDER BY messages DESC, sender_id) AS rn
-    FROM g
 )
 SELECT ${TS('bucket_hour')} AS bucket_hour, business_date AS date,
        calling_party, final_action, direction, sender_id, messages
-  FROM ranked
- WHERE rn <= ${SS7_SENDER_CAP}
+  FROM g
+ WHERE messages >= ${SS7_SENDER_MIN_MSGS}
 UNION ALL
 SELECT ${TS('bucket_hour')} AS bucket_hour, business_date AS date,
        calling_party, final_action, direction, '(other senders)' AS sender_id,
        SUM(messages) AS messages
-  FROM ranked
- WHERE rn > ${SS7_SENDER_CAP}
+  FROM g
+ WHERE messages < ${SS7_SENDER_MIN_MSGS}
  GROUP BY bucket_hour, business_date, calling_party, final_action, direction
 `;
 
@@ -331,7 +336,7 @@ const SS7_ACTIONS_COLUMNS: ColumnDef[] = [
   { key: 'calling_party', label: 'Calling Party', type: 'text',      description: 'SMSC global title the message arrived from — the interconnect identity, never the message sender.' },
   { key: 'final_action',  label: 'Final Action',  type: 'text',      description: 'What the firewall ultimately did: send, lookup, modify, drop, negative_ack…' },
   { key: 'direction',     label: 'Direction',     type: 'text',      description: 'Traffic direction as logged (e.g. incoming / outgoing).' },
-  { key: 'sender_id',     label: 'Sender ID',     type: 'text',      description: 'Originator shown on the message — the real sender, unlike calling_party. Top 200 senders per hour are named; the long P2P tail is folded into a single (other senders) row so the hourly total stays exact.' },
+  { key: 'sender_id',     label: 'Sender ID',     type: 'text',      description: 'Originator shown on the message — the real sender, unlike calling_party. Senders with at least 10 messages in the hour are named; the long P2P tail folds into a single (other senders) row so the hourly total stays exact.' },
   { key: 'messages',      label: 'Messages',      type: 'numeric',   description: 'Corrected SS7 messages (multipart reassembled) for this combination in the hour.' },
 ];
 
