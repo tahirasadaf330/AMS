@@ -72,12 +72,36 @@ const SCHEDULE_CRON = '* * * * *';
 // docs/innovatio-traffic.md). Timestamps are emitted as ISO-8601 with an explicit 'Z' so
 // PostgreSQL stores a correct instant in the TIMESTAMPTZ columns.
 const SEED_SQL = `
-WITH bind AS (
+-- One row per LIVE bind slot. MtVendorSmppConnectionStatus is append-mostly and never prunes: a
+-- rebind writes a fresh row (new UniqueIdentifierId, a per-attempt GUID) and leaves the previous
+-- one behind, so the raw table holds superseded records. Measured 2026-09-07: 1170 rows for 1090
+-- real slots, 11 of 459 SMPP vendors affected, Link Mobility_DIR carrying 20 rows for 5 configured
+-- sessions × 2 IP hosts. Counting those raw rows reported a single stale 'Closed' record as a dead
+-- session and mislabelled 4 fully-bound vendors as 'partial' (Link Mobility_DIR, ANTwerp_HQ,
+-- RWANDA_MTN_SC, Zamani_Niger_SC), and inflated the session counts of 7 more.
+--
+-- A bind slot is (connection × SessionId × IpHost) — the platform opens SessionAllowed* sessions
+-- against EACH of the vendor's IP hosts, so slots = configured sessions × host count. The newest
+-- MtVendorSmppConnectionStatusId per slot is the current record; every older one is history.
+-- Picked by MAX(id) + PK join rather than ROW_NUMBER(): both dedupe identically and both run in
+-- ~430ms alone, but with a window function in a CTE the optimizer produced a poor plan for the
+-- whole statement (11-15s against ~1s). Aggregate-then-join keeps it at ~1s.
+WITH current_bind AS (
+    SELECT s.MtVendorConnectionSmppId, s.MtVendorConnectionHttpId,
+           s.ConnectionStatus, s.ConnectionMode
+    FROM SMSCPhoenix.dbo.MtVendorSmppConnectionStatus s WITH(NOLOCK)
+    JOIN (
+        SELECT MAX(MtVendorSmppConnectionStatusId) AS keep_id
+        FROM SMSCPhoenix.dbo.MtVendorSmppConnectionStatus WITH(NOLOCK)
+        GROUP BY MtVendorConnectionSmppId, MtVendorConnectionHttpId, SessionId, IpHost
+    ) newest ON newest.keep_id = s.MtVendorSmppConnectionStatusId
+),
+bind AS (
     SELECT COALESCE(cs.MtVendorConnectionId, ch.MtVendorConnectionId)        AS vid,
            SUM(CASE WHEN s.ConnectionStatus = 'Bound' THEN 1 ELSE 0 END)     AS bound_sessions,
            COUNT(*)                                                          AS total_sessions,
            MAX(CASE WHEN s.ConnectionMode = 'Http' THEN 1 ELSE 0 END)        AS is_http
-    FROM SMSCPhoenix.dbo.MtVendorSmppConnectionStatus s WITH(NOLOCK)
+    FROM current_bind s
     LEFT JOIN SMSCPhoenix.dbo.MtVendorConnectionSmpp cs WITH(NOLOCK)
         ON cs.MtVendorConnectionSmppId = s.MtVendorConnectionSmppId
     LEFT JOIN SMSCPhoenix.dbo.MtVendorConnectionHttp ch WITH(NOLOCK)
@@ -95,11 +119,18 @@ traffic AS (
            mt.MtVendorConnectionId                       AS vid,
            mt.CustomerConnectionId                       AS ccid,
            mt.MccMnc                                     AS mccmnc,
-           SUM(CAST(mt.PartsSent AS bigint))             AS traffic_volume,
+           -- MESSAGES, not parts. The aSMSC portal's traffic figure is a message count, and this
+           -- report has to agree with it. SUM(PartsSent) — the convention the SMS Report and MT EDR
+           -- use — disagrees exactly where this report matters most: a message rejected before
+           -- transmission has PartsSent = 0, and that is what a dead bind produces. Vrtelecom_HQ
+           -- showed 3 in the portal and 0 here for that reason (3 rows, all Rejected,
+           -- SentDateTime NULL). 417 of 5532 rejections in the window carry 0 parts, and counting
+           -- parts would let a vendor taking visible attempts read zero and never trip the alert.
+           COUNT(*)                                      AS traffic_volume,
            SUM(CASE WHEN mt.SubmitDateTime >= DATEADD(minute, -10, GETUTCDATE())
-                    THEN CAST(mt.PartsSent AS bigint) ELSE 0 END) AS recent_traffic_volume,
+                    THEN 1 ELSE 0 END)                   AS recent_traffic_volume,
            SUM(CASE WHEN mt.SubmissionErrorCodeId = 51
-                    THEN CAST(mt.PartsSent AS bigint) ELSE 0 END) AS noconn_volume,
+                    THEN 1 ELSE 0 END)                   AS noconn_volume,
            MAX(mt.SubmitDateTime)                        AS last_traffic_at
     FROM SMSCEdr.dbo.MTEdr mt WITH(NOLOCK)
     WHERE mt.SubmitDateTime >= DATEADD(hour, -48, GETUTCDATE())
@@ -143,11 +174,11 @@ const SEED_COLUMNS = [
   { key: 'vendor_name',           label: 'Vendor Name',          type: 'text',      description: 'MT vendor connection name (MtVendorConnection.Name) — the bind this row reports on.' },
   { key: 'vendor_company',        label: 'Vendor Company',       type: 'text',      description: 'Company that owns the vendor connection.' },
   { key: 'status',                label: 'Status',               type: 'text',      description: "Live bind state of the vendor, from its session rows: 'connected' (all sessions bound) | 'partial' (some bound) | 'disconnected' (none bound) | 'http_no_bind' (HTTP vendor — stateless, has no bind) | 'unknown' (no session row at all). Alert on 'disconnected'." },
-  { key: 'bound_sessions',        label: 'Bound Sessions',       type: 'numeric',   description: "Number of the vendor's SMPP sessions currently in state 'Bound'." },
-  { key: 'total_sessions',        label: 'Total Sessions',       type: 'numeric',   description: 'Total session rows the platform holds for this vendor connection; status compares this against bound_sessions.' },
-  { key: 'traffic_volume',        label: 'Traffic Volume',       type: 'numeric',   description: "Message parts sent on this row's whole UTC date (SUM of MTEdr.PartsSent) — the REPORT figure. Do not alert on this: it includes traffic up to 48h old." },
-  { key: 'recent_traffic_volume', label: 'Recent Volume (10m)',  type: 'numeric',   description: 'Message parts sent in the LAST 10 MINUTES, recomputed on every refresh (the window is 10 minutes regardless of the per-minute refresh rate) — the ALERT figure. Structurally zero on any date but the latest, so it scopes an alert to today by itself. Use as: status = disconnected AND recent_traffic_volume > 20.' },
-  { key: 'noconn_volume',         label: 'No-Connection Volume', type: 'numeric',   description: "Parts that failed with SubmissionErrorCodeId 51 = SMPPCLIENT_NOCONN ('SMPP Client No Connection') on this date — messages the platform pushed at a vendor with no live bind. Also catches partial-bind loss." },
+  { key: 'bound_sessions',        label: 'Bound Sessions',       type: 'numeric',   description: "Live bind slots currently in state 'Bound'. Counted from the newest status row per (connection × session × IP host) — the raw table keeps superseded rows, and counting those reported stale 'Closed' records as dead sessions." },
+  { key: 'total_sessions',        label: 'Total Sessions',       type: 'numeric',   description: 'Live bind slots the platform holds for this vendor connection = configured sessions (SessionAllowed*) × IP host count. Status compares this against bound_sessions.' },
+  { key: 'traffic_volume',        label: 'Traffic Volume',       type: 'numeric',   description: "MESSAGES routed to this vendor on this row's whole UTC date (COUNT of MTEdr rows), matching the aSMSC portal's traffic figure — attempts, so a rejected message still counts. Not parts: a message rejected before transmission has PartsSent = 0, which is exactly what a dead bind produces. The REPORT figure; do not alert on it, it spans all 2-3 stored dates." },
+  { key: 'recent_traffic_volume', label: 'Recent Volume (10m)',  type: 'numeric',   description: 'MESSAGES routed to this vendor in the LAST 10 MINUTES, recomputed on every refresh (the window stays 10 minutes regardless of the per-minute refresh rate) — the ALERT figure. Structurally zero on any date but the latest, so it scopes an alert to today by itself. Use as: status = disconnected AND recent_traffic_volume > 20.' },
+  { key: 'noconn_volume',         label: 'No-Connection Volume', type: 'numeric',   description: "Messages that failed with SubmissionErrorCodeId 51 = SMPPCLIENT_NOCONN ('SMPP Client No Connection') on this date — pushed at a vendor with no live bind. The one signal that also catches partial-bind loss." },
   { key: 'disconnection_time',    label: 'Disconnection Time',   type: 'timestamp', description: 'Last vendor-disconnect alarm for this vendor (SMSCLog.AlarmLog, AlarmId=2) — the only disconnect timestamp aSMSC records. DISPLAY ONLY: it marks the transition, so a long-dead vendor has none. Never use it as an alert clause.' },
   { key: 'last_traffic_at',       label: 'Last Traffic At',      type: 'timestamp', description: 'Most recent message submit time on this row (UTC).' },
   { key: 'customer_connection',   label: 'Customer Connection',  type: 'text',      description: 'Customer connection whose traffic was routed to this vendor (CustomerConnections.Name).' },
