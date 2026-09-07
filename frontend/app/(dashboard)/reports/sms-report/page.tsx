@@ -1907,7 +1907,10 @@ export default function SmsReportPage() {
                 </div>
                 {/* Block 2: date filters — Hour / Day / Month / Range mode + Year */}
                 <div style={{ display: 'flex', gap: 13, flexBasis: '100%', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                  <div className="zff"><label>Date Mode</label>
+                  {/* flex '0 0 auto': .zff caps at 200px and shrinks, but the four mode buttons are
+                      wider than that — left shrinkable, they overflow the box and the next field
+                      (Month/Day/Range inputs) renders on top of the Range button. */}
+                  <div className="zff" style={{ flex: '0 0 auto' }}><label>Date Mode</label>
                     <div style={{ display: 'flex', gap: 5 }}>
                       {(['hour', 'day', 'month', 'range'] as const).map(m => (
                         <button key={m} disabled={!!saleYear} onClick={() => {
