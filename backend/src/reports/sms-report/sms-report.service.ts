@@ -476,7 +476,25 @@ export class SmsReportService implements OnModuleInit {
     );
   }
 
+  /**
+   * The year-to-date aggregate only changes when the dataset refreshes (5-minute cron), but the UI asks
+   * for it on every page open. Since the hourly grain took the stage to ~4M rows the aggregate
+   * costs seconds, so results are cached per filter-combination and validated against
+   * MAX(refreshed_at): at most one expensive read per refresh cycle, everyone else gets the cache.
+   */
+  private readonly dataCache = new Map<string, { stamp: string; payload: any }>();
+
   async getData(startDate?: string, endDate?: string, accountManager?: string, company?: string): Promise<any> {
+    // Freshness stamp first — MAX over idx_refreshed is instant and it both validates the cache
+    // and serves the response's lastRefreshed/maxDate fields.
+    const [rr] = await this.dataSource.query<any[]>(
+      `SELECT MAX(refreshed_at) AS last_refreshed, MAX(date) AS max_date FROM ${STAGE}`,
+    ).catch(() => [{}] as any[]);
+    const stamp = rr?.last_refreshed ? new Date(rr.last_refreshed).toISOString() : 'none';
+    const cacheKey = JSON.stringify([startDate ?? '', endDate ?? '', accountManager ?? '', company ?? '']);
+    const hit = this.dataCache.get(cacheKey);
+    if (hit && hit.stamp === stamp) return hit.payload;
+
     const conditions: string[] = [];
     const params: any[]        = [];
 
@@ -506,39 +524,62 @@ export class SmsReportService implements OnModuleInit {
     if (startDate) { mgrParams.push(startDate); mgrConds.push(`date >= $${mgrParams.length}::date`); }
     if (endDate)   { mgrParams.push(endDate);   mgrConds.push(`date <= $${mgrParams.length}::date`); }
 
-    // GROUP BY in SQL to aggregate away sender_id and vendor_name — neither field
-    // is used in any frontend chart, filter, or dimension selector. This reduces
-    // result rows ~10-20x vs SELECT *, cutting network payload and browser JS work.
-    // All four queries run in parallel.
-    const [stageRows, summaryRows, managersRows, refreshRow] = await Promise.all([
-      this.dataSource.query<any[]>(`
-        SELECT
-          date,
-          customer_company,
-          customer_id,
-          customer_connection,
-          country,
-          operator,
-          mcc_mnc,
-          mcc,
-          mnc,
-          account_manager,
-          SUM(received_messages) AS received_messages,
-          SUM(successful_sent)   AS successful_sent,
-          SUM(failed)            AS failed,
-          SUM(delivered)         AS delivered,
-          SUM(expenses)          AS expenses,
-          SUM(income)            AS income,
-          SUM(profit)            AS profit,
-          CASE WHEN SUM(income) > 0
-            THEN ROUND(CAST((SUM(income) - SUM(expenses)) / SUM(income) * 100 AS NUMERIC), 2)
-            ELSE NULL
-          END AS margin_age
-        FROM ${STAGE} ${where}
-        GROUP BY date, customer_company, customer_id, customer_connection,
-                 country, operator, mcc_mnc, mcc, mnc, account_manager
-        ORDER BY date DESC, customer_company ASC
-      `, params).catch((err: Error) => { this.logger.error(`Failed to read ${STAGE}: ${err.message}`); return []; }),
+    // GROUP BY in SQL to aggregate away sender_id, vendor_name AND bucket_hour — none of these
+    // is used in any frontend chart, filter, or dimension selector (the Hour filter has its own
+    // bounded endpoint). This reduces result rows ~10-50x vs SELECT *, cutting network payload
+    // and browser JS work. All queries run in parallel.
+    //
+    // The aggregate runs with SET LOCAL work_mem and WITHOUT an ORDER BY, deliberately: at the
+    // hourly grain the stage is ~4M rows, and the default work_mem makes the planner sort the
+    // whole scan on disk (~600MB temp per run, ~10s and worse under refresh I/O). With headroom
+    // it hash-aggregates straight to the ~78k result rows — no temp files — and the cheap final
+    // ordering happens in Node instead.
+    const runAggregate = async (): Promise<any[]> => {
+      const qr = this.dataSource.createQueryRunner();
+      try {
+        await qr.connect();
+        await qr.startTransaction();
+        await qr.query(`SET LOCAL work_mem = '256MB'`);
+        const rows = await qr.query(`
+          SELECT
+            date,
+            customer_company,
+            customer_id,
+            customer_connection,
+            country,
+            operator,
+            mcc_mnc,
+            mcc,
+            mnc,
+            account_manager,
+            SUM(received_messages) AS received_messages,
+            SUM(successful_sent)   AS successful_sent,
+            SUM(failed)            AS failed,
+            SUM(delivered)         AS delivered,
+            SUM(expenses)          AS expenses,
+            SUM(income)            AS income,
+            SUM(profit)            AS profit,
+            CASE WHEN SUM(income) > 0
+              THEN ROUND(CAST((SUM(income) - SUM(expenses)) / SUM(income) * 100 AS NUMERIC), 2)
+              ELSE NULL
+            END AS margin_age
+          FROM ${STAGE} ${where}
+          GROUP BY date, customer_company, customer_id, customer_connection,
+                   country, operator, mcc_mnc, mcc, mnc, account_manager
+        `, params);
+        await qr.commitTransaction();
+        return rows as any[];
+      } catch (err) {
+        try { await qr.rollbackTransaction(); } catch { /* not started */ }
+        this.logger.error(`Failed to read ${STAGE}: ${(err as Error).message}`);
+        return [];
+      } finally {
+        await qr.release();
+      }
+    };
+
+    const [stageRows, summaryRows, managersRows] = await Promise.all([
+      runAggregate(),
 
       this.dataSource.query<any[]>(`
         SELECT
@@ -556,10 +597,6 @@ export class SmsReportService implements OnModuleInit {
         `SELECT DISTINCT account_manager FROM ${STAGE} WHERE ${mgrConds.join(' AND ')} ORDER BY account_manager`,
         mgrParams,
       ).catch(() => []),
-
-      this.dataSource.query<any[]>(
-        `SELECT MAX(refreshed_at) AS last_refreshed, MAX(date) AS max_date FROM ${STAGE}`,
-      ).catch(() => [{}]),
     ]);
 
     if ((stageRows as any[]).length === 0) {
@@ -589,14 +626,19 @@ export class SmsReportService implements OnModuleInit {
       account_manager:     r.account_manager ?? null,
     }));
 
-    const s   = (summaryRows as any[])[0] ?? {};
-    const rr  = (refreshRow as any[])[0]  ?? {};
+    // The SQL no longer orders (hash aggregation) — restore the contract's ordering here; 78k rows
+    // sort in well under 100ms.
+    rows.sort((a, b) =>
+      (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)
+      || String(a.customer_company ?? '').localeCompare(String(b.customer_company ?? '')));
 
-    return {
+    const s = (summaryRows as any[])[0] ?? {};
+
+    const payload = {
       datasetId:     this._datasetId,
       rows,
-      lastRefreshed: rr.last_refreshed ?? null,
-      maxDate:       rr.max_date ? toYMD(rr.max_date) : null,
+      lastRefreshed: rr?.last_refreshed ?? null,
+      maxDate:       rr?.max_date ? toYMD(rr.max_date) : null,
       managers:      (managersRows as any[]).map((r: any) => r.account_manager),
       summary: {
         totalRows:      Number(s.total_rows    ?? 0),
@@ -608,6 +650,12 @@ export class SmsReportService implements OnModuleInit {
         avgMarginPct:   Math.round(Number(s.avg_margin ?? 0) * 100) / 100,
       },
     };
+
+    // Bounded cache: the UI normally sends one filter combination (unfiltered year-to-date), but
+    // guard against key explosion from ad-hoc API use.
+    if (this.dataCache.size >= 8) this.dataCache.clear();
+    this.dataCache.set(cacheKey, { stamp, payload });
+    return payload;
   }
 
   /**
