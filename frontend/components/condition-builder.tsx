@@ -44,6 +44,28 @@ function getOperatorsForType(type: ColumnMeta['type']): typeof NUMERIC_OPERATORS
 
 const emptyRow: ConditionRow = { column: '', operator: '==', value: '' };
 
+// ── Condition groups ─────────────────────────────────────────────────────────
+// Rows are stored flat with a per-row `group` index. In the form they are edited as
+// groups: rows inside a group combine with the AND/OR logic operator, and the groups
+// are OR'd — a stage row alerts when ANY group matches. That is how one alert covers
+// (country == A AND city == A) OR (country == B AND city == B). Rows without a `group`
+// (every alert created before groups existed) load as a single group 0.
+function splitGroups(rows: ConditionRow[] | undefined): ConditionRow[][] {
+  if (!rows || rows.length === 0) return [[{ ...emptyRow }]];
+  const byGroup = new Map<number, ConditionRow[]>();
+  for (const row of rows) {
+    const g = Number.isInteger(row.group) ? (row.group as number) : 0;
+    const bucket = byGroup.get(g) ?? [];
+    bucket.push(row);
+    byGroup.set(g, bucket);
+  }
+  return Array.from(byGroup.entries()).sort(([a], [b]) => a - b).map(([, r]) => r);
+}
+
+function flattenGroups(groups: ConditionRow[][]): ConditionRow[] {
+  return groups.flatMap((rows, gi) => rows.map((r) => ({ ...r, group: gi })));
+}
+
 // Change columns (Voice Live Traffic) compare the latest refresh to the average
 // of the last 2. Spell that out in the dropdown so it's clear to anyone — this
 // is display-only; the stored column key and label are unchanged.
@@ -79,8 +101,8 @@ export function ConditionBuilder({
   const [pythonScript, setPythonScript] = React.useState(initialValues?.python_script ?? '');
   const [datasetId, setDatasetId] = React.useState(initialValues?.dataset_id ?? '');
   const [logic, setLogic] = React.useState<'AND' | 'OR'>(initialValues?.logic ?? 'AND');
-  const [rows, setRows] = React.useState<ConditionRow[]>(
-    initialValues?.condition_rows?.length ? initialValues.condition_rows : [{ ...emptyRow }]
+  const [groups, setGroups] = React.useState<ConditionRow[][]>(() =>
+    splitGroups(initialValues?.condition_rows)
   );
   const [channels, setChannels] = React.useState<ConditionChannels>(
     initialValues?.channels ?? {}
@@ -98,16 +120,18 @@ export function ConditionBuilder({
   // (and restore the "About the Change columns" info banner below).
   const selectableColumns = availableColumns.filter((c) => !c.key.endsWith('_change'));
 
-  const addRow = () => setRows((prev) => [...prev, { ...emptyRow }]);
+  const updateGroup = (gi: number, fn: (rows: ConditionRow[]) => ConditionRow[]) =>
+    setGroups((prev) => prev.map((g, i) => (i === gi ? fn(g) : g)));
 
-  const removeRow = (index: number) => {
-    setRows((prev) => prev.filter((_, i) => i !== index));
-  };
+  const addRow = (gi: number) => updateGroup(gi, (g) => [...g, { ...emptyRow }]);
 
-  const updateRow = (index: number, field: keyof ConditionRow, val: string) => {
-    setRows((prev) =>
-      prev.map((row, i) => {
-        if (i !== index) return row;
+  const removeRow = (gi: number, ri: number) =>
+    updateGroup(gi, (g) => g.filter((_, i) => i !== ri));
+
+  const updateRow = (gi: number, ri: number, field: keyof ConditionRow, val: string) => {
+    updateGroup(gi, (g) =>
+      g.map((row, i) => {
+        if (i !== ri) return row;
         if (field === 'column') {
           // Reset operator when column changes
           const col = availableColumns.find((c) => c.key === val);
@@ -120,14 +144,24 @@ export function ConditionBuilder({
     );
   };
 
+  // A new group starts with one blank row so the "OR" alternative is visible immediately.
+  const addGroup = () => setGroups((prev) => [...prev, [{ ...emptyRow }]]);
+
+  const removeGroup = (gi: number) =>
+    setGroups((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== gi) : prev));
+
+  const conditionRows = flattenGroups(groups);
+
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
     if (!name.trim()) errs.name = 'Name is required';
     if (conditionType === 'dataset') {
       if (!datasetId) errs.datasetId = 'Dataset is required';
-      rows.forEach((row, i) => {
-        if (!row.column) errs[`row_${i}_column`] = 'Select a column';
-        if (row.value === '') errs[`row_${i}_value`] = 'Enter a value';
+      groups.forEach((g, gi) => {
+        g.forEach((row, ri) => {
+          if (!row.column) errs[`row_${gi}_${ri}_column`] = 'Select a column';
+          if (row.value === '') errs[`row_${gi}_${ri}_value`] = 'Enter a value';
+        });
       });
     } else {
       if (!pythonScript.trim()) errs.pythonScript = 'Python script is required';
@@ -145,7 +179,7 @@ export function ConditionBuilder({
       python_script: conditionType === 'python' ? pythonScript : null,
       dataset_id: conditionType === 'dataset' ? datasetId : undefined,
       logic,
-      condition_rows: conditionType === 'dataset' ? rows : [],
+      condition_rows: conditionType === 'dataset' ? conditionRows : [],
       channels,
       trigger_cron: triggerCron,
       is_active: isActive,
@@ -242,73 +276,133 @@ export function ConditionBuilder({
               ))}
             </div>
             <p className="text-xs text-gray-500">
-              {logic === 'AND' ? 'All conditions must match' : 'Any condition can match'}
+              {logic === 'AND'
+                ? 'All conditions in a group must match'
+                : 'Any condition in a group can match'}
+              {groups.length > 1 && ' — a row alerts when any group matches'}
             </p>
           </div>
 
-          {/* Condition rows */}
+          {/* Condition groups — rows inside a group use the logic operator; groups are OR'd */}
           <div className="space-y-2">
             <Label>Conditions</Label>
-            {rows.map((row, index) => {
-              const col = availableColumns.find((c) => c.key === row.column);
-              const operators = getOperatorsForType(col?.type ?? 'text');
+            {groups.map((groupRows, gi) => (
+              <React.Fragment key={gi}>
+                {gi > 0 && (
+                  <div className="flex items-center gap-3 py-1">
+                    <div className="h-px flex-1 bg-gray-700" />
+                    <span className="text-xs font-semibold tracking-wide text-amber-400">OR</span>
+                    <div className="h-px flex-1 bg-gray-700" />
+                  </div>
+                )}
+                <div className="rounded-lg border border-gray-700 bg-gray-900/40 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-400">
+                      Group {gi + 1}
+                      {groupRows.length > 1 && (
+                        <span className="ml-2 text-gray-500">
+                          ({groupRows.length} conditions, {logic})
+                        </span>
+                      )}
+                    </span>
+                    {groups.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeGroup(gi)}
+                        className="h-7 text-red-400 hover:text-red-300"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Remove group
+                      </Button>
+                    )}
+                  </div>
 
-              return (
-                <div key={index} className="flex gap-2 items-start">
-                  <Select
-                    value={row.column}
-                    onChange={(e) => updateRow(index, 'column', e.target.value)}
-                    className="flex-1"
-                    error={errors[`row_${index}_column`]}
+                  {groupRows.map((row, ri) => {
+                    const col = availableColumns.find((c) => c.key === row.column);
+                    const operators = getOperatorsForType(col?.type ?? 'text');
+
+                    return (
+                      <div key={ri} className="flex gap-2 items-start">
+                        <Select
+                          value={row.column}
+                          onChange={(e) => updateRow(gi, ri, 'column', e.target.value)}
+                          className="flex-1"
+                          error={errors[`row_${gi}_${ri}_column`]}
+                        >
+                          <option value="">Select column</option>
+                          {selectableColumns.map((c) => (
+                            <option key={c.key} value={c.key}>
+                              {displayColumnLabel(c)}
+                            </option>
+                          ))}
+                        </Select>
+
+                        <Select
+                          value={row.operator}
+                          onChange={(e) => updateRow(gi, ri, 'operator', e.target.value)}
+                          className="w-36"
+                        >
+                          {operators.map((op) => (
+                            <option key={op.value} value={op.value}>
+                              {op.label}
+                            </option>
+                          ))}
+                        </Select>
+
+                        <Input
+                          value={String(row.value)}
+                          onChange={(e) => updateRow(gi, ri, 'value', e.target.value)}
+                          placeholder="Value"
+                          type={col?.type === 'numeric' ? 'number' : col?.type === 'date' ? 'date' : 'text'}
+                          className="flex-1"
+                          error={errors[`row_${gi}_${ri}_value`]}
+                        />
+
+                        {groupRows.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeRow(gi, ri)}
+                            className="text-red-400 hover:text-red-300 flex-shrink-0 mt-0"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => addRow(gi)}
+                    className="text-blue-400"
                   >
-                    <option value="">Select column</option>
-                    {selectableColumns.map((c) => (
-                      <option key={c.key} value={c.key}>
-                        {displayColumnLabel(c)}
-                      </option>
-                    ))}
-                  </Select>
-
-                  <Select
-                    value={row.operator}
-                    onChange={(e) => updateRow(index, 'operator', e.target.value)}
-                    className="w-36"
-                  >
-                    {operators.map((op) => (
-                      <option key={op.value} value={op.value}>
-                        {op.label}
-                      </option>
-                    ))}
-                  </Select>
-
-                  <Input
-                    value={String(row.value)}
-                    onChange={(e) => updateRow(index, 'value', e.target.value)}
-                    placeholder="Value"
-                    type={col?.type === 'numeric' ? 'number' : col?.type === 'date' ? 'date' : 'text'}
-                    className="flex-1"
-                    error={errors[`row_${index}_value`]}
-                  />
-
-                  {rows.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeRow(index)}
-                      className="text-red-400 hover:text-red-300 flex-shrink-0 mt-0"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
+                    <Plus className="h-4 w-4" />
+                    Add Condition Row
+                  </Button>
                 </div>
-              );
-            })}
+              </React.Fragment>
+            ))}
 
-            <Button type="button" variant="ghost" size="sm" onClick={addRow} className="text-blue-400">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={addGroup}
+              className="text-amber-400"
+            >
               <Plus className="h-4 w-4" />
-              Add Condition Row
+              Add another group (OR)
             </Button>
+            <p className="text-xs text-gray-500">
+              Use groups to alert on several pairs at once, e.g. group 1: country = A and city = A,
+              group 2: country = B and city = B. Rows matching either group are sent.
+            </p>
           </div>
         </>
       )}
@@ -393,7 +487,7 @@ export function ConditionBuilder({
                 python_script: null,
                 dataset_id: datasetId,
                 logic,
-                condition_rows: rows,
+                condition_rows: conditionRows,
                 channels,
                 trigger_cron: triggerCron,
                 is_active: isActive,

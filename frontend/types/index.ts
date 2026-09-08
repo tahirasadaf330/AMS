@@ -159,6 +159,8 @@ export interface ConditionRow {
   column: string;
   operator: ConditionOperator;
   value: string | number;
+  /** Condition-group index; groups are OR'd, rows inside a group use the alert's logic. */
+  group?: number;
 }
 
 export interface ConditionChannels {

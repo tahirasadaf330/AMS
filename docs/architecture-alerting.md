@@ -23,6 +23,26 @@ A condition is one alert. Two types:
 Every condition carries a `section` (`sms` / `voice`), which is what scopes alert visibility — a
 voice editor does not see SMS alerts.
 
+### Condition groups
+
+A dataset condition's rows (`condition_rows`, JSONB `[{ column, operator, value, group? }]`) are
+organised into **groups**. Inside a group the rows are combined with the condition's `logic`
+(AND / OR); the groups themselves are always OR'd, so a stage row alerts when **any** group
+matches. That is how one alert covers several pairs:
+
+```
+group 0: country == A  AND  city == A
+   OR
+group 1: country == B  AND  city == B
+```
+
+`group` is a per-row integer set by the Alerts UI ("Add another group (OR)"). Rows without it are
+group 0, so every alert created before groups existed is a single group and evaluates unchanged —
+no migration. Each group runs through the same path as a whole condition (including the Voice
+Live Traffic account+destination aggregate evaluation), then the results are unioned without
+duplicates and returned in stage order. `splitConditionGroups()` in
+`conditions/condition-groups.util.ts` is the single place that turns the flat list into groups.
+
 **Python conditions have a 5-minute executor timeout.** Any alert that recomputes a whole month in
 one pass (Supreme, Weekly Volume) starts failing late in the month with `exited with code null` as
 the recompute grows past the limit. The fix is a set-based per-day query with concurrency rather

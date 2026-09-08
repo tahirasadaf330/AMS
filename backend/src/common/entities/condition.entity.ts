@@ -14,6 +14,10 @@ export interface ConditionRow {
   column: string;
   operator: string;
   value: string | number;
+  // Condition-group index. Rows sharing a group are combined with the condition's `logic`;
+  // groups are OR'd together, so a row alerts when ANY group matches. Absent ⇒ group 0, which
+  // keeps every pre-existing flat alert evaluating exactly as before.
+  group?: number;
 }
 
 export interface ConditionChannels {

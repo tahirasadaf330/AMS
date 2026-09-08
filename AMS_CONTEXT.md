@@ -139,7 +139,7 @@ conditions (
   name VARCHAR(255),
   dataset_id UUID FK→datasets,
   logic VARCHAR(8) DEFAULT 'AND',  -- 'AND' | 'OR'
-  condition_rows JSONB,            -- [{ column, operator, value }]
+  condition_rows JSONB,            -- [{ column, operator, value, group? }] — group: OR'd condition groups (absent = 0)
   channels JSONB,                  -- { email: { enabled, recipients[] }, teams: { enabled, webhookUrl, severity } }
   -- cooldown_minutes INT DEFAULT 60 — column exists in DB but removed from entity (not used)
   is_active BOOLEAN DEFAULT true,

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Condition, ConditionRow } from '../common/entities/condition.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Dataset } from '../common/entities/dataset.entity';
+import { splitConditionGroups } from './condition-groups.util';
 
 // ── Voice Live Traffic: group-level (aggregate) evaluation ───────────────────
 // Voice conditions are evaluated at the (account, destination) GROUP level, not
@@ -63,7 +64,7 @@ export class ConditionEvaluatorService {
     dataset: Dataset,
     rows: Record<string, unknown>[],
   ): Promise<void> {
-    const matchedRows = this.filterRowsForStage(
+    const matchedRows = this.filterRowsForCondition(
       rows,
       condition.conditionRows || [],
       condition.logic,
@@ -83,6 +84,33 @@ export class ConditionEvaluatorService {
       matchedRows,
       columnMeta: Array.isArray(dataset.columnMetadata) ? (dataset.columnMetadata as any[]) : undefined,
     });
+  }
+
+  /**
+   * Top-level filter for one condition: evaluate each condition GROUP independently (with the
+   * condition's AND/OR logic inside the group, and the Voice group-aggregate path where it
+   * applies) and OR the groups together, so `(country == A AND city == A) OR (country == B AND
+   * city == B)` alerts on both pairs. A flat alert (no `group` on any row) is a single group and
+   * goes straight down the existing path. Matched rows keep the stage order and are never
+   * duplicated even when several groups match the same row.
+   */
+  private filterRowsForCondition(
+    rows: Record<string, unknown>[],
+    conditionRows: ConditionRow[],
+    logic: 'AND' | 'OR',
+    stageTableName?: string,
+  ): Record<string, unknown>[] {
+    const groups = splitConditionGroups(conditionRows);
+    if (groups.length <= 1) {
+      return this.filterRowsForStage(rows, conditionRows, logic, stageTableName);
+    }
+    const matched = new Set<Record<string, unknown>>();
+    for (const groupRows of groups) {
+      for (const r of this.filterRowsForStage(rows, groupRows, logic, stageTableName)) {
+        matched.add(r);
+      }
+    }
+    return rows.filter((r) => matched.has(r));
   }
 
   private filterRows(
@@ -250,7 +278,8 @@ export class ConditionEvaluatorService {
 
   /**
    * Preview which rows would match for a condition (no notifications dispatched).
-   * Pass `stageTableName` so Voice Live Traffic uses group-level evaluation.
+   * Pass `stageTableName` so Voice Live Traffic uses group-level evaluation. Condition groups
+   * are honoured exactly as in the scheduled run (see filterRowsForCondition).
    */
   previewCondition(
     conditionRows: ConditionRow[],
@@ -258,6 +287,6 @@ export class ConditionEvaluatorService {
     rows: Record<string, unknown>[],
     stageTableName?: string,
   ): Record<string, unknown>[] {
-    return this.filterRowsForStage(rows, conditionRows, logic, stageTableName);
+    return this.filterRowsForCondition(rows, conditionRows, logic, stageTableName);
   }
 }
